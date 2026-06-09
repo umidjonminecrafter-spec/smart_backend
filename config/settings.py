@@ -19,12 +19,12 @@ load_dotenv(BASE_DIR / '.env')
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key')
 DEBUG = True
 ALLOWED_HOSTS = [
-    "smart_backend.onrender.com",
+    "smart-backend-dtub.onrender.com",
     "localhost",
     "127.0.0.1",
 ]
 CSRF_TRUSTED_ORIGINS = [
-    "https://smart_backend.onrender.com",
+    "smart-backend-dtub.onrender.com",
 ]
 
 # Application definition

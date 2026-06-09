@@ -330,3 +330,52 @@ class OrganizationLoginView(APIView):
             }, status=status.HTTP_200_OK)
         else:
             return Response({"detail": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+from django.core.cache import cache
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .utils import send_sms, generate_verification_code  # utils.py dan yuklab olamiz
+
+
+@api_view(['POST'])
+def send_register_code(request):
+    """Foydalanuvchiga 6 xonali kod yuborish (Keshda saqlash)"""
+    phone_number = request.data.get('phone_number')
+
+    if not phone_number:
+        return Response({"error": "Telefon raqam shart"}, status=400)
+
+    code = generate_verification_code()
+    message = f"SmartTalim. Ro'yxatdan o'tish kodi: {code}"
+
+    success, sms_msg = send_sms(phone_number, message)
+
+    if success:
+        # Kodni keshda shu raqam ostida 5 daqiqaga saqlaymiz
+        cache.set(f"sms_code_{phone_number}", code, timeout=300)
+        return Response({"message": "Kod yuborildi! ✅"})
+    return Response({"error": f"SMS xatosi: {sms_msg}"}, status=500)
+
+
+@api_view(['POST'])
+def verify_register_code(request):
+    """Foydalanuvchi kiritgan kodni tekshirish"""
+    phone_number = request.data.get('phone_number')
+    user_code = request.data.get('code')
+
+    if not phone_number or not user_code:
+        return Response({"error": "Ma'lumotlar to'liq emas"}, status=400)
+
+    saved_code = cache.get(f"sms_code_{phone_number}")
+
+    if not saved_code:
+        return Response({"error": "Kod eskirgan yoki raqam noto'g'ri"}, status=400)
+
+    if str(saved_code) == str(user_code):
+        cache.delete(f"sms_code_{phone_number}")  # Kod to'g'ri bo'lsa keshni tozalaymiz
+
+        # 🚨 SHU YERDA: Foydalanuvchini ro'yxatdan o'tkazish (User.objects.create) kodini yozasiz
+
+        return Response({"message": "Telefon raqam tasdiqlandi! 🎉"})
+    return Response({"error": "Kod noto'g'ri! ❌"}, status=400)

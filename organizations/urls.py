@@ -4,6 +4,8 @@ from organizations.views import (
     OrganizationViewSet, BranchViewSet, TariffViewSet, SubscriptionViewSet, OrganizationLoginView
 )
 
+from smarttalim_backend.organizations.views import send_register_code, verify_register_code
+
 router = DefaultRouter()
 router.register(r'branches', BranchViewSet, basename='branch')
 router.register(r'subscriptions', SubscriptionViewSet, basename='subscription')
@@ -14,5 +16,7 @@ router.register(r'', OrganizationViewSet, basename='organization')
 urlpatterns = [
     path('login/', OrganizationLoginView.as_view(), name='organization-login'),
     path('billing/', include('billing.urls')),
+    path('sms/send/', send_register_code, name='send_sms_code'),
+    path('sms/verify/', verify_register_code, name='verify_sms_code'),
     path('', include(router.urls)),
 ]

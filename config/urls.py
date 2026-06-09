@@ -1,0 +1,39 @@
+"""
+URL configuration for config project.
+"""
+from django.contrib import admin
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+from accounts.views import CustomTokenObtainPairView, CustomTokenRefreshView
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    
+    # Global JWT Auth tokens (Custom views supporting phone mapping)
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    
+    # Versioned app endpoints
+    path('api/v1/accounts/', include('accounts.urls')),
+    path('api/v1/academics/', include('academics.urls')),
+    path('api/v1/finance/', include('finance.urls')),
+    
+    # CRM supports /api/v1/crm/ and /api/v1/crm/crm/
+    path('api/v1/crm/', include('crm.urls')),
+    path('api/v1/crm/crm/', include('crm.urls')),
+    
+    # Tasks supports /api/v1/tasks/ and /api/v1/tasks/tasks/
+    path('api/v1/tasks/', include('tasks.urls')),
+    path('api/v1/tasks/tasks/', include('tasks.urls')),
+    
+    path('api/v1/organizations/', include('organizations.urls')),
+    path('api/v1/audit/', include('audit.urls')),
+    path('api/v1/communication/', include('communication.urls')),
+    path('api/v1/billing/', include('billing.urls')),
+]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+

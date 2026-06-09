@@ -1,0 +1,381 @@
+from django.db import models
+from django.conf import settings
+from organizations.models import TenantModel
+
+class Course(TenantModel):
+    name = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    duration_weeks = models.IntegerField(default=12)
+    code = models.CharField(max_length=50, null=True, blank=True)
+    lesson_time = models.CharField(max_length=50, null=True, blank=True)
+    image = models.ImageField(upload_to='course_images/', null=True, blank=True)
+
+    def __str__(self):
+        return self.name
+
+class Room(TenantModel):
+    name = models.CharField(max_length=100)
+    capacity = models.IntegerField(default=30)
+
+    def __str__(self):
+        return self.name
+
+class Student(TenantModel):
+    first_name = models.CharField(max_length=150)
+    last_name = models.CharField(max_length=150, null=True, blank=True)
+    phone = models.CharField(max_length=50)
+    email = models.EmailField(null=True, blank=True)
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    photo = models.ImageField(upload_to='student_photos/', null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name}"
+
+class Group(TenantModel):
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('archived', 'Archived'),
+        ('upcoming', 'Upcoming'),
+    )
+    name = models.CharField(max_length=255)
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="groups")
+    room = models.ForeignKey(Room, on_delete=models.SET_NULL, null=True, blank=True, related_name="groups")
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="teaching_groups")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    day_type = models.CharField(max_length=50, null=True, blank=True)
+    start_time = models.TimeField(null=True, blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+
+    def __str__(self):
+        return self.name
+
+class StudentGroup(TenantModel):
+    # TO'G'RILANDI: on_delete=models.SET_NULL qilindi.
+    student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="student_groups")
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="group_students")
+    joined_at = models.DateTimeField(auto_now_add=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        # unique_together olib tashlandi, chunki student NULL bo'lganda bir nechta NULL yozuvlar tushsa xato beradi.
+        pass
+
+    def save(self, *args, **kwargs):
+        # Guruhdagi kursning joriy narxini muzlatib saqlaymiz (agar narx berilmagan bo'lsa)
+        if self.price is None and self.group and self.group.course:
+            self.price = self.group.course.price
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        student_name = self.student if self.student else "O'chirilgan Talaba"
+        return f"{student_name} in {self.group}"
+
+class GroupTeacher(TenantModel):
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="group_teachers")
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="teacher_groups")
+
+    class Meta:
+        unique_together = ('group', 'teacher')
+
+    def __str__(self):
+        return f"{self.teacher} for {self.group}"
+
+class TeacherSalaryPayment(TenantModel):
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="salary_payments")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    paid_at = models.DateTimeField(auto_now_add=True)
+    period = models.CharField(max_length=20) # e.g. "2026-05"
+
+    def __str__(self):
+        return f"{self.teacher} - {self.amount} for {self.period}"
+
+class Attendance(TenantModel):
+    STATUS_CHOICES = (
+        ('present', 'Present'),
+        ('absent', 'Absent'),
+        ('late', 'Late'),
+        ('excused', 'Excused'),
+    )
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="attendances")
+    # TO'G'RILANDI: on_delete=models.SET_NULL qilindi. Eski davomatlar o'chib ketmaydi.
+    student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="attendances")
+    date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='present')
+
+    class Meta:
+        # unique_together cheklovi olib tashlandi, chunki student NULL bo'lsa baza konflikt beradi.
+        pass
+
+    def __str__(self):
+        student_name = self.student if self.student else "O'chirilgan Talaba"
+        return f"{student_name} - {self.group} ({self.date}): {self.status}"
+
+class LessonSchedule(TenantModel):
+    DAY_TYPE_CHOICES = (
+        ('even', 'Even Days (Juft kunlar)'),
+        ('odd', 'Odd Days (Toq kunlar)'),
+    )
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="schedules")
+    room_name = models.CharField(max_length=255)
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="schedules")
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    day_type = models.CharField(max_length=10, choices=DAY_TYPE_CHOICES, default='even')
+
+    def __str__(self):
+        return f"{self.group} - {self.room_name} ({self.start_time}-{self.end_time})"
+
+    @classmethod
+    def _sync_group_start_time(cls, group_id, organization_id):
+        if not group_id:
+            return
+
+        next_start_time = (
+            cls.objects.filter(group_id=group_id, organization_id=organization_id)
+            .order_by('start_time', 'id')
+            .values_list('start_time', flat=True)
+            .first()
+        )
+        Group.objects.filter(id=group_id).update(start_time=next_start_time)
+
+    def save(self, *args, **kwargs):
+        previous_group_id = None
+        previous_organization_id = None
+        if self.pk:
+            previous = LessonSchedule.objects.filter(pk=self.pk).values('group_id', 'organization_id').first()
+            if previous:
+                previous_group_id = previous['group_id']
+                previous_organization_id = previous['organization_id']
+
+        super().save(*args, **kwargs)
+        self._sync_group_start_time(self.group_id, self.organization_id)
+        if previous_group_id and previous_group_id != self.group_id:
+            self._sync_group_start_time(previous_group_id, previous_organization_id)
+
+    def delete(self, *args, **kwargs):
+        group_id = self.group_id
+        organization_id = self.organization_id
+        super().delete(*args, **kwargs)
+        self._sync_group_start_time(group_id, organization_id)
+
+class BalanceHistory(TenantModel):
+    # TO'G'RILANDI: on_delete=models.SET_NULL qilindi. Moliyaviy loglar saqlanib qoladi!
+    student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="balance_histories")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    transaction_type = models.CharField(max_length=50) # deposit, withdrawal, etc.
+    date = models.DateField(auto_now_add=True)
+
+    def __str__(self):
+        student_name = self.student if self.student else "O'chirilgan Talaba"
+        return f"{student_name} - {self.amount} ({self.transaction_type})"
+
+class Exam(TenantModel):
+    name = models.CharField(max_length=255)
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="exams")
+    group = models.ForeignKey('academics.Group', on_delete=models.CASCADE, related_name="exams", null=True, blank=True)
+    date = models.DateField()
+    min_score = models.IntegerField(default=60)
+    max_score = models.IntegerField(default=100)
+
+    def __str__(self):
+        return self.name
+
+class ExamResult(TenantModel):
+    exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="results")
+    # TO'G'RILANDI: on_delete=models.SET_NULL qilindi.
+    student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="exam_results")
+    score = models.DecimalField(max_digits=5, decimal_places=2)
+
+    def __str__(self):
+        student_name = self.student if self.student else "O'chirilgan Talaba"
+        return f"{student_name} - {self.exam.name}: {self.score}"
+
+class LeaveReason(TenantModel):
+    reason = models.CharField(max_length=255)
+
+    def __str__(self):
+        return self.reason
+
+class LessonTime(TenantModel):
+    name = models.CharField(max_length=100)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+
+    def __str__(self):
+        return f"{self.name} ({self.start_time}-{self.end_time})"
+
+class OnlineLesson(TenantModel):
+    title = models.CharField(max_length=255)
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="online_lessons")
+    video_url = models.URLField()
+    is_published = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.title
+
+class StudentGroupLeave(TenantModel):
+    # TO'G'RILANDI: on_delete=models.SET_NULL qilindi.
+    student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="group_leaves")
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="student_leaves")
+    leave_reason = models.ForeignKey(LeaveReason, on_delete=models.SET_NULL, null=True, blank=True, related_name="student_leaves")
+    leave_date = models.DateField()
+    comment = models.TextField(null=True, blank=True)
+    refound_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    is_archived = models.BooleanField(default=False)
+    is_sent_to_leads = models.BooleanField(default=False)
+
+    def __str__(self):
+        student_name = self.student if self.student else "O'chirilgan Talaba"
+        return f"{student_name} left {self.group}"
+
+class StudentPricing(TenantModel):
+    # TO'G'RILANDI: on_delete=models.SET_NULL qilindi.
+    student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="pricings")
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="student_pricings")
+    custom_price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self):
+        student_name = self.student if self.student else "O'chirilgan Talaba"
+        return f"{student_name} - {self.course.name}: {self.custom_price}"
+
+class StudentArchive(TenantModel):
+    first_name = models.CharField(max_length=150)
+    last_name = models.CharField(max_length=150, null=True, blank=True)
+    phone = models.CharField(max_length=50)
+    email = models.EmailField(null=True, blank=True)
+    role = models.CharField(max_length=50, default="Student")
+    reason = models.CharField(max_length=255, null=True, blank=True)
+    comment = models.TextField(null=True, blank=True)
+    archived_by = models.CharField(max_length=255, null=True, blank=True)
+    date = models.DateField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name or ''} (Archived)"
+
+class Holiday(TenantModel):
+    name = models.CharField(max_length=255)
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    student_impact = models.BooleanField(default=False)
+    staff_impact = models.BooleanField(default=False)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.end_date and self.end_date < self.start_date:
+            raise ValidationError("End date cannot be earlier than start date.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
+class Homework(TenantModel):
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="homeworks")
+    title = models.CharField(max_length=255)
+    text = models.TextField(null=True, blank=True)
+    image = models.ImageField(upload_to='group_homeworks/images/', null=True, blank=True)
+    video = models.FileField(upload_to='group_homeworks/videos/', null=True, blank=True)
+    file = models.FileField(upload_to='group_homeworks/files/', null=True, blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="group_homeworks_created",
+    )
+
+    def __str__(self):
+        return f"{self.group.name} - {self.title}"
+
+# ================= O'QITUVCHI OYLIK TO'LOVI BO'YICHA KASSA SIGNALI =================
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
+
+@receiver(post_save, sender=TeacherSalaryPayment)
+@receiver(post_delete, sender=TeacherSalaryPayment)
+def teacher_salary_payment_cashbox_update(sender, instance, **kwargs):
+    from finance.models import update_cashbox_balance
+    update_cashbox_balance(instance.organization)
+
+
+@receiver(post_save, sender=Exam)
+def exam_internal_notification(sender, instance, created, **kwargs):
+    """
+    Yangi imtihon yaratilganda guruh o'qituvchilariga tizim ichida bildirishnoma yuboradi.
+    """
+    if created:
+        group = instance.group
+        course_name = instance.course.name if instance.course else "Kurs nomi noma'lum"
+
+        if group:
+            title = f"Yangi imtihon e'lon qilindi: {instance.name}"
+            message = (
+                f"Sizning '{group.name}' guruhingiz uchun '{course_name}' kursi bo'yicha imtihon belgilandi.\n"
+                f"Sana: {instance.date}\n"
+                f"O'tish bali: {instance.min_score} / Max ball: {instance.max_score}"
+            )
+
+            from communication.models import Notification
+
+            teachers_to_notify = []
+            if group.teacher:
+                teachers_to_notify.append(group.teacher)
+
+            additional_teachers = group.group_teachers.select_related('teacher').all()
+            for gt in additional_teachers:
+                if gt.teacher and gt.teacher not in teachers_to_notify:
+                    teachers_to_notify.append(gt.teacher)
+
+            for teacher in teachers_to_notify:
+                Notification.objects.create(
+                    organization=instance.organization,
+                    user=teacher,
+                    title=title,
+                    message=message,
+                    type='info',
+                    is_read=False
+                )
+
+
+@receiver(post_save, sender=Holiday)
+def holiday_internal_notification(sender, instance, created, **kwargs):
+    """
+    Yangi dam olish kuni (Bayram) e'lon qilinganda xodimlarga bildirishnoma yuboradi.
+    """
+    if created and instance.staff_impact:
+        end_date_str = f" dan {instance.end_date} gacha" if instance.end_date else " kuni"
+        title = f"Diqqat: Dam olish kuni — {instance.name}"
+        message = (
+            f"Hurmatli hamkasblar, tizimda yangi dam olish kuni e'lon qilindi.\n"
+            f"Bayram: {instance.name}\n"
+            f"Muddati: {instance.start_date}{end_date_str}.\n"
+            f"Shu munosabat bilan dars jadvallaringizni muvofiqlashtirishingizni so'raymiz."
+        )
+
+        from django.contrib.auth import get_user_model
+        from communication.models import Notification
+        User = get_user_model()
+
+        users = User.objects.filter(is_active=True, organization=instance.organization)
+
+        notifications_pool = []
+        for user in users:
+            notifications_pool.append(
+                Notification(
+                    organization=instance.organization,
+                    user=user,
+                    title=title,
+                    message=message,
+                    type='info',
+                    is_read=False
+                )
+            )
+
+        if notifications_pool:
+            Notification.objects.bulk_create(notifications_pool)

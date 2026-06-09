@@ -1,0 +1,572 @@
+from rest_framework import serializers
+from academics.models import (
+    Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
+    BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing, StudentArchive, Holiday, Homework
+)
+from accounts.serializers import UserSerializer
+
+class CourseSerializer(serializers.ModelSerializer):
+    remove_image = serializers.BooleanField(write_only=True, required=False, default=False)
+
+    class Meta:
+        model = Course
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
+
+        # 1. monthly_price -> price
+        if 'monthly_price' in data and 'price' not in data:
+            data['price'] = data['monthly_price']
+
+        # 2. comment -> description
+        if 'comment' in data and 'description' not in data:
+            data['description'] = data['comment']
+
+        # 3. lesson_month -> duration_weeks
+        if 'lesson_month' in data and 'duration_weeks' not in data:
+            months = int(data['lesson_month']) if data['lesson_month'] else 0
+            data['duration_weeks'] = months * 4
+
+        # 4. Auto-generate code if empty or not provided
+        if not data.get('code') and not data.get('courseCode'):
+            request = self.context.get('request')
+            org_id = None
+            if request:
+                org_id = request.query_params.get('org_id') or request.META.get('HTTP_X_ORG_ID')
+                if not org_id and request.user and request.user.is_authenticated:
+                    org_id = request.user.organization_id
+            
+            if org_id:
+                existing_codes = Course.objects.filter(organization_id=org_id).values_list('code', flat=True)
+                max_num = 0
+                for code_str in existing_codes:
+                    if code_str and code_str.isdigit():
+                        max_num = max(max_num, int(code_str))
+                data['code'] = str(max_num + 1)
+            else:
+                data['code'] = "1"
+        elif 'courseCode' in data and 'code' not in data:
+            data['code'] = data['courseCode']
+
+        return super().to_internal_value(data)
+
+    def create(self, validated_data):
+        validated_data.pop('remove_image', None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        remove_image = validated_data.pop('remove_image', False)
+        if remove_image and not validated_data.get('image'):
+            if instance.image:
+                instance.image.delete(save=False)
+            instance.image = None
+        return super().update(instance, validated_data)
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep['monthly_price'] = instance.price
+        rep['comment'] = instance.description
+        rep['code'] = instance.code
+        rep['lesson_time'] = instance.lesson_time
+        rep['lesson_month'] = int(instance.duration_weeks / 4) if instance.duration_weeks else 0
+        request = self.context.get('request')
+        if instance.image:
+            image_url = instance.image.url
+            rep['image_url'] = request.build_absolute_uri(image_url) if request else image_url
+            rep['image_name'] = instance.image.name.split('/')[-1]
+        else:
+            rep['image_url'] = None
+            rep['image_name'] = None
+        return rep
+
+class RoomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Room
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+class StudentSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False)
+
+    class Meta:
+        model = Student
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+    def validate(self, attrs):
+        # Yangi talaba yaratilayotganda parol bo'lishi shart
+        if not self.instance:
+            password = attrs.get('password')
+            if not password or not password.strip():
+                raise serializers.ValidationError({"password": "Yangi talaba uchun parol kiritilishi majburiy."})
+            if len(password) < 6:
+                raise serializers.ValidationError({"password": "Parol uzunligi kamida 6 ta belgidan iborat bo'lishi kerak."})
+        return attrs
+
+    def to_internal_value(self, data):
+        data = data.copy()
+        if 'full_name' in data and 'first_name' not in data:
+            name_parts = data['full_name'].strip().split(' ', 1)
+            data['first_name'] = name_parts[0]
+            data['last_name'] = name_parts[1] if len(name_parts) > 1 else ''
+        
+        for field in ['phone', 'phone_number', 'phone_number2', 'parent_phone']:
+            val = data.get(field)
+            if val:
+                clean_val = ''.join(c for c in str(val) if c.isdigit())
+                if clean_val:
+                    data[field] = '+' + clean_val
+                    
+        if 'phone_number' in data and 'phone' not in data:
+            data['phone'] = data['phone_number']
+        return super().to_internal_value(data)
+
+    def create(self, validated_data):
+        password = validated_data.pop('password', None)
+        phone = validated_data.get('phone')
+        
+        from accounts.models import User
+        if phone:
+            existing_user = User.objects.filter(username=phone).first()
+            if existing_user:
+                if existing_user.role == 'student':
+                    # If user exists but student does not, we can reuse it
+                    if Student.objects.filter(phone=phone).exists():
+                        raise serializers.ValidationError({"phone": "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."})
+                else:
+                    raise serializers.ValidationError({"phone": "Ushbu telefon raqamli foydalanuvchi tizimda allaqachon ro'yxatdan o'tgan."})
+                
+        student = super().create(validated_data)
+        
+        if phone:
+            existing_user = User.objects.filter(username=phone).first()
+            if existing_user:
+                # Reactivate and update existing user
+                existing_user.is_active = True
+                existing_user.first_name = student.first_name
+                existing_user.last_name = student.last_name or ''
+                existing_user.email = student.email or ''
+                existing_user.organization = student.organization
+                existing_user.branch = student.branch
+                if password:
+                    existing_user.set_password(password)
+                existing_user.save()
+            else:
+                # Create a new student user
+                User.objects.create_user(
+                    username=phone,
+                    password=password,
+                    email=student.email or '',
+                    first_name=student.first_name,
+                    last_name=student.last_name or '',
+                    phone=student.phone,
+                    role='student',
+                    organization=student.organization,
+                    branch=student.branch
+                )
+        return student
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        old_phone = instance.phone
+        student = super().update(instance, validated_data)
+        
+        from accounts.models import User
+        user = User.objects.filter(username=old_phone).first()
+        if user:
+            if student.phone:
+                user.username = student.phone
+                user.phone = student.phone
+            user.first_name = student.first_name
+            user.last_name = student.last_name or ''
+            user.email = student.email or ''
+            user.organization = student.organization
+            user.branch = student.branch
+            if password:
+                user.set_password(password)
+            user.save()
+        return student
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep['full_name'] = f"{instance.first_name} {instance.last_name}".strip()
+        
+        # Check hide_student_data setting for teachers
+        request = self.context.get('request')
+        phone = instance.phone
+        email = instance.email
+        if request and getattr(request.user, 'role', None) == 'teacher':
+            from organizations.models import Subscription
+            subscription = Subscription.objects.filter(
+                organization_id=instance.organization_id,
+                is_active=True
+            ).first()
+            if subscription and subscription.hide_student_data:
+                if len(phone) >= 4:
+                    phone = phone[:-4] + "****"
+                else:
+                    phone = "****"
+                email = "****"
+                
+        rep['phone_number'] = phone
+        rep['email'] = email
+        rep['groups'] = [{'id': sg.group.id, 'name': sg.group.name} for sg in instance.student_groups.select_related('group')]
+        return rep
+
+class GroupSerializer(serializers.ModelSerializer):
+    course_name = serializers.CharField(source='course.name', read_only=True)
+    room_name = serializers.CharField(source='room.name', read_only=True)
+    teacher_name = serializers.CharField(source='teacher.get_full_name', default='', read_only=True)
+    student_count = serializers.SerializerMethodField(read_only=True)
+    students_count = serializers.SerializerMethodField(read_only=True)
+    students = serializers.SerializerMethodField(read_only=True)
+    group_teachers = serializers.SerializerMethodField(read_only=True)
+    exam_dates = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Group
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+    def get_group_teachers(self, obj):
+        request = self.context.get('request')
+        if request and getattr(request.user, 'role', None) == 'student':
+            return []
+        from academics.serializers import GroupTeacherSerializer
+        return GroupTeacherSerializer(obj.group_teachers.all(), many=True).data
+
+    def get_student_count(self, obj):
+        return obj.group_students.count()
+
+    def get_students_count(self, obj):
+        return obj.group_students.count()
+
+    def get_students(self, obj):
+        request = self.context.get('request')
+        if request and getattr(request.user, 'role', None) == 'student':
+            return []
+        students_list = []
+        for sg in obj.group_students.select_related('student').all():
+            if sg.student:
+                students_list.append({
+                    'id': sg.student.id,
+                    'name': f"{sg.student.first_name} {sg.student.last_name or ''}".strip(),
+                    'phone': sg.student.phone
+                })
+        return students_list
+
+    def get_exam_dates(self, obj):
+        exams = []
+        for exam in obj.exams.all().order_by('date', 'id'):
+            exams.append({
+                'id': exam.id,
+                'title': exam.name,
+                'name': exam.name,
+                'exam_date': exam.date.isoformat() if exam.date else None,
+                'date': exam.date.isoformat() if exam.date else None,
+            })
+        return exams
+
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
+        
+        # Extract first item if teacher is sent as a list/array
+        teacher = data.get('teacher')
+        if isinstance(teacher, list):
+            data['teacher'] = teacher[0] if teacher else None
+            
+        return super().to_internal_value(data)
+
+class StudentGroupSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.__str__', read_only=True)
+    group_name = serializers.CharField(source='group.name', read_only=True)
+    course_name = serializers.CharField(source='group.course.name', read_only=True)
+    teacher = serializers.SerializerMethodField(read_only=True)
+    teacher_name = serializers.SerializerMethodField(read_only=True)
+    price = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = StudentGroup
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+    def get_price(self, obj):
+        from decimal import Decimal
+        from django.utils import timezone
+        import calendar
+        from academics.models import StudentPricing, Holiday
+        from django.db.models import Q
+
+        # Get base price
+        base_price = Decimal('0.00')
+        if obj.price is not None:
+            base_price = obj.price
+        elif obj.group and obj.group.course:
+            pricing = StudentPricing.objects.filter(student=obj.student, course=obj.group.course).first()
+            if pricing:
+                base_price = pricing.custom_price
+            else:
+                base_price = getattr(obj.group, 'price', None) or obj.group.course.price or Decimal('0.00')
+        elif obj.group:
+            base_price = getattr(obj.group, 'price', None) or Decimal('0.00')
+
+        # Check for holidays with student_impact=True in the current month
+        now = timezone.now().date()
+        _, last_day = calendar.monthrange(now.year, now.month)
+        month_start = now.replace(day=1)
+        month_end = now.replace(day=last_day)
+
+        holidays = Holiday.objects.filter(
+            organization_id=obj.organization_id,
+            student_impact=True,
+            start_date__lte=month_end,
+        )
+        holidays = holidays.filter(Q(end_date__gte=month_start) | Q(end_date__isnull=True))
+
+        holiday_dates = set()
+        for h in holidays:
+            start = max(h.start_date, month_start)
+            end = min(h.end_date or h.start_date, month_end)
+            curr = start
+            while curr <= end:
+                holiday_dates.add(curr)
+                curr += timezone.timedelta(days=1)
+
+        holiday_days = len(holiday_dates)
+        if holiday_days > 0 and last_day > 0:
+            discount_factor = Decimal(1) - (Decimal(holiday_days) / Decimal(last_day))
+            base_price = base_price * discount_factor
+
+        return round(base_price, 2)
+
+    def get_teacher(self, obj):
+        if obj.group and obj.group.teacher:
+            t = obj.group.teacher
+            parts = [t.first_name, t.last_name]
+            full_name = " ".join([p for p in parts if p]).strip()
+            return {
+                'id': t.id,
+                'username': t.username,
+                'full_name': full_name if full_name else t.username,
+                'name': full_name if full_name else t.username,
+            }
+        return None
+
+    def get_teacher_name(self, obj):
+        if obj.group and obj.group.teacher:
+            t = obj.group.teacher
+            parts = [t.first_name, t.last_name]
+            full_name = " ".join([p for p in parts if p]).strip()
+            return full_name if full_name else t.username
+        return None
+
+class GroupTeacherSerializer(serializers.ModelSerializer):
+    teacher_detail = UserSerializer(source='teacher', read_only=True)
+    group_name = serializers.CharField(source='group.name', read_only=True)
+
+    class Meta:
+        model = GroupTeacher
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        if instance.group:
+            group = instance.group
+            rep['group_name'] = group.name
+            rep['room_name'] = group.room.name if group.room else None
+            rep['course_name'] = group.course.name if group.course else None
+            
+            # Fetch students in the group
+            students_list = []
+            for sg in group.group_students.select_related('student').all():
+                if sg.student:
+                    students_list.append({
+                        'id': sg.student.id,
+                        'name': f"{sg.student.first_name} {sg.student.last_name or ''}".strip(),
+                        'phone': sg.student.phone
+                    })
+            rep['students'] = students_list
+            rep['students_count'] = len(students_list)
+        return rep
+
+class TeacherSalaryPaymentSerializer(serializers.ModelSerializer):
+    teacher_name = serializers.CharField(source='teacher.get_full_name', read_only=True)
+
+    class Meta:
+        model = TeacherSalaryPayment
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+class AttendanceSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.__str__', read_only=True)
+
+    class Meta:
+        model = Attendance
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        sg = StudentGroup.objects.filter(student_id=instance.student_id, group_id=instance.group_id).first()
+        rep['student_group'] = sg.id if sg else None
+        if instance.date:
+            rep['lesson_date'] = instance.date.isoformat() if hasattr(instance.date, 'isoformat') else str(instance.date)
+        else:
+            rep['lesson_date'] = None
+        rep['is_present'] = instance.status == 'present'
+        rep['is_excused'] = instance.status == 'excused'
+        rep['reason'] = "sababli" if instance.status == 'excused' else ""
+        return rep
+
+class LessonScheduleSerializer(serializers.ModelSerializer):
+    teacher_detail = UserSerializer(source='teacher', read_only=True)
+    teacher_name = serializers.CharField(source='teacher.get_full_name', read_only=True, default='')
+    group_name = serializers.CharField(source='group.name', read_only=True)
+    course_name = serializers.CharField(source='group.course.name', read_only=True, default='')
+
+    class Meta:
+        model = LessonSchedule
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+class StudentBalanceSerializer(serializers.ModelSerializer):
+    student = serializers.IntegerField(source='id')
+
+    class Meta:
+        model = Student
+        fields = ('student', 'balance')
+
+class BalanceHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BalanceHistory
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+class ExamSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Exam
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+    def to_internal_value(self, data):
+        data = data.copy()
+        if 'title' in data and 'name' not in data:
+            data['name'] = data['title']
+        if 'exam_date' in data and 'date' not in data:
+            data['date'] = data['exam_date']
+        
+        # Automatic course assignment using the group
+        if 'group' in data and 'course' not in data and data['group']:
+            from academics.models import Group
+            try:
+                group_obj = Group.objects.get(id=data['group'])
+                data['course'] = group_obj.course_id
+            except Group.DoesNotExist:
+                pass
+                
+        return super().to_internal_value(data)
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep['title'] = instance.name
+        rep['exam_date'] = instance.date
+        
+        if instance.group:
+            rep['group'] = {
+                'id': instance.group.id,
+                'name': instance.group.name
+            }
+        else:
+            rep['group'] = None
+            
+        return rep
+
+class ExamResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExamResult
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+class LeaveReasonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaveReason
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+class LessonTimeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LessonTime
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+class OnlineLessonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OnlineLesson
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+class StudentGroupLeaveSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentGroupLeave
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        if instance.student:
+            rep['student'] = {
+                'id': instance.student.id,
+                'full_name': f"{instance.student.first_name} {instance.student.last_name or ''}".strip(),
+                'phone_number': instance.student.phone
+            }
+        if instance.group:
+            rep['group'] = {
+                'id': instance.group.id,
+                'name': instance.group.name,
+                'course': {
+                    'id': instance.group.course.id if instance.group.course else None,
+                    'name': instance.group.course.name if instance.group.course else "Noma'lum"
+                } if instance.group.course else None,
+                'teacher': {
+                    'id': instance.group.teacher.id if instance.group.teacher else None,
+                    'full_name': instance.group.teacher.get_full_name() or instance.group.teacher.username if instance.group.teacher else "Noma'lum",
+                    'name': instance.group.teacher.first_name if instance.group.teacher else "Noma'lum"
+                } if instance.group.teacher else None
+            }
+        if instance.leave_reason:
+            rep['leave_reason'] = {
+                'id': instance.leave_reason.id,
+                'name': instance.leave_reason.reason
+            }
+        return rep
+
+class StudentPricingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentPricing
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+class StudentArchiveSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentArchive
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+class HolidaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Holiday
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+
+class HomeworkSerializer(serializers.ModelSerializer):
+    group_name = serializers.CharField(source='group.name', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True, default='')
+
+    class Meta:
+        model = Homework
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_by', 'created_at', 'updated_at')

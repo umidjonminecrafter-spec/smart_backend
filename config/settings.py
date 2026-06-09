@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,6 +19,7 @@ load_dotenv(BASE_DIR / '.env')
 # Quick-start development settings - unsuitable for production
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key')
 DEBUG = True
+
 ALLOWED_HOSTS = [
     "smart-backend-dtub.onrender.com",
     "localhost",
@@ -86,19 +88,24 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
-# Use SQLite for development since Postgres is not installed/running locally
+# Lokal kompyuterda SQLite ishlaydi, Render serverida esa avtomatik Neon PostgreSQL-ga ulanadi
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+if os.getenv('DATABASE_URL'):
+    DATABASES['default'] = dj_database_url.config(conn_max_age=600, ssl_require=True)
+
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Faqat developmentda True
 CORS_ALLOW_HEADERS = [
     'accept', 'accept-encoding', 'authorization', 'content-type',
     'dnt', 'origin', 'user-agent', 'x-csrftoken', 'x-requested-with',
     'x-org-id',
 ]
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -178,4 +185,3 @@ MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-

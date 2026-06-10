@@ -4,12 +4,12 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate, get_user_model
 
-from organizations.models import Organization, Branch, Tariff, Subscription, ExamSetting, ReceiptSetting, BackupSetting, TelegramNotificationSetting
+from organizations.models import Organization, Branch, Tariff, Subscription, ExamSetting, ReceiptSetting, BackupSetting, TelegramNotificationSetting, LessonNotificationTemplate
 from organizations.mixins import TenantViewSetMixin
 from organizations.permissions import HasOrganizationPagePermission
 from organizations.serializers import (
     OrganizationSerializer, BranchSerializer, TariffSerializer, SubscriptionSerializer, ExamSettingSerializer, ReceiptSettingSerializer, BackupSettingSerializer,
-    TelegramNotificationSettingSerializer
+    TelegramNotificationSettingSerializer, LessonNotificationTemplateSerializer
 )
 from organizations.backup import run_backup_for_setting
 from accounts.serializers import UserSerializer
@@ -238,9 +238,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @decorators.action(detail=True, methods=['put', 'patch', 'delete'],
+    @decorators.action(detail=False, methods=['put', 'patch', 'delete'],
                        url_path='lesson-templates/(?P<template_id>[^/.]+)')
-    def lesson_template_detail(self, request, pk=None, template_id=None):
+    def lesson_template_detail(self, request, template_id=None):
         user = request.user
         if not user.is_authenticated or not getattr(user, 'organization', None):
             return Response({"detail": "Tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)

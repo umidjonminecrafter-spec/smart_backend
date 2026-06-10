@@ -19,6 +19,7 @@ except Exception as e:
 
 
 try:
+    import sys
     from apscheduler.schedulers.background import BackgroundScheduler
     from academics.tasks import check_and_send_lesson_reminders  # Yangi ochgan faylimizni chaqiramiz
 

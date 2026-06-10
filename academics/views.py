@@ -12,7 +12,9 @@ from academics.models import (
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing, StudentArchive, Holiday, Homework
 )
 from organizations.mixins import TenantViewSetMixin
-from organizations.permissions import IsAdminOrOwnerOrReadOnly, IsGroupAssignedTeacherForAttendance
+from organizations.permissions import (
+    IsAdminOrOwnerOrReadOnly, IsGroupAssignedTeacherForAttendance, IsGroupAssignedTeacherOrAdminOwnerForExam
+)
 from academics.serializers import (
     CourseSerializer, RoomSerializer, StudentSerializer, GroupSerializer,
     StudentGroupSerializer, GroupTeacherSerializer, TeacherSalaryPaymentSerializer, AttendanceSerializer,
@@ -720,20 +722,55 @@ class BalanceHistoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     serializer_class = BalanceHistorySerializer
 
 class ExamViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
+    permission_classes = [permissions.IsAuthenticated, IsGroupAssignedTeacherOrAdminOwnerForExam]
     permission_page_name = 'Imtihon'
     queryset = Exam.objects.all()
     serializer_class = ExamSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['group', 'course', 'date']
 
     @decorators.action(detail=False, methods=['post'], url_path='grading')
     def grading(self, request):
-        return Response({"status": "success", "detail": "Grading processed."}, status=status.HTTP_200_OK)
+        exam_id = request.data.get('exam') or request.data.get('exam_id')
+        results = request.data.get('results')
+        
+        if not exam_id or not results:
+            return Response({"detail": "Imtihon va talaba baholari (results) kiritilishi shart."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        org_id = self.get_organization_id()
+        if not org_id:
+            return Response({"detail": "Tashkilot aniqlanmadi."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            exam = Exam.objects.get(id=exam_id, organization_id=org_id)
+        except Exam.DoesNotExist:
+            return Response({"detail": "Imtihon topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+            
+        created_results = []
+        for r in results:
+            student_id = r.get('student') or r.get('student_id')
+            score = r.get('score')
+            if student_id is None or score is None:
+                continue
+                
+            exam_result, created = ExamResult.objects.update_or_create(
+                organization_id=org_id,
+                exam=exam,
+                student_id=student_id,
+                defaults={'score': score}
+            )
+            created_results.append(exam_result)
+            
+        serializer = ExamResultSerializer(created_results, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 class ExamResultViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
+    permission_classes = [permissions.IsAuthenticated, IsGroupAssignedTeacherOrAdminOwnerForExam]
     permission_page_name = 'Imtihon'
     queryset = ExamResult.objects.all()
     serializer_class = ExamResultSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['exam', 'student']
 
 class LeaveReasonViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]

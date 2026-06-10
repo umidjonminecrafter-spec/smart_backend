@@ -256,3 +256,82 @@ class IsGroupAssignedTeacherForAttendance(permissions.BasePermission):
         group = obj.group
         is_assigned = (group.teacher == request.user) or GroupTeacher.objects.filter(group=group, teacher=request.user).exists()
         return is_assigned
+
+
+class IsGroupAssignedTeacherOrAdminOwnerForExam(permissions.BasePermission):
+    """
+    Allows read access to all authenticated users, but restricts write operations (create/edit/delete)
+    to the group's assigned teacher, admin, owner, or superuser.
+    """
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+            
+        if request.user.is_superuser:
+            return True
+
+        role = getattr(request.user, 'role', None)
+        if role in ['admin', 'owner']:
+            return True
+
+        # Check if teacher role
+        position = getattr(request.user, 'position', '') or ''
+        pos = position.lower()
+        is_teacher = (role == 'teacher') or ('teacher' in pos or "o'qituvchi" in pos or "oʻqituvchi" in pos or "o’qituvchi" in pos)
+
+        if not is_teacher:
+            return False
+
+        # If it's a POST request to create an Exam or ExamResult, check group/exam assignment
+        if request.method == 'POST':
+            group_id = request.data.get('group') or request.data.get('group_id')
+            exam_id = request.data.get('exam') or request.data.get('exam_id')
+            
+            from academics.models import Group, Exam
+            if not group_id and exam_id:
+                try:
+                    exam = Exam.objects.get(id=exam_id)
+                    group_id = exam.group_id
+                except Exam.DoesNotExist:
+                    pass
+
+            if not group_id:
+                return True
+
+            try:
+                group = Group.objects.get(id=group_id)
+            except Group.DoesNotExist:
+                return False
+
+            from academics.models import GroupTeacher
+            is_assigned = (group.teacher == request.user) or GroupTeacher.objects.filter(group=group, teacher=request.user).exists()
+            return is_assigned
+
+        return True
+
+    def has_object_permission(self, request, view, obj):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        if request.user.is_superuser:
+            return True
+
+        role = getattr(request.user, 'role', None)
+        if role in ['admin', 'owner']:
+            return True
+
+        from academics.models import Exam, ExamResult, GroupTeacher
+        group = None
+        if isinstance(obj, Exam):
+            group = obj.group
+        elif isinstance(obj, ExamResult):
+            group = obj.exam.group
+
+        if not group:
+            return False
+
+        is_assigned = (group.teacher == request.user) or GroupTeacher.objects.filter(group=group, teacher=request.user).exists()
+        return is_assigned

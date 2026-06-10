@@ -4,7 +4,7 @@ from organizations.views import (
     OrganizationViewSet, BranchViewSet, TariffViewSet, SubscriptionViewSet, OrganizationLoginView
 )
 
-from smarttalim_backend.organizations.views import send_register_code, verify_register_code
+from organizations.views import send_register_code, verify_register_code
 
 router = DefaultRouter()
 router.register(r'branches', BranchViewSet, basename='branch')

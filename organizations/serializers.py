@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from organizations.models import Organization, Branch, Tariff, Subscription, ExamSetting, ReceiptSetting, BackupSetting, TelegramNotificationSetting
+from organizations.models import Organization, Branch, Tariff, Subscription, ExamSetting, ReceiptSetting, BackupSetting, TelegramNotificationSetting,LessonNotificationTemplate
 
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -67,6 +67,10 @@ class TelegramNotificationSettingSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
-
+class LessonNotificationTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LessonNotificationTemplate
+        fields = '__all__'
+        read_only_fields = ('organization',)
 
 

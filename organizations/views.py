@@ -218,6 +218,49 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         serializer = TelegramNotificationSettingSerializer(setting)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @decorators.action(detail=False, methods=['get', 'post'], url_path='lesson-templates')
+    def lesson_templates(self, request):
+        user = request.user
+        if not user.is_authenticated or not getattr(user, 'organization', None):
+            return Response({"detail": "Tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
+
+        organization = user.organization
+
+        if request.method == 'GET':
+            templates = LessonNotificationTemplate.objects.filter(organization=organization)
+            serializer = LessonNotificationTemplateSerializer(templates, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        if request.method == 'POST':
+            serializer = LessonNotificationTemplateSerializer(data=request.data)
+            if serializer.is_valid():
+                serializer.save(organization=organization)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @decorators.action(detail=True, methods=['put', 'patch', 'delete'],
+                       url_path='lesson-templates/(?P<template_id>[^/.]+)')
+    def lesson_template_detail(self, request, pk=None, template_id=None):
+        user = request.user
+        if not user.is_authenticated or not getattr(user, 'organization', None):
+            return Response({"detail": "Tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            template = LessonNotificationTemplate.objects.get(id=template_id, organization=user.organization)
+        except LessonNotificationTemplate.DoesNotExist:
+            return Response({"detail": "Shablon topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.method in ['PUT', 'PATCH']:
+            serializer = LessonNotificationTemplateSerializer(template, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        if request.method == 'DELETE':
+            template.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
     @decorators.action(detail=False, methods=['post'], url_path='telegram-test')
     def telegram_test(self, request):
         user = request.user

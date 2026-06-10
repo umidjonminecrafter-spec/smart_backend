@@ -233,5 +233,21 @@ class ExamSetting(models.Model):
         return f"Exam settings for {self.organization.name}"
 
 
+class LessonNotificationTemplate(TenantModel):
+    TEMPLATE_TYPES = [
+        ('before', 'Dars boshlanishidan oldin'),
+        ('during', 'Dars davomida'),
+        ('after', 'Dars tugagandan keyin'),
+    ]
+    name = models.CharField(max_length=255)
+    template_type = models.CharField(max_length=20, choices=TEMPLATE_TYPES)
+    delay_minutes = models.IntegerField(default=5)
+    message_text = models.TextField()
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.name} - {self.organization.name}"
+
+
 
 

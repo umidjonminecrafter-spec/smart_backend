@@ -2,6 +2,9 @@ from django.db import models
 from django.conf import settings
 from organizations.models import TenantModel
 
+from organizations.models import Organization
+
+
 class Course(TenantModel):
     name = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
@@ -51,6 +54,40 @@ class Student(TenantModel):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name or ''}"
+
+
+class StudentFieldSetting(TenantModel):
+
+    FIELD_CHOICES = [
+        ("last_name", "Familiya"),
+        ("email", "Elektron pochta"),
+        ("photo", "Rasm"),
+        ("category", "Kategoriya"),
+        ("birth_date", "Tug'ilgan sana"),
+        ("application", "So'rovnoma"),
+        ("language", "Til"),
+        ("payment_date", "To'lov sanasi"),
+        ("address", "Uy manzili"),
+        ("target_university", "Maqsad qilgan universitet"),
+        ("organization", "Tashkilot"),
+        ("father_name", "Otasining ismi"),
+        ("father_phone", "Otasining telefon raqami"),
+        ("father_email", "Otasining elektron pochtasi"),
+        ("mother_name", "Onasining ismi"),
+        ("mother_phone", "Onasining telefon raqami"),
+        ("mother_email", "Onasining elektron pochtasi"),
+    ]
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="student_field_settings"
+    )
+
+    field_name = models.CharField(
+        max_length=100,
+        choices=FIELD_CHOICES
+    )
+    is_required = models.BooleanField(default=False)
 
 class Group(TenantModel):
     STATUS_CHOICES = (

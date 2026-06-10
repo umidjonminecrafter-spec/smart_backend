@@ -96,13 +96,65 @@ class StudentSerializer(serializers.ModelSerializer):
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
     def validate(self, attrs):
-        # Yangi talaba yaratilayotganda parol bo'lishi shart
+        errors = {}
+
+        # CREATE paytida password majburiy
         if not self.instance:
             password = attrs.get('password')
-            if not password or not password.strip():
-                raise serializers.ValidationError({"password": "Yangi talaba uchun parol kiritilishi majburiy."})
-            if len(password) < 6:
-                raise serializers.ValidationError({"password": "Parol uzunligi kamida 6 ta belgidan iborat bo'lishi kerak."})
+
+            if not password or not str(password).strip():
+                errors["password"] = (
+                    "Yangi talaba uchun parol kiritilishi majburiy."
+                )
+            elif len(password) < 6:
+                errors["password"] = (
+                    "Parol uzunligi kamida 6 ta belgidan iborat bo'lishi kerak."
+                )
+
+        # CREATE va UPDATE uchun qiymatlarni olish
+        first_name = attrs.get(
+            "first_name",
+            self.instance.first_name if self.instance else None
+        )
+
+        phone = attrs.get(
+            "phone",
+            self.instance.phone if self.instance else None
+        )
+
+        # Har doim majburiy maydonlar
+        if not first_name:
+            errors["first_name"] = "Bu maydon majburiy."
+
+        if not phone:
+            errors["phone"] = "Bu maydon majburiy."
+
+        # Dinamik required field lar
+        request = self.context.get("request")
+
+        if request and hasattr(request.user, "organization"):
+            from organizations.models import StudentFieldSetting
+
+            required_fields = StudentFieldSetting.objects.filter(
+                organization=request.user.organization,
+                is_required=True
+            )
+
+            for setting in required_fields:
+                field_name = setting.field_name
+
+                value = attrs.get(
+                    field_name,
+                    getattr(self.instance, field_name, None)
+                    if self.instance else None
+                )
+
+                if value in [None, "", [], {}]:
+                    errors[field_name] = "Bu maydon majburiy."
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
         return attrs
 
     def to_internal_value(self, data):

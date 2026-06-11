@@ -16,7 +16,7 @@ try:
         print("Superuser muvaffaqiyatli yaratildi! ✅")
 except Exception as e:
     print(f"Superuser yaratishda xatolik: {e}")
-
+# hello0
 
 try:
     import sys

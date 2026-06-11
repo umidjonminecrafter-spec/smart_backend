@@ -12,7 +12,6 @@ try:
 
     User = get_user_model()
 
-    # Bazada 'admin' foydalanuvchisi bor-yo'qligini tekshiradi
     if not User.objects.filter(username='admin').exists():
         User.objects.create_superuser('admin', 'admin@example.com', 'parol12345')
         print("🚀 Superuser muvaffaqiyatli yaratildi!")
@@ -20,7 +19,7 @@ try:
         print("✅ Superuser allaqachon bazada bor, qayta yaratilmadi.")
 except Exception as e:
     print(f"⚠️ Superuser yaratishda xatolik yuz berdi: {e}")
-# hello0
+# kshjdfbshdxmfbvxc
 
 try:
     import sys

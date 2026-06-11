@@ -72,10 +72,12 @@ class Student(TenantModel):
     father_name = models.CharField(max_length=255, null=True, blank=True)
     father_phone = models.CharField(max_length=50, null=True, blank=True)
     father_email = models.EmailField(null=True, blank=True)
+    father_telegram_chat_id = models.CharField(max_length=100, null=True, blank=True, verbose_name="Otasining Telegram Chat IDsi")
 
     mother_name = models.CharField(max_length=255, null=True, blank=True)
     mother_phone = models.CharField(max_length=50, null=True, blank=True)
     mother_email = models.EmailField(null=True, blank=True)
+    mother_telegram_chat_id = models.CharField(max_length=100, null=True, blank=True, verbose_name="Onasining Telegram Chat IDsi")
 
 
 class StudentFieldSetting(TenantModel):
@@ -501,10 +503,20 @@ def notify_parent_attendance(sender, instance, created, **kwargs):
     if not student:
         return
 
-    # Ota yoki onaning telefon raqamini aniqlaymiz
-    parent_phone = student.father_phone or student.mother_phone
-    if not parent_phone:
-        return # Raqam bo'lmasa xabar ketmaydi
+    # Ota-onaning Telegram chat ID'larini yig'amiz
+    parent_chats = []
+    if student.father_telegram_chat_id:
+        parent_chats.append(student.father_telegram_chat_id)
+    if student.mother_telegram_chat_id:
+        parent_chats.append(student.mother_telegram_chat_id)
+
+    if not parent_chats:
+        return
+
+    from organizations.models import TelegramNotificationSetting
+    setting = TelegramNotificationSetting.objects.filter(organization=student.organization).first()
+    if not setting or not setting.parent_bot_token:
+        return
 
     # Davomat statusiga qarab xabar tayyorlaymiz
     if instance.status == 'present':
@@ -513,8 +525,35 @@ def notify_parent_attendance(sender, instance, created, **kwargs):
         status_text = "darsga kelmadi! ❌"
     elif instance.status == 'late':
         status_text = "darsga kechikib keldi. ⚠️"
+    elif instance.status == 'excused':
+        status_text = "darsga sababli kelmadi. 📁"
     else:
         return
 
-    # Bot dasturchisi uchun ma'lumot tayyor (Kelajakda buni Telegram bot API ga ulab yuborish mumkin)
-    print(f"XABAR OTA-ONAGA ({parent_phone}): Farzandingiz {student.first_name} bugun {status_text}")
+    # Shablonni qidiramiz
+    shablon = BotMessageTemplate.objects.filter(
+        organization=student.organization, template_type='parent_check_in', is_active=True
+    ).first()
+
+    default_text = "Hurmatli ota-ona, farzandingiz {first_name} bugun {status_text}"
+    shablon_text = shablon.text if shablon else default_text
+
+    # O'zgaruvchilarni almashtiramiz
+    tayyor_matn = shablon_text.replace("{first_name}", student.first_name)
+    tayyor_matn = tayyor_matn.replace("{last_name}", student.last_name or "")
+    tayyor_matn = tayyor_matn.replace("{group_name}", instance.group.name if instance.group else "")
+    tayyor_matn = tayyor_matn.replace("{status_text}", status_text)
+
+    # Telegram bot orqali jo'natish
+    import requests
+    for chat_id in parent_chats:
+        try:
+            url = f"https://api.telegram.org/bot{setting.parent_bot_token}/sendMessage"
+            payload = {
+                'chat_id': chat_id,
+                'text': tayyor_matn,
+                'parse_mode': 'HTML'
+            }
+            requests.post(url, json=payload, timeout=5)
+        except Exception as e:
+            print(f"Error sending attendance notification to parent {chat_id}: {str(e)}")

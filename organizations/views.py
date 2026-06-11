@@ -4,17 +4,20 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate, get_user_model
 
-from organizations.models import Organization, Branch, Tariff, Subscription, ExamSetting, ReceiptSetting, BackupSetting, TelegramNotificationSetting, LessonNotificationTemplate
+from organizations.models import Organization, Branch, Tariff, Subscription, ExamSetting, ReceiptSetting, BackupSetting, \
+    TelegramNotificationSetting, LessonNotificationTemplate
 from organizations.mixins import TenantViewSetMixin
 from organizations.permissions import HasOrganizationPagePermission
 from organizations.serializers import (
-    OrganizationSerializer, BranchSerializer, TariffSerializer, SubscriptionSerializer, ExamSettingSerializer, ReceiptSettingSerializer, BackupSettingSerializer,
+    OrganizationSerializer, BranchSerializer, TariffSerializer, SubscriptionSerializer, ExamSettingSerializer,
+    ReceiptSettingSerializer, BackupSettingSerializer,
     TelegramNotificationSettingSerializer, LessonNotificationTemplateSerializer
 )
 from organizations.backup import run_backup_for_setting
 from accounts.serializers import UserSerializer
 
 User = get_user_model()
+
 
 class OrganizationViewSet(viewsets.ModelViewSet):
     queryset = Organization.objects.all()
@@ -58,8 +61,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def organization_general_settings(self, request):
         user = request.user
         if not user.is_authenticated or not getattr(user, 'organization', None):
-            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         organization = user.organization
         if request.method in ['PUT', 'PATCH']:
             # Support parsing multipart form data (like logo files)
@@ -68,7 +72,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 serializer.save()
                 return Response(serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            
+
         serializer = OrganizationSerializer(organization)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -76,7 +80,8 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def exam_settings(self, request):
         user = request.user
         if not user.is_authenticated or not getattr(user, 'organization', None):
-            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         organization = user.organization
         setting, created = ExamSetting.objects.get_or_create(organization=organization)
@@ -95,11 +100,12 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def receipt_settings(self, request):
         user = request.user
         if not user.is_authenticated or not getattr(user, 'organization', None):
-            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         organization = user.organization
         setting, created = ReceiptSetting.objects.get_or_create(organization=organization)
-        
+
         if request.method == 'PUT':
             # Handle multipart/form-data with file uploads
             serializer = ReceiptSettingSerializer(setting, data=request.data, partial=True)
@@ -107,7 +113,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 serializer.save()
                 return Response(serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            
+
         serializer = ReceiptSettingSerializer(setting)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -115,18 +121,19 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def backup_settings(self, request):
         user = request.user
         if not user.is_authenticated or not getattr(user, 'organization', None):
-            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         organization = user.organization
         setting, created = BackupSetting.objects.get_or_create(organization=organization)
-        
+
         if request.method == 'PUT':
             serializer = BackupSettingSerializer(setting, data=request.data, partial=True)
             if serializer.is_valid():
                 serializer.save()
                 return Response(serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            
+
         serializer = BackupSettingSerializer(setting)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -134,25 +141,28 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def backup_now(self, request):
         user = request.user
         if not user.is_authenticated or not getattr(user, 'organization', None):
-            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         organization = user.organization
         setting, created = BackupSetting.objects.get_or_create(organization=organization)
-        
+
         success, message = run_backup_for_setting(setting)
         if success:
             return Response({"detail": "Zaxira nusxasi muvaffaqiyatli yuborildi! ✅"}, status=status.HTTP_200_OK)
         else:
-            return Response({"detail": f"Zaxiralashda xatolik yuz berdi: {message}"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": f"Zaxiralashda xatolik yuz berdi: {message}"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
     @decorators.action(detail=False, methods=['get'], url_path='backup-download')
     def backup_download(self, request):
         user = request.user
         if not user.is_authenticated or not getattr(user, 'organization', None):
-            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         organization = user.organization
-        
+
         from django.apps import apps
         from django.core import serializers
         from django.http import HttpResponse
@@ -160,7 +170,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         import datetime
         import zipfile
         import io
-        
+
         # 1. Gather tenant data
         backup_data = []
         for model in apps.get_models():
@@ -174,47 +184,51 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                         backup_data.extend(serialized_list)
                 except Exception as e:
                     print(f"Error serializing model {model.__name__} in manual download: {str(e)}")
-                    
+
         if not backup_data:
-            return Response({"detail": "Zaxiralash uchun hech qanday ma'lumot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Zaxiralash uchun hech qanday ma'lumot topilmadi."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         # 2. Build filenames
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        org_name_clean = "".join(c for c in organization.name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+        org_name_clean = "".join(c for c in organization.name if c.isalnum() or c in (' ', '_', '-')).strip().replace(
+            ' ', '_')
         json_filename = f"backup_{org_name_clean}_{timestamp}.json"
         zip_filename = f"backup_{org_name_clean}_{timestamp}.zip"
-        
+
         try:
             # 3. Create ZIP in memory
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                 json_data = json.dumps(backup_data, ensure_ascii=False, indent=2)
                 zip_file.writestr(json_filename, json_data)
-                
+
             # 4. Stream response
             zip_buffer.seek(0)
             response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
             response['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
             return response
         except Exception as e:
-            return Response({"detail": f"Zaxira faylini yaratishda xatolik: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"detail": f"Zaxira faylini yaratishda xatolik: {str(e)}"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @decorators.action(detail=False, methods=['get', 'put'], url_path='telegram-settings')
     def telegram_settings(self, request):
         user = request.user
         if not user.is_authenticated or not getattr(user, 'organization', None):
-            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         organization = user.organization
         setting, created = TelegramNotificationSetting.objects.get_or_create(organization=organization)
-        
+
         if request.method == 'PUT':
             serializer = TelegramNotificationSettingSerializer(setting, data=request.data, partial=True)
             if serializer.is_valid():
                 serializer.save()
                 return Response(serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            
+
         serializer = TelegramNotificationSettingSerializer(setting)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -265,19 +279,22 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def telegram_test(self, request):
         user = request.user
         if not user.is_authenticated or not getattr(user, 'organization', None):
-            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Foydalanuvchiga tegishli tashkilot topilmadi."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         organization = user.organization
         setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
         if not setting or not setting.bot_token or not setting.chat_ids:
-            return Response({"detail": "Telegram bot sozlamalari to'liq emas. Bot token va Chat ID kiritilganligini tekshiring."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response(
+                {"detail": "Telegram bot sozlamalari to'liq emas. Bot token va Chat ID kiritilganligini tekshiring."},
+                status=status.HTTP_400_BAD_REQUEST)
+
         import urllib.request
         import json
         text = f"<b>SmartTalim Test Xabarnomasi</b> 🔔\n\nTashkilot: <i>{organization.name}</i>\nBot orqali avtomatik moliya xabarnomalari tizimi muvaffaqiyatli sozlandi! ✅"
-        
+
         chat_ids_list = [cid.strip() for cid in setting.chat_ids.replace(',', ' ').split() if cid.strip()]
-        
+
         errors = []
         for chat_id in chat_ids_list:
             try:
@@ -298,13 +315,12 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                     res.read()
             except Exception as e:
                 errors.append(f"Chat ID {chat_id}: {str(e)}")
-                
+
         if errors:
-            return Response({"detail": f"Test xabarini yuborishda xatolik yuz berdi: {'; '.join(errors)}"}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": f"Test xabarini yuborishda xatolik yuz berdi: {'; '.join(errors)}"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         return Response({"detail": "Test xabari muvaffaqiyatli yuborildi! 🚀"}, status=status.HTTP_200_OK)
-
-
 
 
 class BranchViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
@@ -323,11 +339,13 @@ class BranchViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             user.branch = branch
             user.save()
 
+
 class TariffViewSet(viewsets.ModelViewSet):
     permission_classes = (permissions.IsAuthenticated, HasOrganizationPagePermission)
     permission_page_name = 'Sozlamalar'
     queryset = Tariff.objects.all()
     serializer_class = TariffSerializer
+
 
 class SubscriptionViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Sozlamalar'
@@ -338,7 +356,7 @@ class SubscriptionViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         if not org_id:
             return Response([])
-            
+
         subscription, created = Subscription.objects.get_or_create(
             organization_id=org_id,
             defaults={
@@ -350,6 +368,7 @@ class SubscriptionViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(subscription)
         return Response([serializer.data])
 
+
 class OrganizationLoginView(APIView):
     """
     Login endpoint specifically under organizations, returns token and user info if authenticated.
@@ -357,14 +376,31 @@ class OrganizationLoginView(APIView):
     permission_classes = (permissions.AllowAny,)
 
     def post(self, request, *args, **kwargs):
-        username = request.data.get('username')
+        username = request.data.get('username') or request.data.get('phone')
         password = request.data.get('password')
-        
-        user = authenticate(username=username, password=password)
+
+        # Telefon raqamni normallashtiramiz (+998XXXXXXXXX va 998XXXXXXXXX formatlari uchun)
+        cleaned = ''.join(c for c in str(username) if c.isdigit())
+        user = None
+        if cleaned:
+            if len(cleaned) == 9:
+                cleaned = '998' + cleaned
+
+            # 1-urinish: '+' belgi bilan (masalan, +998XXXXXXXXX)
+            formatted_phone = '+' + cleaned
+            user = authenticate(username=formatted_phone, password=password)
+            if user is None:
+                # 2-urinish: '+' belgisiz (masalan, 998XXXXXXXXX)
+                user = authenticate(username=cleaned, password=password)
+
+        # Agar telefon raqam ko'rinishida bo'lmasa, oddiy username bilan urinib ko'ramiz
+        if user is None:
+            user = authenticate(username=username, password=password)
+
         if user is not None:
             if not user.is_active:
                 return Response({"detail": "User account is disabled."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
             refresh = RefreshToken.for_user(user)
             return Response({
                 'refresh': str(refresh),
@@ -372,7 +408,7 @@ class OrganizationLoginView(APIView):
                 'user': UserSerializer(user).data
             }, status=status.HTTP_200_OK)
         else:
-            return Response({"detail": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Telefon raqam yoki parol noto'g'ri."}, status=status.HTTP_400_BAD_REQUEST)
 
 
 from django.core.cache import cache

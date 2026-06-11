@@ -2,6 +2,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from organizations.models import Organization
 
+
 class User(AbstractUser):
     ROLE_CHOICES = (
         ('owner', 'Owner'),
@@ -12,7 +13,7 @@ class User(AbstractUser):
         ('employee', 'Employee'),
         ('student', 'Student'),
     )
-    
+
     organization = models.ForeignKey(
         Organization,
         on_delete=models.CASCADE,
@@ -33,6 +34,7 @@ class User(AbstractUser):
     birth_date = models.DateField(null=True, blank=True)
     gender = models.CharField(max_length=10, null=True, blank=True)
     photo = models.ImageField(upload_to='user_photos/', null=True, blank=True)
+    telegram_chat_id = models.CharField(max_length=100, null=True, blank=True, verbose_name="Telegram Chat ID")
 
     def __str__(self):
         return f"{self.username} ({self.role})"

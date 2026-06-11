@@ -2,12 +2,14 @@ from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
 from decimal import Decimal, ROUND_HALF_UP
 
+
 class BaseModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         abstract = True
+
 
 class Organization(BaseModel):
     name = models.CharField(max_length=255)
@@ -18,9 +20,10 @@ class Organization(BaseModel):
     def __str__(self):
         return self.name
 
+
 class TenantModel(BaseModel):
     organization = models.ForeignKey(
-        Organization, 
+        Organization,
         on_delete=models.CASCADE,
         related_name="%(class)ss"
     )
@@ -35,6 +38,7 @@ class TenantModel(BaseModel):
     class Meta:
         abstract = True
 
+
 class Branch(TenantModel):
     name = models.CharField(max_length=255)
     address = models.TextField(null=True, blank=True)
@@ -42,6 +46,7 @@ class Branch(TenantModel):
 
     def __str__(self):
         return f"{self.name} ({self.organization.name})"
+
 
 class Tariff(BaseModel):
     name = models.CharField(max_length=100)
@@ -76,6 +81,7 @@ class Tariff(BaseModel):
     def __str__(self):
         return f"{self.name} ({self.months} months)"
 
+
 class Subscription(TenantModel):
     tariff = models.ForeignKey(Tariff, on_delete=models.SET_NULL, null=True, blank=True)
     start_date = models.DateField()
@@ -109,18 +115,18 @@ class Subscription(TenantModel):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        
+
         # If active and has tariff, auto-create BillingHistory & TariffPurchase if not exists
         if self.is_active and self.tariff:
             from billing.models import TariffPurchase, BillingHistory
-            
+
             # Check if TariffPurchase already exists for this active subscription period
             purchase_exists = TariffPurchase.objects.filter(
                 organization=self.organization,
                 tariff=self.tariff,
                 start_date=self.start_date
             ).exists()
-            
+
             if not purchase_exists:
                 TariffPurchase.objects.create(
                     organization=self.organization,
@@ -130,21 +136,22 @@ class Subscription(TenantModel):
                     next_charge_date=self.end_date,
                     is_active=True
                 )
-                
+
             # Check if BillingHistory already exists
             history_exists = BillingHistory.objects.filter(
                 organization=self.organization,
                 plan_name=self.tariff.name,
                 amount=self.tariff.final_price
             ).exists()
-            
+
             if not history_exists:
                 months = self.tariff.months
                 if self.end_date and self.start_date:
-                    diff_months = (self.end_date.year - self.start_date.year) * 12 + self.end_date.month - self.start_date.month
+                    diff_months = (
+                                              self.end_date.year - self.start_date.year) * 12 + self.end_date.month - self.start_date.month
                     if diff_months > 0:
                         months = diff_months
-                
+
                 BillingHistory.objects.create(
                     organization=self.organization,
                     amount=self.tariff.final_price,
@@ -152,9 +159,10 @@ class Subscription(TenantModel):
                     months=months
                 )
 
+
 class ReceiptSetting(models.Model):
     organization = models.OneToOneField(
-        Organization, 
+        Organization,
         on_delete=models.CASCADE,
         related_name="receipt_setting"
     )
@@ -174,19 +182,19 @@ class ReceiptSetting(models.Model):
 
 class BackupSetting(BaseModel):
     organization = models.OneToOneField(
-        Organization, 
+        Organization,
         on_delete=models.CASCADE,
         related_name="backup_setting"
     )
     bot_token = models.CharField(max_length=255, null=True, blank=True)
     chat_id = models.CharField(max_length=100, null=True, blank=True)
-    
+
     api_id = models.CharField(max_length=100, null=True, blank=True)
     api_hash = models.CharField(max_length=255, null=True, blank=True)
     session_string = models.TextField(null=True, blank=True)
-    
+
     interval_hours = models.IntegerField(
-        choices=[(6, '6 Hours'), (12, '12 Hours'), (24, '24 Hours')], 
+        choices=[(6, '6 Hours'), (12, '12 Hours'), (24, '24 Hours')],
         default=24
     )
     is_active = models.BooleanField(default=False)
@@ -198,27 +206,79 @@ class BackupSetting(BaseModel):
 
 class TelegramNotificationSetting(BaseModel):
     organization = models.OneToOneField(
-        Organization, 
+        Organization,
         on_delete=models.CASCADE,
         related_name="telegram_notification_setting"
     )
     bot_token = models.CharField(max_length=255, null=True, blank=True)
     chat_ids = models.TextField(null=True, blank=True, help_text="Vergul bilan ajratilgan chat ID'lar")
-    
+
     student_payments = models.BooleanField(default=False)
     teacher_salaries = models.BooleanField(default=False)
     expenses = models.BooleanField(default=False)
     other_payments = models.BooleanField(default=False)
-    
+
+    # 4 ta yangi botlar uchun token va usernames
+    verification_bot_token = models.CharField(max_length=255, null=True, blank=True)
+    verification_bot_username = models.CharField(max_length=255, null=True, blank=True)
+
+    student_bot_token = models.CharField(max_length=255, null=True, blank=True)
+    student_bot_username = models.CharField(max_length=255, null=True, blank=True)
+
+    parent_bot_token = models.CharField(max_length=255, null=True, blank=True)
+    parent_bot_username = models.CharField(max_length=255, null=True, blank=True)
+
+    staff_bot_token = models.CharField(max_length=255, null=True, blank=True)
+    staff_bot_username = models.CharField(max_length=255, null=True, blank=True)
+
     is_active = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Telegram notification settings for {self.organization.name}"
 
+    def save(self, *args, **kwargs):
+        import requests
+        bot_fields = [
+            ('verification_bot_token', 'verification_bot_username'),
+            ('student_bot_token', 'student_bot_username'),
+            ('parent_bot_token', 'parent_bot_username'),
+            ('staff_bot_token', 'staff_bot_username'),
+        ]
+
+        for token_field, username_field in bot_fields:
+            token = getattr(self, token_field)
+            old_token = None
+            if self.pk:
+                try:
+                    old_obj = TelegramNotificationSetting.objects.get(pk=self.pk)
+                    old_token = getattr(old_obj, token_field)
+                except TelegramNotificationSetting.DoesNotExist:
+                    pass
+
+            if token and token != old_token:
+                try:
+                    response = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get('ok'):
+                            username = data['result']['username']
+                            setattr(self, username_field, f"@{username}")
+                        else:
+                            setattr(self, username_field, None)
+                    else:
+                        setattr(self, username_field, None)
+                except Exception as e:
+                    print(f"Error fetching bot username for field {token_field}: {str(e)}")
+                    setattr(self, username_field, None)
+            elif not token:
+                setattr(self, username_field, None)
+
+        super().save(*args, **kwargs)
+
 
 class ExamSetting(models.Model):
     organization = models.OneToOneField(
-        Organization, 
+        Organization,
         on_delete=models.CASCADE,
         related_name="exam_setting"
     )

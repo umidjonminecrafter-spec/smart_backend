@@ -7,12 +7,34 @@ from academics.models import Course, Student, Group
 
 User = get_user_model()
 
+
 class AcademicsAPITests(APITestCase):
     def setUp(self):
         # Create two distinct organizations to test multi-tenancy
         self.org1 = Organization.objects.create(name="Tenant 1")
         self.org2 = Organization.objects.create(name="Tenant 2")
-        
+
+        # Create active subscription for Org 1 and Org 2
+        from organizations.models import Subscription, Tariff
+        import datetime
+        from decimal import Decimal
+        today = datetime.date.today()
+        default_tariff = Tariff.objects.create(name="Premium", price=Decimal("100.00"), student_limit=0)
+        Subscription.objects.create(
+            organization=self.org1,
+            tariff=default_tariff,
+            start_date=today,
+            end_date=today + datetime.timedelta(days=365),
+            is_active=True
+        )
+        Subscription.objects.create(
+            organization=self.org2,
+            tariff=default_tariff,
+            start_date=today,
+            end_date=today + datetime.timedelta(days=365),
+            is_active=True
+        )
+
         # User for tenant 1
         self.user1 = User.objects.create_user(
             username="teacher1",
@@ -28,7 +50,7 @@ class AcademicsAPITests(APITestCase):
             role="admin",
             organization=None
         )
-        
+
         # Course and Student for tenant 1
         self.course1 = Course.objects.create(
             organization=self.org1,
@@ -43,7 +65,7 @@ class AcademicsAPITests(APITestCase):
             phone="+998909998877",
             balance=0.00
         )
-        
+
         # Student for tenant 2
         self.student2 = Student.objects.create(
             organization=self.org2,
@@ -63,7 +85,7 @@ class AcademicsAPITests(APITestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 0)
-        
+
         # Authenticate as user of Org 1, request without org_id -> falls back to user org (Org 1) -> returns Alice
         self.client.force_authenticate(user=self.user1)
         response = self.client.get(url)
@@ -77,7 +99,7 @@ class AcademicsAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['first_name'], "Alice")
-        
+
         # Create a superuser to verify they CAN override the active organization
         superuser = User.objects.create_superuser(
             username="superuser",
@@ -91,7 +113,7 @@ class AcademicsAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['first_name'], "Bob")
-        
+
         # Superuser requests specifying Org 1 explicitly via header -> returns Alice
         response = self.client.get(url, HTTP_X_ORG_ID=str(self.org1.id))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -104,16 +126,16 @@ class AcademicsAPITests(APITestCase):
         """
         self.client.force_authenticate(user=self.user1)
         url = reverse('student-add-payment', kwargs={'pk': self.student1.id})
-        
+
         data = {
             "amount": 250.00,
             "payment_method": "card"
         }
-        
+
         response = self.client.post(f"{url}?org_id={self.org1.id}", data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(float(response.data['balance']), 250.00)
-        
+
         # Verify student balance updated in DB
         self.student1.refresh_from_db()
         self.assertEqual(self.student1.balance, 250.00)
@@ -125,14 +147,14 @@ class AcademicsAPITests(APITestCase):
         from academics.models import StudentArchive
         self.client.force_authenticate(user=self.user1)
         url = reverse('student-detail', kwargs={'pk': self.student1.id})
-        
+
         # Call DELETE with reason and comment parameters
         response = self.client.delete(f"{url}?org_id={self.org1.id}&reason=To'lov&comment=Qarzdorlik sababli")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        
+
         # Verify student is deleted
         self.assertFalse(Student.objects.filter(id=self.student1.id).exists())
-        
+
         # Verify archive entry exists with correct details
         archive = StudentArchive.objects.get(phone=self.student1.phone)
         self.assertEqual(archive.reason, "To'lov")

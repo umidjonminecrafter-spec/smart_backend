@@ -1,17 +1,20 @@
 from rest_framework import serializers
 from academics.models import (
     Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
-    BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing, StudentArchive, Holiday, Homework
+    BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing,
+    StudentArchive, Holiday, Homework
 )
 from accounts.serializers import UserSerializer
 from .models import StudentFieldSetting
 from .models import Student, BotMessageTemplate
+
 
 # 1. Profil va balans uchun serializer
 class StudentProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
         fields = ['first_name', 'last_name', 'phone', 'balance', 'telegram_chat_id']
+
 
 # 2. Xabar shablonlari uchun serializer
 class BotMessageTemplateSerializer(serializers.ModelSerializer):
@@ -20,8 +23,6 @@ class BotMessageTemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = BotMessageTemplate
         fields = ['id', 'title', 'template_type', 'template_type_display', 'text', 'is_active']
-
-
 
 
 class CourseSerializer(serializers.ModelSerializer):
@@ -56,7 +57,7 @@ class CourseSerializer(serializers.ModelSerializer):
                 org_id = request.query_params.get('org_id') or request.META.get('HTTP_X_ORG_ID')
                 if not org_id and request.user and request.user.is_authenticated:
                     org_id = request.user.organization_id
-            
+
             if org_id:
                 existing_codes = Course.objects.filter(organization_id=org_id).values_list('code', flat=True)
                 max_num = 0
@@ -100,11 +101,13 @@ class CourseSerializer(serializers.ModelSerializer):
             rep['image_name'] = None
         return rep
 
+
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
+
 
 class StudentSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -152,7 +155,7 @@ class StudentSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
 
         if request and hasattr(request.user, "organization"):
-            from organizations.models import StudentFieldSetting
+            from academics.models import StudentFieldSetting
 
             required_fields = StudentFieldSetting.objects.filter(
                 organization=request.user.organization,
@@ -182,14 +185,14 @@ class StudentSerializer(serializers.ModelSerializer):
             name_parts = data['full_name'].strip().split(' ', 1)
             data['first_name'] = name_parts[0]
             data['last_name'] = name_parts[1] if len(name_parts) > 1 else ''
-        
+
         for field in ['phone', 'phone_number', 'phone_number2', 'parent_phone']:
             val = data.get(field)
             if val:
                 clean_val = ''.join(c for c in str(val) if c.isdigit())
                 if clean_val:
                     data[field] = '+' + clean_val
-                    
+
         if 'phone_number' in data and 'phone' not in data:
             data['phone'] = data['phone_number']
         return super().to_internal_value(data)
@@ -197,7 +200,7 @@ class StudentSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop('password', None)
         phone = validated_data.get('phone')
-        
+
         from accounts.models import User
         if phone:
             existing_user = User.objects.filter(username=phone).first()
@@ -205,12 +208,14 @@ class StudentSerializer(serializers.ModelSerializer):
                 if existing_user.role == 'student':
                     # If user exists but student does not, we can reuse it
                     if Student.objects.filter(phone=phone).exists():
-                        raise serializers.ValidationError({"phone": "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."})
+                        raise serializers.ValidationError(
+                            {"phone": "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."})
                 else:
-                    raise serializers.ValidationError({"phone": "Ushbu telefon raqamli foydalanuvchi tizimda allaqachon ro'yxatdan o'tgan."})
-                
+                    raise serializers.ValidationError(
+                        {"phone": "Ushbu telefon raqamli foydalanuvchi tizimda allaqachon ro'yxatdan o'tgan."})
+
         student = super().create(validated_data)
-        
+
         if phone:
             existing_user = User.objects.filter(username=phone).first()
             if existing_user:
@@ -243,7 +248,7 @@ class StudentSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password', None)
         old_phone = instance.phone
         student = super().update(instance, validated_data)
-        
+
         from accounts.models import User
         user = User.objects.filter(username=old_phone).first()
         if user:
@@ -263,7 +268,7 @@ class StudentSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         rep = super().to_representation(instance)
         rep['full_name'] = f"{instance.first_name} {instance.last_name}".strip()
-        
+
         # Check hide_student_data setting for teachers
         request = self.context.get('request')
         phone = instance.phone
@@ -280,11 +285,13 @@ class StudentSerializer(serializers.ModelSerializer):
                 else:
                     phone = "****"
                 email = "****"
-                
+
         rep['phone_number'] = phone
         rep['email'] = email
-        rep['groups'] = [{'id': sg.group.id, 'name': sg.group.name} for sg in instance.student_groups.select_related('group')]
+        rep['groups'] = [{'id': sg.group.id, 'name': sg.group.name} for sg in
+                         instance.student_groups.select_related('group')]
         return rep
+
 
 class GroupSerializer(serializers.ModelSerializer):
     course_name = serializers.CharField(source='course.name', read_only=True)
@@ -342,13 +349,14 @@ class GroupSerializer(serializers.ModelSerializer):
 
     def to_internal_value(self, data):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
-        
+
         # Extract first item if teacher is sent as a list/array
         teacher = data.get('teacher')
         if isinstance(teacher, list):
             data['teacher'] = teacher[0] if teacher else None
-            
+
         return super().to_internal_value(data)
+
 
 class StudentGroupSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.__str__', read_only=True)
@@ -433,6 +441,7 @@ class StudentGroupSerializer(serializers.ModelSerializer):
             return full_name if full_name else t.username
         return None
 
+
 class GroupTeacherSerializer(serializers.ModelSerializer):
     teacher_detail = UserSerializer(source='teacher', read_only=True)
     group_name = serializers.CharField(source='group.name', read_only=True)
@@ -449,7 +458,7 @@ class GroupTeacherSerializer(serializers.ModelSerializer):
             rep['group_name'] = group.name
             rep['room_name'] = group.room.name if group.room else None
             rep['course_name'] = group.course.name if group.course else None
-            
+
             # Fetch students in the group
             students_list = []
             for sg in group.group_students.select_related('student').all():
@@ -463,6 +472,7 @@ class GroupTeacherSerializer(serializers.ModelSerializer):
             rep['students_count'] = len(students_list)
         return rep
 
+
 class TeacherSalaryPaymentSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source='teacher.get_full_name', read_only=True)
 
@@ -470,6 +480,7 @@ class TeacherSalaryPaymentSerializer(serializers.ModelSerializer):
         model = TeacherSalaryPayment
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
+
 
 class AttendanceSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.__str__', read_only=True)
@@ -484,13 +495,15 @@ class AttendanceSerializer(serializers.ModelSerializer):
         sg = StudentGroup.objects.filter(student_id=instance.student_id, group_id=instance.group_id).first()
         rep['student_group'] = sg.id if sg else None
         if instance.date:
-            rep['lesson_date'] = instance.date.isoformat() if hasattr(instance.date, 'isoformat') else str(instance.date)
+            rep['lesson_date'] = instance.date.isoformat() if hasattr(instance.date, 'isoformat') else str(
+                instance.date)
         else:
             rep['lesson_date'] = None
         rep['is_present'] = instance.status == 'present'
         rep['is_excused'] = instance.status == 'excused'
         rep['reason'] = "sababli" if instance.status == 'excused' else ""
         return rep
+
 
 class LessonScheduleSerializer(serializers.ModelSerializer):
     teacher_detail = UserSerializer(source='teacher', read_only=True)
@@ -503,6 +516,7 @@ class LessonScheduleSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
+
 class StudentBalanceSerializer(serializers.ModelSerializer):
     student = serializers.IntegerField(source='id')
 
@@ -510,11 +524,13 @@ class StudentBalanceSerializer(serializers.ModelSerializer):
         model = Student
         fields = ('student', 'balance')
 
+
 class BalanceHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = BalanceHistory
         fields = '__all__'
         read_only_fields = ('organization',)
+
 
 class ExamSerializer(serializers.ModelSerializer):
     class Meta:
@@ -528,7 +544,7 @@ class ExamSerializer(serializers.ModelSerializer):
             data['name'] = data['title']
         if 'exam_date' in data and 'date' not in data:
             data['date'] = data['exam_date']
-        
+
         # Automatic course assignment using the group
         if 'group' in data and 'course' not in data and data['group']:
             from academics.models import Group
@@ -537,14 +553,14 @@ class ExamSerializer(serializers.ModelSerializer):
                 data['course'] = group_obj.course_id
             except Group.DoesNotExist:
                 pass
-                
+
         return super().to_internal_value(data)
 
     def to_representation(self, instance):
         rep = super().to_representation(instance)
         rep['title'] = instance.name
         rep['exam_date'] = instance.date
-        
+
         if instance.group:
             rep['group'] = {
                 'id': instance.group.id,
@@ -552,8 +568,9 @@ class ExamSerializer(serializers.ModelSerializer):
             }
         else:
             rep['group'] = None
-            
+
         return rep
+
 
 class ExamResultSerializer(serializers.ModelSerializer):
     class Meta:
@@ -561,11 +578,13 @@ class ExamResultSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization',)
 
+
 class LeaveReasonSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveReason
         fields = '__all__'
         read_only_fields = ('organization',)
+
 
 class LessonTimeSerializer(serializers.ModelSerializer):
     class Meta:
@@ -573,11 +592,13 @@ class LessonTimeSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization',)
 
+
 class OnlineLessonSerializer(serializers.ModelSerializer):
     class Meta:
         model = OnlineLesson
         fields = '__all__'
         read_only_fields = ('organization',)
+
 
 class StudentGroupLeaveSerializer(serializers.ModelSerializer):
     class Meta:
@@ -614,17 +635,20 @@ class StudentGroupLeaveSerializer(serializers.ModelSerializer):
             }
         return rep
 
+
 class StudentPricingSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentPricing
         fields = '__all__'
         read_only_fields = ('organization',)
 
+
 class StudentArchiveSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentArchive
         fields = '__all__'
         read_only_fields = ('organization',)
+
 
 class HolidaySerializer(serializers.ModelSerializer):
     class Meta:
@@ -641,6 +665,7 @@ class HomeworkSerializer(serializers.ModelSerializer):
         model = Homework
         fields = '__all__'
         read_only_fields = ('organization', 'created_by', 'created_at', 'updated_at')
+
 
 class StudentFieldSettingSerializer(serializers.ModelSerializer):
     class Meta:

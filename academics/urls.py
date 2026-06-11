@@ -8,7 +8,7 @@ from .views import (
     LeaveReasonViewSet, LessonTimeViewSet, OnlineLessonViewSet, StudentGroupLeaveViewSet,
     StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet, SendCodeAPIView,
     VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView, ParentStudentsAPIView, ParentStudentDetailsAPIView,
-    StaffProfileAPIView, StaffScheduleAPIView
+    StaffProfileAPIView, StaffScheduleAPIView, BotMessageTemplateViewSet, TelegramWebhookView
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -48,6 +48,7 @@ router.register(r'student-group-leaves', StudentGroupLeaveViewSet, basename='stu
 router.register(r'student-pricings', StudentPricingViewSet, basename='student-pricing')
 router.register(r'archive', StudentArchiveViewSet, basename='student-archive')
 router.register(r'homeworks', HomeworkViewSet, basename='homework')
+router.register(r'bot-message-templates', BotMessageTemplateViewSet, basename='bot-message-template')
 
 # Teachers nested routes (to match /api/v1/academics/teachers/...)
 router.register(r'teachers/salary-calculations', TeacherSalaryCalculationViewSet, basename='academic-teacher-salary-calc')
@@ -76,6 +77,7 @@ urlpatterns = [
     path('student/lessons/', StudentLessonsAPIView.as_view(), name='bot-student-lessons'),
     path('parent/students/', ParentStudentsAPIView.as_view(), name='bot-parent-students'),
     path('parent/student-details/', ParentStudentDetailsAPIView.as_view(), name='bot-parent-student-details'),
-path('staff/profile/', StaffProfileAPIView.as_view(), name='bot-staff-profile'),
-path('staff/schedule/', StaffScheduleAPIView.as_view(), name='bot-staff-schedule'),
+    path('staff/profile/', StaffProfileAPIView.as_view(), name='bot-staff-profile'),
+    path('staff/schedule/', StaffScheduleAPIView.as_view(), name='bot-staff-schedule'),
+    path('telegram/webhook/<str:bot_type>/<str:token>/', TelegramWebhookView.as_view(), name='telegram-webhook'),
 ]

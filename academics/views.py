@@ -6,7 +6,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
-
+from organizations.mixins import TenantViewSetMixin
+from .models import StudentFieldSetting
+from .serializers import StudentFieldSettingSerializer
 from academics.models import (
     Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing, StudentArchive, Holiday, Homework
@@ -23,6 +25,22 @@ from academics.serializers import (
     StudentGroupLeaveSerializer, StudentPricingSerializer, StudentArchiveSerializer, HolidaySerializer
     , HomeworkSerializer
 )
+class StudentFieldSettingViewSet(
+    TenantViewSetMixin,
+    viewsets.ModelViewSet
+):
+    serializer_class = StudentFieldSettingSerializer
+    queryset = StudentFieldSetting.objects.all()
+
+    def get_queryset(self):
+        return StudentFieldSetting.objects.filter(
+            organization=self.request.user.organization
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(
+            organization=self.request.user.organization
+        )
 
 class CourseViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]

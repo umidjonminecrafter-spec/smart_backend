@@ -8,8 +8,21 @@ from academics.views import (
     LeaveReasonViewSet, LessonTimeViewSet, OnlineLessonViewSet, StudentGroupLeaveViewSet,
     StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet
 )
+from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
 
+
+student_field_settings = StudentFieldSettingViewSet.as_view({
+    'get': 'list',
+    'post': 'create'
+})
+
+student_field_setting_detail = StudentFieldSettingViewSet.as_view({
+    'get': 'retrieve',
+    'patch': 'partial_update',
+    'put': 'update',
+    'delete': 'destroy'
+})
 router = DefaultRouter()
 router.register(r'students', StudentViewSet, basename='student')
 router.register(r'groups', GroupViewSet, basename='group')
@@ -43,5 +56,16 @@ urlpatterns = [
     path('student-transactions/', StudentTransactionsView.as_view(), name='student-transactions'),
     path('attendences/group/<int:group_id>/', GroupAttendanceView.as_view(), name='group-attendance'),
     path('attendances/group/<int:group_id>/', GroupAttendanceView.as_view(), name='group-attendance-alt'),
+    path(
+        'student-field-settings/',
+        student_field_settings,
+        name='student-field-settings'
+    ),
+
+    path(
+        'student-field-settings/<int:pk>/',
+        student_field_setting_detail,
+        name='student-field-setting-detail'
+    ),
     path('', include(router.urls)),
 ]

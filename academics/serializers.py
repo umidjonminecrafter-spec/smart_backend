@@ -4,6 +4,7 @@ from academics.models import (
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing, StudentArchive, Holiday, Homework
 )
 from accounts.serializers import UserSerializer
+from .models import StudentFieldSetting
 
 class CourseSerializer(serializers.ModelSerializer):
     remove_image = serializers.BooleanField(write_only=True, required=False, default=False)
@@ -622,3 +623,9 @@ class HomeworkSerializer(serializers.ModelSerializer):
         model = Homework
         fields = '__all__'
         read_only_fields = ('organization', 'created_by', 'created_at', 'updated_at')
+
+class StudentFieldSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentFieldSetting
+        fields = "__all__"
+        read_only_fields = ("organization",)

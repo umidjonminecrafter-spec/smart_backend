@@ -3,6 +3,33 @@ from django.conf import settings
 from organizations.models import TenantModel
 
 from organizations.models import Organization
+from django.utils import timezone
+import datetime
+
+class TelegramVerification(models.Model):
+    PURPOSE_CHOICES = (
+        ('register', 'Ro‘yxatdan o‘tish'),
+        ('forgot', 'Parolni tiklash'),
+    )
+
+    # O'quvchining telefon raqami (bu orqali bazadan o'quvchini topamiz)
+    phone = models.CharField(max_length=50)
+    # Tasdiqlash uchun 6 xonali random kod
+    code = models.CharField(max_length=6)
+    # Qaysi maqsadda yuborilgani
+    purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES)
+    # Kod yaratilgan vaqt
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Kod ishlatildimi yoki yo'q
+    is_verified = models.BooleanField(default=False)
+
+    def is_valid(self):
+        # Kod faqat 2 daqiqa davomida amal qiladi
+        expiry_time = self.created_at + datetime.timedelta(minutes=2)
+        return timezone.now() <= expiry_time and not self.is_verified
+
+    def __str__(self):
+        return f"{self.phone} - {self.code} ({self.purpose})"
 
 
 class Course(TenantModel):

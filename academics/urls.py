@@ -1,12 +1,12 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from academics.views import (
+from .views import (
     CourseViewSet, RoomViewSet, StudentViewSet, GroupViewSet,
     StudentGroupViewSet, GroupTeacherViewSet, TeacherSalaryPaymentViewSet,
     StudentTransactionsView, GroupAttendanceView, LessonScheduleViewSet,
     StudentBalancesViewSet, BalanceHistoryViewSet, ExamViewSet, ExamResultViewSet,
     LeaveReasonViewSet, LessonTimeViewSet, OnlineLessonViewSet, StudentGroupLeaveViewSet,
-    StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet
+    StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet,SendCodeAPIView, VerifyCodeAPIView
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -68,4 +68,6 @@ urlpatterns = [
         name='student-field-setting-detail'
     ),
     path('', include(router.urls)),
+    path('auth/send-code/', SendCodeAPIView.as_view(), name='send-verification-code'),
+    path('auth/verify-code/', VerifyCodeAPIView.as_view(), name='verify-verification-code'),
 ]

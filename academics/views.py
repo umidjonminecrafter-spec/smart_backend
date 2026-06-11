@@ -25,6 +25,70 @@ from academics.serializers import (
     StudentGroupLeaveSerializer, StudentPricingSerializer, StudentArchiveSerializer, HolidaySerializer
     , HomeworkSerializer
 )
+
+from .models import TelegramVerification, Student
+from .utills import send_telegram_verification_code
+
+
+# 1. KOD YUBORISH API (Ro'yxatdan o'tish yoki Parol unutilganda chaqiriladi)
+class SendCodeAPIView(APIView):
+    def post(self, request):
+        phone = request.data.get('phone')
+        purpose = request.data.get('purpose')  # 'register' yoki 'forgot'
+
+        if not phone or not purpose:
+            return Response({"error": "phone va purpose maydonlari majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if purpose not in ['register', 'forgot']:
+            return Response({"error": "Purpose noto'g'ri!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Kodni generatsiya qilib jo'natamiz
+        result = send_telegram_verification_code(phone, purpose)
+
+        if result["status"]:
+            return Response({"message": result["message"]}, status=status.HTTP_200_OK)
+        return Response({"error": result["message"]}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# 2. KODNI TEKSHIRISH API
+class VerifyCodeAPIView(APIView):
+    def post(self, request):
+        phone = request.data.get('phone')
+        code = request.data.get('code')
+        purpose = request.data.get('purpose')
+
+        if not phone or not code or not purpose:
+            return Response({"error": "Barcha maydonlar majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Eng oxirgi yuborilgan faol kodni qidiramiz
+        verif = TelegramVerification.objects.filter(
+            phone=phone, code=code, purpose=purpose
+        ).order_update().last()
+
+        if verif and verif.is_valid():
+            # Kod to'g'ri bo'lsa, uni ishlatildi deb belgilaymiz
+            verif.is_verified = True
+            verif.save()
+
+            # AGAR PAROL TIKLASH BO'LSA:
+            if purpose == 'forgot':
+                # Bu yerda frontendchiga parolni o'zgartirishga ruxsat beruvchi vaqtinchalik belgi (token) yoki muvaffaqiyat xabarini qaytaramiz
+                return Response(
+                    {"status": "success", "message": "Kod tasdiqlandi. Endi yangi parol kiritishingiz mumkin."},
+                    status=status.HTTP_200_OK)
+
+            # AGAR RO'YXATDAN O'TISH BO'LSA:
+            elif purpose == 'register':
+                return Response({"status": "success", "message": "Kod tasdiqlandi. Ro'yxatdan o'tish yakunlandi."},
+                                status=status.HTTP_200_OK)
+
+        return Response({"error": "Tasdiqlash kodi noto'g'ri yoki vaqti o'tib ketgan!"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+
+
+
+
 class StudentFieldSettingViewSet(
     TenantViewSetMixin,
     viewsets.ModelViewSet

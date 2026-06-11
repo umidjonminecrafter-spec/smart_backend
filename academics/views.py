@@ -1217,3 +1217,67 @@ class StudentLessonsAPIView(APIView):
             return Response({"student": student.first_name, "lessons": lessons_list}, status=status.HTTP_200_OK)
         except Student.DoesNotExist:
             return Response({"error": "Talaba topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
+
+from .models import Student, ExamResult, Attendance
+class ParentStudentsAPIView(APIView):
+    def get(self, request):
+        parent_phone = request.query_params.get('phone')  # Ota yoki onaning teli
+        if not parent_phone:
+            return Response({"error": "phone parametri majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Otasining yoki onasining raqami mos keladigan talabalarni qidiramiz
+        students = Student.objects.filter(
+            models.Q(father_phone=parent_phone) | models.Q(mother_phone=parent_phone)
+        )
+
+        student_list = []
+        for student in students:
+            student_list.append({
+                "id": student.id,
+                "first_name": student.first_name,
+                "last_name": student.last_name,
+                "balance": float(student.balance),
+                "payment_date": str(student.payment_date) if student.payment_date else None
+            })
+
+        return Response({"students": student_list}, status=status.HTTP_200_OK)
+
+
+# 2. FARZANDINING OLDINGI IMTIHON BAHOLARI VA DAVOMATI APISI
+class ParentStudentDetailsAPIView(APIView):
+    def get(self, request):
+        student_id = request.query_params.get('student_id')
+        if not student_id:
+            return Response({"error": "student_id parametri majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            student = Student.objects.get(id=student_id)
+
+            # 1. Baholar tarixi (`ExamResult` modelidan)
+            exam_results = ExamResult.objects.filter(student=student).select_related('exam')
+            marks = []
+            for res in exam_results:
+                marks.append({
+                    "exam_name": res.exam.name,
+                    "score": float(res.score),
+                    "date": str(res.exam.date)
+                })
+
+            # 2. Davomat tarixi (`Attendance` modelidan)
+            attendances = Attendance.objects.filter(student=student).order_by('-date')[:10]  # oxirgi 10 ta dars
+            attendance_log = []
+            for att in attendances:
+                attendance_log.append({
+                    "date": str(att.date),
+                    "status": att.status,  # present, absent, late
+                    "group_name": att.group.name if att.group else "Noma'lum"
+                })
+
+            return Response({
+                "student_name": f"{student.first_name} {student.last_name or ''}",
+                "exam_results": marks,
+                "attendance_history": attendance_log
+            }, status=status.HTTP_200_OK)
+
+        except Student.DoesNotExist:
+            return Response({"error": "Talaba topilmadi!"}, status=status.HTTP_404_NOT_FOUND)

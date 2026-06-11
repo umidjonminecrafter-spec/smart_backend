@@ -466,6 +466,10 @@ class BotMessageTemplate(TenantModel):
         ('payment_due', 'To‘lov vaqti kelganda ogohlantirish'),
         ('payment_success', 'To‘lov muvaffaqiyatli bo‘lganda chek'),
         ('news', 'Umumiy yangiliklar'),
+        ('parent_check_in', 'Ota-ona: Farzandi darsga kelganda'),
+        ('parent_check_out', 'Ota-ona: Dars tugaganda (ketganda)'),
+        ('parent_exam_result', 'Ota-ona: Imtihon baholari chiqganda'),
+        ('parent_payment_due', 'Ota-ona: To‘lov vaqti kelganda'),
     )
 
     title = models.CharField(max_length=150, verbose_name="Shablon nomi")
@@ -484,3 +488,30 @@ class BotMessageTemplate(TenantModel):
 
     def __str__(self):
         return f"{self.title} ({self.get_template_type_display()})"
+
+@receiver(post_save, sender=Attendance)
+def notify_parent_attendance(sender, instance, created, **kwargs):
+    """
+    Davomat o'zgartirilganda yoki yaratilganda ota-onaga Telegram orqali xabar beradi.
+    """
+    student = instance.student
+    if not student:
+        return
+
+    # Ota yoki onaning telefon raqamini aniqlaymiz
+    parent_phone = student.father_phone or student.mother_phone
+    if not parent_phone:
+        return # Raqam bo'lmasa xabar ketmaydi
+
+    # Davomat statusiga qarab xabar tayyorlaymiz
+    if instance.status == 'present':
+        status_text = "darsga keldi. ✅"
+    elif instance.status == 'absent':
+        status_text = "darsga kelmadi! ❌"
+    elif instance.status == 'late':
+        status_text = "darsga kechikib keldi. ⚠️"
+    else:
+        return
+
+    # Bot dasturchisi uchun ma'lumot tayyor (Kelajakda buni Telegram bot API ga ulab yuborish mumkin)
+    print(f"XABAR OTA-ONAGA ({parent_phone}): Farzandingiz {student.first_name} bugun {status_text}")

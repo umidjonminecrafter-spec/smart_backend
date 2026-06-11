@@ -1,6 +1,12 @@
 from django.contrib import admin
 from academics.models import Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, Homework,StudentFieldSetting
+from .models import BotMessageTemplate
 
+@admin.register(BotMessageTemplate)
+class BotMessageTemplateAdmin(admin.ModelAdmin):
+    list_display = ('title', 'template_type', 'is_active', 'organization')
+    list_filter = ('template_type', 'is_active', 'organization')
+    search_fields = ('title', 'text')
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
     list_display = ('id', 'name', 'price', 'duration_weeks', 'organization')

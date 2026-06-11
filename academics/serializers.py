@@ -5,6 +5,24 @@ from academics.models import (
 )
 from accounts.serializers import UserSerializer
 from .models import StudentFieldSetting
+from .models import Student, BotMessageTemplate
+
+# 1. Profil va balans uchun serializer
+class StudentProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Student
+        fields = ['first_name', 'last_name', 'phone', 'balance', 'telegram_chat_id']
+
+# 2. Xabar shablonlari uchun serializer
+class BotMessageTemplateSerializer(serializers.ModelSerializer):
+    template_type_display = serializers.CharField(source='get_template_type_display', read_only=True)
+
+    class Meta:
+        model = BotMessageTemplate
+        fields = ['id', 'title', 'template_type', 'template_type_display', 'text', 'is_active']
+
+
+
 
 class CourseSerializer(serializers.ModelSerializer):
     remove_image = serializers.BooleanField(write_only=True, required=False, default=False)

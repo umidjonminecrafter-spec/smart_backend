@@ -6,7 +6,8 @@ from .views import (
     StudentTransactionsView, GroupAttendanceView, LessonScheduleViewSet,
     StudentBalancesViewSet, BalanceHistoryViewSet, ExamViewSet, ExamResultViewSet,
     LeaveReasonViewSet, LessonTimeViewSet, OnlineLessonViewSet, StudentGroupLeaveViewSet,
-    StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet,SendCodeAPIView, VerifyCodeAPIView
+    StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet, SendCodeAPIView,
+    VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -70,4 +71,6 @@ urlpatterns = [
     path('', include(router.urls)),
     path('auth/send-code/', SendCodeAPIView.as_view(), name='send-verification-code'),
     path('auth/verify-code/', VerifyCodeAPIView.as_view(), name='verify-verification-code'),
+    path('student/profile/', StudentProfileAPIView.as_view(), name='bot-student-profile'),
+    path('student/lessons/', StudentLessonsAPIView.as_view(), name='bot-student-lessons'),
 ]

@@ -8,7 +8,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
 from organizations.mixins import TenantViewSetMixin
 from .models import StudentFieldSetting
-from .serializers import StudentFieldSettingSerializer
+from .serializers import StudentFieldSettingSerializer, StudentProfileSerializer
 from academics.models import (
     Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing, StudentArchive, Holiday, Homework
@@ -1171,3 +1171,49 @@ class HomeworkViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         if getattr(request.user, 'role', None) == 'student':
             raise PermissionDenied("Talaba uy vazifasini o'chira olmaydi.")
         return super().destroy(request, *args, **kwargs)
+
+from .models import Student, StudentGroup
+
+
+# 1. TALABA PROFILI VA BALANSI
+class StudentProfileAPIView(APIView):
+    def get(self, request):
+        phone = request.query_params.get('phone')
+        if not phone:
+            return Response({"error": "phone parametri majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            student = Student.objects.get(phone=phone)
+            # Ma'lumotlarni serializer orqali o'giramiz
+            serializer = StudentProfileSerializer(student)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Student.DoesNotExist:
+            return Response({"error": "Talaba topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
+
+
+# 2. TALABA DARS JADVALI (StudentGroup va Group modelidan oladi)
+class StudentLessonsAPIView(APIView):
+    def get(self, request):
+        phone = request.query_params.get('phone')
+        if not phone:
+            return Response({"error": "phone parametri majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            student = Student.objects.get(phone=phone)
+            # Talaba a'zo bo'lgan faol guruhlarni qidiramiz
+            st_groups = StudentGroup.objects.filter(student=student, group__status='active')
+
+            lessons_list = []
+            for st_g in st_groups:
+                group = st_g.group
+                lessons_list.append({
+                    "group_name": group.name,
+                    "course_name": group.course.name if group.course else None,
+                    "teacher_name": group.teacher.get_full_name() if group.teacher else "Ustoz biriktirilmagan",
+                    "day_type": group.day_type,
+                    "start_time": str(group.start_time) if group.start_time else None
+                })
+
+            return Response({"student": student.first_name, "lessons": lessons_list}, status=status.HTTP_200_OK)
+        except Student.DoesNotExist:
+            return Response({"error": "Talaba topilmadi!"}, status=status.HTTP_404_NOT_FOUND)

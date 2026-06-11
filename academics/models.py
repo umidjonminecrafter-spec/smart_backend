@@ -58,7 +58,7 @@ class Student(TenantModel):
     email = models.EmailField(null=True, blank=True)
     balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     photo = models.ImageField(upload_to='student_photos/', null=True, blank=True)
-
+    telegram_chat_id = models.CharField(max_length=100, null=True, blank=True, verbose_name="Telegram Chat ID")
     category = models.CharField(max_length=255, null=True, blank=True)
     birth_date = models.DateField(null=True, blank=True)
     application = models.TextField(null=True, blank=True)
@@ -458,3 +458,29 @@ def holiday_internal_notification(sender, instance, created, **kwargs):
 
         if notifications_pool:
             Notification.objects.bulk_create(notifications_pool)
+
+
+class BotMessageTemplate(TenantModel):
+    TEMPLATE_TYPES = (
+        ('remind', 'Dars eslatmasi (Darsga chaqiriq)'),
+        ('payment_due', 'To‘lov vaqti kelganda ogohlantirish'),
+        ('payment_success', 'To‘lov muvaffaqiyatli bo‘lganda chek'),
+        ('news', 'Umumiy yangiliklar'),
+    )
+
+    title = models.CharField(max_length=150, verbose_name="Shablon nomi")
+    template_type = models.CharField(max_length=30, choices=TEMPLATE_TYPES, verbose_name="Turi")
+    text = models.TextField(
+        verbose_name="Xabar matni",
+        help_text="O'zgaruvchilarni mana bunday yozing: {first_name}, {balance}, {course_name}, {hours}"
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Faolmi?")
+
+    class Meta:
+        # Har bir tashkilot bitta turdagi shablondan faqat bittasini faollashtira oladi
+        unique_together = ('organization', 'template_type')
+        verbose_name = "Bot Xabar Shabloni"
+        verbose_name_plural = "Bot Xabar Shablonlari"
+
+    def __str__(self):
+        return f"{self.title} ({self.get_template_type_display()})"

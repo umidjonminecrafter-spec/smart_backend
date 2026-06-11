@@ -40,7 +40,11 @@ class Student(TenantModel):
     payment_date = models.DateField(null=True, blank=True)
     address = models.TextField(null=True, blank=True)
     target_university = models.CharField(max_length=255, null=True, blank=True)
-    organization = models.CharField(max_length=255, null=True, blank=True)
+    desired_organization = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True
+    )
 
     # Ota ma'lumotlari
     father_name = models.CharField(max_length=255, null=True, blank=True)

@@ -1,10 +1,15 @@
 from django.contrib import admin
-from academics.models import Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, Homework
+from academics.models import Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, Homework,StudentFieldSetting
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
     list_display = ('id', 'name', 'price', 'duration_weeks', 'organization')
     search_fields = ('name',)
+
+@admin.register(StudentFieldSetting)
+class StudentFieldSettingAdmin(admin.ModelAdmin):
+    list_display = ('organization')
+    search_fields = ('organization')
 
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):

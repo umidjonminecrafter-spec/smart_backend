@@ -8,8 +8,9 @@ class CourseAdmin(admin.ModelAdmin):
 
 @admin.register(StudentFieldSetting)
 class StudentFieldSettingAdmin(admin.ModelAdmin):
-    list_display = ('organization')
-    search_fields = ('organization')
+    list_display = ('field_name', 'is_required', 'organization')
+    search_fields = ('field_name',)
+    list_filter = ('is_required',)
 
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):

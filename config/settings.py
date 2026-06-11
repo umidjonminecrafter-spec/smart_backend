@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'audit',
     'communication',
     'billing',
+    'drf_spectacular'
 ]
 
 MIDDLEWARE = [
@@ -129,6 +130,7 @@ AUTH_USER_MODEL = 'accounts.User'
 
 # REST Framework Configuration
 REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
@@ -187,3 +189,8 @@ MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'SmartTalim API',
+    'DESCRIPTION': 'SmartTalim Backend API',
+    'VERSION': '1.0.0',
+}

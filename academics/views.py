@@ -1281,3 +1281,69 @@ class ParentStudentDetailsAPIView(APIView):
 
         except Student.DoesNotExist:
             return Response({"error": "Talaba topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+from django.contrib.auth import get_user_model
+from .models import Group, LessonSchedule
+
+User = get_user_model()
+
+
+# 1. XODIM PROFILI VA UNING DARSLARI APISI
+class StaffProfileAPIView(APIView):
+    def get(self, request):
+        phone = request.query_params.get('phone')
+        if not phone:
+            return Response({"error": "phone parametri majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(phone=phone, is_active=True)
+
+            # Xodim o'qituvchi bo'lsa, uning faol guruhlarini topamiz
+            teaching_groups = Group.objects.filter(teacher=user, status='active')
+            groups_data = []
+            for group in teaching_groups:
+                groups_data.append({
+                    "group_id": group.id,
+                    "group_name": group.name,
+                    "course_name": group.course.name if group.course else "Noma'lum"
+                })
+
+            return Response({
+                "staff_name": user.get_full_name() or user.username,
+                "role": "O'qituvchi/Xodim",
+                "phone": user.phone,
+                "active_groups": groups_data
+            }, status=status.HTTP_200_OK)
+
+        except User.DoesNotExist:
+            return Response({"error": "Xodim topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
+
+
+# 2. XODIMNING KUNLIK DARS JADVALI (LessonSchedule modelidan oladi)
+class StaffScheduleAPIView(APIView):
+    def get(self, request):
+        phone = request.query_params.get('phone')
+        if not phone:
+            return Response({"error": "phone parametri majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(phone=phone)
+            # Xodimga biriktirilgan dars jadvallari
+            schedules = LessonSchedule.objects.filter(teacher=user).select_related('group')
+
+            schedule_list = []
+            for sch in schedules:
+                schedule_list.append({
+                    "group_name": sch.group.name if sch.group else "Guruhsiz",
+                    "room_name": sch.room_name,
+                    "start_time": str(sch.start_time),
+                    "end_time": str(sch.end_time),
+                    "day_type": sch.day_type  # even yoki odd
+                })
+
+            return Response({"schedule": schedule_list}, status=status.HTTP_200_OK)
+
+        except User.DoesNotExist:
+            return Response({"error": "Xodim topilmadi!"}, status=status.HTTP_404_NOT_FOUND)

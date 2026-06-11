@@ -470,6 +470,9 @@ class BotMessageTemplate(TenantModel):
         ('parent_check_out', 'Ota-ona: Dars tugaganda (ketganda)'),
         ('parent_exam_result', 'Ota-ona: Imtihon baholari chiqganda'),
         ('parent_payment_due', 'Ota-ona: To‘lov vaqti kelganda'),
+        ('staff_general_news', 'Xodimlar: Boshliqdan umumiy xabar/topshiriq'),
+        ('staff_salary_remind', 'Xodimlar: Oylik to‘lov eslatmasi'),
+        ('staff_holiday_remind', 'Xodimlar: Bayram va dam olish kuni eslatmasi'),
     )
 
     title = models.CharField(max_length=150, verbose_name="Shablon nomi")

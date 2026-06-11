@@ -7,7 +7,8 @@ from .views import (
     StudentBalancesViewSet, BalanceHistoryViewSet, ExamViewSet, ExamResultViewSet,
     LeaveReasonViewSet, LessonTimeViewSet, OnlineLessonViewSet, StudentGroupLeaveViewSet,
     StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet, SendCodeAPIView,
-    VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView, ParentStudentsAPIView, ParentStudentDetailsAPIView
+    VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView, ParentStudentsAPIView, ParentStudentDetailsAPIView,
+    StaffProfileAPIView, StaffScheduleAPIView
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -74,5 +75,7 @@ urlpatterns = [
     path('student/profile/', StudentProfileAPIView.as_view(), name='bot-student-profile'),
     path('student/lessons/', StudentLessonsAPIView.as_view(), name='bot-student-lessons'),
     path('parent/students/', ParentStudentsAPIView.as_view(), name='bot-parent-students'),
-    path('parent/student-details/', ParentStudentDetailsAPIView.as_view(), name='bot-parent-student-details')
+    path('parent/student-details/', ParentStudentDetailsAPIView.as_view(), name='bot-parent-student-details'),
+path('staff/profile/', StaffProfileAPIView.as_view(), name='bot-staff-profile'),
+path('staff/schedule/', StaffScheduleAPIView.as_view(), name='bot-staff-schedule'),
 ]

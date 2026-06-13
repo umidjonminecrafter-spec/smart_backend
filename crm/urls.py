@@ -5,6 +5,9 @@ from crm.views import (
     CRMActivityViewSet, CRMLeadsHistoryViewSet, CRMLeadLostViewSet
 )
 
+from crm.views import SMSTemplateListCreateAPIView, SMSTemplateRetrieveUpdateDestroyAPIView, \
+    SendBulkSMSAPIView
+
 router = DefaultRouter()
 router.register(r'pipelines', PipelineViewSet, basename='pipeline')
 router.register(r'leads', LeadViewSet, basename='lead')
@@ -18,4 +21,10 @@ router.register(r'lost-leads', CRMLeadLostViewSet, basename='lost-lead')
 
 urlpatterns = [
     path('', include(router.urls)),
+# 📋 Shablonlarni boshqarish (CRUD) oynasi uchun yo'llar
+    path('sms-templates/', SMSTemplateListCreateAPIView.as_view(), name='sms-template-list-create'),
+    path('sms-templates/<int:pk>/', SMSTemplateRetrieveUpdateDestroyAPIView.as_view(), name='sms-template-detail'),
+
+    # 🚀 Ommaviy xabar yuborish (SMS yuborish tugmasi)
+    path('sms/send-bulk/', SendBulkSMSAPIView.as_view(), name='sms-send-bulk'),
 ]

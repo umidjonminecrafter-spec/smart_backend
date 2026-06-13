@@ -1,6 +1,9 @@
 from rest_framework import serializers
 from crm.models import Pipeline, Source, LostReason, Section, LeadForm, Lead, CRMActivity, CRMLeadsHistory, CRMLeadLost
 
+from academics.models import BotMessageTemplate
+
+
 class PipelineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pipeline
@@ -88,3 +91,13 @@ class CRMLeadLostSerializer(serializers.ModelSerializer):
         model = CRMLeadLost
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
+
+
+
+class SMSBotTemplateSerializer(serializers.ModelSerializer):
+    target_audience_display = serializers.CharField(source='get_target_audience_display', read_only=True)
+    template_type_display = serializers.CharField(source='get_template_type_display', read_only=True)
+
+    class Meta:
+        model = BotMessageTemplate
+        fields = ['id', 'title', 'target_audience', 'target_audience_display', 'template_type', 'template_type_display', 'text', 'is_active']

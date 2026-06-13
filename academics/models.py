@@ -463,36 +463,54 @@ def holiday_internal_notification(sender, instance, created, **kwargs):
 
 
 class BotMessageTemplate(TenantModel):
+    # 🎯 SHABLON QAYSI AUDITORIYA UCHUN EKANLIGINI FILTRLASH
+    AUDIENCE_CHOICES = (
+        ('leads', 'Lidlar (CRM)'),
+        ('students', 'Talabalar (Academics)'),
+        ('staff', 'Xodimlar (Staff)'),
+    )
+
     TEMPLATE_TYPES = (
-        ('remind', 'Dars eslatmasi (Darsga chaqiriq)'),
-        ('payment_due', 'To‘lov vaqti kelganda ogohlantirish'),
-        ('payment_success', 'To‘lov muvaffaqiyatli bo‘lganda chek'),
-        ('news', 'Umumiy yangiliklar'),
+        # CRM (Lidlar) uchun shablonlar
+        ('lead_marketing', 'Lid: Reklama/Aksiya xabari'),
+        ('lead_holiday', 'Lid: Bayram tabrigi'),
+        ('lead_followup', 'Lid: Qayta aloqa/Eslatma'),
+
+        # Talabalar uchun shablonlar
+        ('remind', 'Talaba: Dars eslatmasi (Darsga chaqiriq)'),
+        ('payment_due', 'Talaba: To‘lov vaqti kelganda ogohlantirish'),
+        ('payment_success', 'Talaba: To‘lov muvaffaqiyatli bo‘lganda chek'),
+        ('news', 'Talaba: Umumiy yangiliklar'),
+
+        # Ota-onalar uchun shablonlar
         ('parent_check_in', 'Ota-ona: Farzandi darsga kelganda'),
         ('parent_check_out', 'Ota-ona: Dars tugaganda (ketganda)'),
         ('parent_exam_result', 'Ota-ona: Imtihon baholari chiqganda'),
         ('parent_payment_due', 'Ota-ona: To‘lov vaqti kelganda'),
+
+        # Xodimlar uchun shablonlar
         ('staff_general_news', 'Xodimlar: Boshliqdan umumiy xabar/topshiriq'),
         ('staff_salary_remind', 'Xodimlar: Oylik to‘lov eslatmasi'),
         ('staff_holiday_remind', 'Xodimlar: Bayram va dam olish kuni eslatmasi'),
     )
 
     title = models.CharField(max_length=150, verbose_name="Shablon nomi")
+    target_audience = models.CharField(max_length=20, choices=AUDIENCE_CHOICES, default='students',
+                                       verbose_name="Kimlar uchun")
     template_type = models.CharField(max_length=30, choices=TEMPLATE_TYPES, verbose_name="Turi")
     text = models.TextField(
         verbose_name="Xabar matni",
-        help_text="O'zgaruvchilarni mana bunday yozing: {first_name}, {balance}, {course_name}, {hours}"
+        help_text="O'zgaruvchilarni jingalak qavs ichida yozing, masalan: {first_name}, {balance}, {section_name}"
     )
     is_active = models.BooleanField(default=True, verbose_name="Faolmi?")
 
     class Meta:
-        # Har bir tashkilot bitta turdagi shablondan faqat bittasini faollashtira oladi
-        unique_together = ('organization', 'template_type')
+        # unique_together olib tashlandi, chunki bitta turda bir nechta marketing SMS shablonlari bo'lishi mumkin (Rasmda ko'ringandek)
         verbose_name = "Bot Xabar Shabloni"
         verbose_name_plural = "Bot Xabar Shablonlari"
 
     def __str__(self):
-        return f"{self.title} ({self.get_template_type_display()})"
+        return f"[{self.get_target_audience_display()}] {self.title}"
 
 @receiver(post_save, sender=Attendance)
 def notify_parent_attendance(sender, instance, created, **kwargs):

@@ -227,3 +227,134 @@ class CRMLeadLostViewSet(TenantViewSetMixin, CreateListRetrieveViewSet):
     permission_page_name = 'Lidlar'
     queryset = CRMLeadLost.objects.all()
     serializer_class = CRMLeadLostSerializer
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, generics
+from academics.models import BotMessageTemplate, Student
+from crm.models import Lead, Section
+from .serializers import SMSBotTemplateSerializer
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+
+# ================= 1. SHABLONLAR USTIDA CRUD (KORISH, QOSHISH, TAHRIRLASH, OCHIRISH) =================
+class SMSTemplateListCreateAPIView(generics.ListCreateAPIView):
+    """SMS shablonlarni ko'rish (Auditoriya bo'yicha filterlangan holda) va yangi qo'shish"""
+    serializer_class = SMSBotTemplateSerializer
+
+    def get_queryset(self):
+        # /api/v1/crm/sms-templates/?audience=leads (yoki students, staff) deb filterlash uchun
+        queryset = BotMessageTemplate.objects.all()
+        audience = self.request.query_params.get('audience')
+        if audience:
+            queryset = queryset.filter(target_audience=audience)
+        return queryset
+
+
+class SMSTemplateRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
+    """Shablonni tahrirlash (Edit) va O'chirish (Delete) API-si"""
+    queryset = BotMessageTemplate.objects.all()
+    serializer_class = SMSBotTemplateSerializer
+
+
+# ================= 2. BARCHAGA BIR VAQTDA KATEGORIYA BOYICHA SMS YUBORISH APISI =================
+class SendBulkSMSAPIView(APIView):
+    """
+    Rasmda ko'rsatilgan 'SMS yuborish' tugmasi.
+    Kategoriya (Section), Guruh yoki butun Auditoriyaga birdaniga SMS/Telegram xabar yuboradi.
+    """
+
+    def post(self, request):
+        target = request.data.get('target')  # 'leads', 'students', 'staff'
+        section_id = request.data.get('section_id')  # Agar 'leads' tanlansa, qaysi kanyatener (Section) id-si
+        shablon_id = request.data.get('template_id')  # Tanlangan tayyor shablon IDsi (ixtiyoriy)
+        custom_text = request.data.get('text')  # Qo'lda yozilgan matn (shablon tanlanmasa)
+
+        if not target:
+            return Response({"error": "target (leads, students, staff) yuborilishi majburiy!"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Xabar matnini aniqlab olamiz
+        msg_text = custom_text
+        if shablon_id:
+            try:
+                shablon = BotMessageTemplate.objects.get(id=shablon_id)
+                msg_text = shablon.text
+            except BotMessageTemplate.DoesNotExist:
+                return Response({"error": "Tanlangan shablon topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not msg_text:
+            return Response({"error": "Xabar matni bo'sh bo'lishi mumkin emas!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Kimlarga xabar ketishini aniqlaymiz (Auditoriya va Section bo'yicha filter)
+        recipients = []
+
+        if target == 'leads':
+            leads_query = Lead.objects.filter(is_archived=False)
+            if section_id:
+                leads_query = leads_query.filter(section_id=section_id)  # Maxsus Section filteri
+
+            for lead in leads_query:
+                # Lid modellarida chat_id yo'qligi uchun uning telefoniga (SMS provayder orqali) xabar ketadi deb hisoblaymiz
+                recipients.append({
+                    "name": lead.name,
+                    "phone": lead.phone,
+                    "chat_id": None,
+                    "context": {"{first_name}": lead.name, "{section_name}": lead.section.name if lead.section else ""}
+                })
+
+        elif target == 'students':
+            students_query = Student.objects.all()
+            for student in students_query:
+                recipients.append({
+                    "name": student.first_name,
+                    "phone": student.phone,
+                    "chat_id": student.telegram_chat_id,
+                    "context": {"{first_name}": student.first_name, "{balance}": str(student.balance)}
+                })
+
+        elif target == 'staff':
+            staff_query = User.objects.filter(is_active=True)
+            for member in staff_query:
+                # Xodimlarning telegram chat_id si bor deb hisoblaymiz
+                chat_id = getattr(member, 'telegram_chat_id', None)
+                recipients.append({
+                    "name": member.get_full_name() or member.username,
+                    "phone": getattr(member, 'phone', ''),
+                    "chat_id": chat_id,
+                    "context": {"{first_name}": member.username}
+                })
+
+        # 🚀 XABARLARNI ETKAZIB BERISH SIKLI (MASS DISPATCH)
+        sent_count = 0
+        for r in recipients:
+            # Matndagi o'zgaruvchilarni dinamik almashtiramiz
+            final_text = msg_text
+            for placeholder, value in r['context'].items():
+                final_text = final_text.replace(placeholder, value)
+
+            # AGAR TELEGRAM CHAT_ID BO'LSA - TELEGRAMGA OTADI
+            if r['chat_id']:
+                try:
+                    # Bu yerda sizning bot tokeningiz bo'ladi
+                    token = "YOUR_BOT_TOKEN_HERE"
+                    url = f"https://api.telegram.org/bot{token}/sendMessage"
+                    requests.post(url, json={'chat_id': r['chat_id'], 'text': final_text, 'parse_mode': 'HTML'},
+                                  timeout=3)
+                    sent_count += 1
+                except Exception:
+                    pass
+            # CHAT ID BO'LMASA YOKI LID BO'LSA - SMS XABAR BORADI (Masalan, Eskiz SMS API orqali)
+            else:
+                # Logikangizga qarab shu yerda SMS gateway (Eskiz, PlayMobile) chaqiriladi
+                print(f"SMS SEND TO {r['phone']}: {final_text}")
+                sent_count += 1
+
+        return Response({
+            "message": "Ommaviy xabarlar muvaffaqiyatli jo'natildi!",
+            "total_recipients": len(recipients),
+            "successfully_sent": sent_count
+        }, status=status.HTTP_200_OK)

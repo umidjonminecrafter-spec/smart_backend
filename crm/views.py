@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Lead, CRMLeadsHistory
-from .serializers import CRMLeadHistorySerializer
+from .serializers import CRMLeadsHistorySerializer
 class PipelineViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
     permission_page_name = 'Lidlar'

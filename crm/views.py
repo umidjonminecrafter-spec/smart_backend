@@ -274,32 +274,34 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
-# ================= 1. SHABLONLAR USTIDA CRUD (KORISH, QOSHISH, TAHRIRLASH, OCHIRISH) =================
 class SMSTemplateListCreateAPIView(generics.ListCreateAPIView):
-    """SMS shablonlarni ko'rish (Auditoriya bo'yicha filterlangan holda) va yangi qo'shish"""
     serializer_class = SMSBotTemplateSerializer
 
     def get_queryset(self):
-        # /api/v1/crm/sms-templates/?audience=leads (yoki students, staff) deb filterlash uchun
         queryset = BotMessageTemplate.objects.all()
         audience = self.request.query_params.get('audience')
         if audience:
             queryset = queryset.filter(target_audience=audience)
         return queryset
 
+    def perform_create(self, serializer):
+        user = self.request.user
+        organization = getattr(user, 'organization', None)
+
+        if organization:
+            serializer.save(organization=organization)
+        else:
+            from organizations.models import Organization
+            first_org = Organization.objects.first()
+            serializer.save(organization=first_org)
+
 
 class SMSTemplateRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
-    """Shablonni tahrirlash (Edit) va O'chirish (Delete) API-si"""
     queryset = BotMessageTemplate.objects.all()
     serializer_class = SMSBotTemplateSerializer
 
 
-# ================= 2. BARCHAGA BIR VAQTDA KATEGORIYA BOYICHA SMS YUBORISH APISI =================
 class SendBulkSMSAPIView(APIView):
-    """
-    Rasmda ko'rsatilgan 'SMS yuborish' tugmasi.
-    Kategoriya (Section), Guruh yoki butun Auditoriyaga birdaniga SMS/Telegram xabar yuboradi.
-    """
 
     def post(self, request):
         target = request.data.get('target')  # 'leads', 'students', 'staff'
@@ -311,7 +313,6 @@ class SendBulkSMSAPIView(APIView):
             return Response({"error": "target (leads, students, staff) yuborilishi majburiy!"},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # Xabar matnini aniqlab olamiz
         msg_text = custom_text
         if shablon_id:
             try:
@@ -323,7 +324,6 @@ class SendBulkSMSAPIView(APIView):
         if not msg_text:
             return Response({"error": "Xabar matni bo'sh bo'lishi mumkin emas!"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Kimlarga xabar ketishini aniqlaymiz (Auditoriya va Section bo'yicha filter)
         recipients = []
 
         if target == 'leads':
@@ -332,7 +332,6 @@ class SendBulkSMSAPIView(APIView):
                 leads_query = leads_query.filter(section_id=section_id)  # Maxsus Section filteri
 
             for lead in leads_query:
-                # Lid modellarida chat_id yo'qligi uchun uning telefoniga (SMS provayder orqali) xabar ketadi deb hisoblaymiz
                 recipients.append({
                     "name": lead.name,
                     "phone": lead.phone,

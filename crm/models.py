@@ -130,3 +130,54 @@ class CRMLeadLost(TenantModel):
 
     def __str__(self):
         return f"Lost: {self.lead.name}"
+from django.db.models.signals import pre_save, post_save
+from django.dispatch import receiver
+
+@receiver(pre_save, sender=Lead)
+def track_lead_changes(sender, instance, **kwargs):
+    if not instance.pk:
+        instance._old_status = None
+        instance._old_name = None
+        instance._old_phone = None
+        instance._old_section = None
+        return
+
+    try:
+        old_instance = Lead.objects.get(pk=instance.pk)
+        instance._old_status = old_instance.status
+        instance._old_name = old_instance.name
+        instance._old_phone = old_instance.phone
+        instance._old_section = old_instance.section
+    except Lead.DoesNotExist:
+        pass
+
+@receiver(post_save, sender=Lead)
+def save_lead_history(sender, instance, created, **kwargs):
+
+
+    changes = []
+
+    if created:
+        changes.append(f"Yangi lid yaratildi. Ismi: '{instance.name}', Telefon: {instance.phone}")
+    else:
+        if hasattr(instance, '_old_name') and instance._old_name != instance.name:
+            changes.append(f"Lid ismi o'zgartirildi: '{instance._old_name}' -> '{instance.name}'")
+
+        if hasattr(instance, '_old_phone') and instance._old_phone != instance.phone:
+            changes.append(f"Telefon raqami o'zgargan: '{instance._old_phone}' -> '{instance.phone}'")
+
+        if hasattr(instance, '_old_status') and instance._old_status != instance.status:
+            changes.append(f"Lid holati (Status) o'zgardi: '{instance._old_status}' -> '{instance.status}'")
+
+        if hasattr(instance, '_old_section') and instance._old_section != instance.section:
+            old_sec = instance._old_section.name if instance._old_section else "Yo'q"
+            new_sec = instance.section.name if instance.section else "Yo'q"
+            changes.append(f"Bo'lim o'zgartirildi: '{old_sec}' -> '{new_sec}'")
+
+    if changes:
+        full_log = " | ".join(changes)
+        CRMLeadsHistory.objects.create(
+            organization=instance.organization,
+            lead=instance,
+            change_details=full_log
+        )

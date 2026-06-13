@@ -8,6 +8,8 @@ from crm.views import (
 from crm.views import SMSTemplateListCreateAPIView, SMSTemplateRetrieveUpdateDestroyAPIView, \
     SendBulkSMSAPIView
 
+from crm.views import LeadHistoryAPIView
+
 router = DefaultRouter()
 router.register(r'pipelines', PipelineViewSet, basename='pipeline')
 router.register(r'leads', LeadViewSet, basename='lead')
@@ -27,4 +29,5 @@ urlpatterns = [
 
     # 🚀 Ommaviy xabar yuborish (SMS yuborish tugmasi)
     path('sms/send-bulk/', SendBulkSMSAPIView.as_view(), name='sms-send-bulk'),
+    path('lead/history/', LeadHistoryAPIView.as_view(), name='crm-lead-history'),
 ]

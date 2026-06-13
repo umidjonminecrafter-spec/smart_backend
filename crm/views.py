@@ -9,7 +9,11 @@ from crm.serializers import (
     PipelineSerializer, SourceSerializer, LostReasonSerializer,
     SectionSerializer, LeadFormSerializer, LeadSerializer
 )
-
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from .models import Lead, CRMLeadsHistory
+from .serializers import CRMLeadHistorySerializer
 class PipelineViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
     permission_page_name = 'Lidlar'
@@ -216,11 +220,41 @@ class CRMActivityViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     queryset = CRMActivity.objects.all()
     serializer_class = CRMActivitySerializer
 
-class CRMLeadsHistoryViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
-    permission_page_name = 'Lidlar'
-    queryset = CRMLeadsHistory.objects.all()
-    serializer_class = CRMLeadsHistorySerializer
+
+class LeadHistoryAPIView(APIView):
+    """
+    Muayyan lidning tarixini (o'zgarishlar xronologiyasini) olib beruvchi API
+    """
+
+    def get(self, request):
+        lead_id = request.query_params.get('lead_id')
+
+        if not lead_id:
+            return Response(
+                {"error": "lead_id parametri yuborilishi majburiy!"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # Lid mavjudligini tekshiramiz
+            lead = Lead.objects.get(id=lead_id)
+
+            # Shunga tegishli tarixlarni vaqt bo'yicha eng yangisini tepaga saralab olamiz
+            history = CRMLeadsHistory.objects.filter(lead=lead).order_by('-created_at')
+
+            serializer = CRMLeadsHistorySerializer(history, many=True)
+
+            return Response({
+                "lead_id": lead.id,
+                "lead_name": lead.name,
+                "history": serializer.data
+            }, status=status.HTTP_200_OK)
+
+        except Lead.DoesNotExist:
+            return Response(
+                {"error": "Lid topilmadi!"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 class CRMLeadLostViewSet(TenantViewSetMixin, CreateListRetrieveViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]

@@ -80,11 +80,13 @@ class CRMActivitySerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
-class CRMLeadsHistorySerializer(serializers.ModelSerializer):
+class CRMLeadHistorySerializer(serializers.ModelSerializer):
+    # Sanani o'qishga qulay formatga o'giramiz (yil-oy-kun soat:daqiqa)
+    created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", read_only=True)
+
     class Meta:
         model = CRMLeadsHistory
-        fields = '__all__'
-        read_only_fields = ('organization', 'created_at', 'updated_at')
+        fields = ['id', 'change_details', 'created_at']
 
 class CRMLeadLostSerializer(serializers.ModelSerializer):
     class Meta:

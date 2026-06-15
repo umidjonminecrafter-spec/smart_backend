@@ -186,6 +186,9 @@ class Attendance(TenantModel):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='present')
     title = models.CharField(max_length=255, null=True, blank=True, verbose_name="Dars mavzusi")
     description = models.TextField(null=True, blank=True, verbose_name="Dars izohi/tavsifi")
+    is_canceled = models.BooleanField(default=False, verbose_name="Dars bekor qilinganmi?")
+    original_date = models.DateField(null=True, blank=True,
+                                     verbose_name="Darsning asl (ko'chirilishdan oldingi) sanasi")
 
     class Meta:
         # unique_together cheklovi olib tashlandi, chunki student NULL bo'lsa baza konflikt beradi.

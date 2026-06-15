@@ -10,6 +10,9 @@ from crm.views import SMSTemplateListCreateAPIView, SMSTemplateRetrieveUpdateDes
 
 from crm.views import LeadHistoryAPIView
 
+from crm.views import LeadFormListCreateAPIView, PublicLeadFormDetailAPIView, \
+    LeadFormRetrieveUpdateDestroyAPIView, PublicLeadSubmitAPIView
+
 router = DefaultRouter()
 router.register(r'pipelines', PipelineViewSet, basename='pipeline')
 router.register(r'leads', LeadViewSet, basename='lead')
@@ -29,4 +32,12 @@ urlpatterns = [
     # 🚀 Ommaviy xabar yuborish (SMS yuborish tugmasi)
     path('sms/send-bulk/', SendBulkSMSAPIView.as_view(), name='sms-send-bulk'),
     path('lead/history/', LeadHistoryAPIView.as_view(), name='crm-lead-history'),
+
+# Adminlar paneli uchun yo'llar
+    path('forms/', LeadFormListCreateAPIView.as_view(), name='lead-form-list-create'),
+    path('forms/<int:pk>/', LeadFormRetrieveUpdateDestroyAPIView.as_view(), name='lead-form-detail'),
+
+    # Tashqi foydalanuvchilar (Mijozlar) uchun public yo'llar
+    path('public/forms/<int:pk>/', PublicLeadFormDetailAPIView.as_view(), name='public-form-detail'),
+    path('public/forms/submit/', PublicLeadSubmitAPIView.as_view(), name='public-form-submit'),
 ]

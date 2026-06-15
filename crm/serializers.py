@@ -103,3 +103,46 @@ class SMSBotTemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = BotMessageTemplate
         fields = ['id', 'title', 'target_audience', 'target_audience_display', 'template_type', 'template_type_display', 'text', 'is_active']
+
+
+from .models import LeadForm, Lead
+
+
+class LeadFormCRUDSerializer(serializers.ModelSerializer):
+    """Adminlar uchun formani yaratish, ko'rish va o'zgartirish serializer-i"""
+
+    class Meta:
+        model = LeadForm
+        fields = '__all__'
+
+
+class PublicLeadSubmitSerializer(serializers.Serializer):
+    """Tashqi foydalanuvchi formani to'ldirib yuborganda lid yaratuvchi serializer"""
+    form_id = serializers.IntegerField(write_only=True)
+    name = serializers.CharField(max_length=255)
+    phone = serializers.CharField(max_length=50)
+
+    # Qo'shimcha dinamik maydonlarni (masalan, Soat, Izoh) vaqtinchalik tutish uchun:
+    additional_data = serializers.JSONField(required=False, default=dict)
+
+    def save(self, **kwargs):
+        form_id = self.validated_data['form_id']
+        form_obj = LeadForm.objects.get(id=form_id)
+
+        # Qo'shimcha kiritilgan ma'lumotlarni JSON ko'rinishida notes yoki commentga yozamiz
+        notes_list = []
+        if self.validated_data.get('additional_data'):
+            for key, val in self.validated_data['additional_data'].items():
+                notes_list.append({"field": key, "value": val})
+
+        # Avtomatik Lid ochamiz
+        lead = Lead.objects.create(
+            organization=form_obj.organization,
+            name=self.validated_data['name'],
+            phone=self.validated_data['phone'],
+            pipeline=form_obj.pipeline,
+            section=form_obj.section,
+            source=form_obj.source,
+            notes=notes_list
+        )
+        return lead

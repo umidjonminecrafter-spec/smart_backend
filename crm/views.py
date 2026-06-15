@@ -13,7 +13,9 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Lead, CRMLeadsHistory
-from .serializers import CRMLeadsHistorySerializer
+from .serializers import CRMLeadsHistorySerializer, PublicLeadSubmitSerializer, LeadFormCRUDSerializer
+
+
 class PipelineViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
     permission_page_name = 'Lidlar'
@@ -391,3 +393,37 @@ class SendBulkSMSAPIView(APIView):
             "total_recipients": len(recipients),
             "successfully_sent": sent_count
         }, status=status.HTTP_200_OK)
+
+from rest_framework.permissions import AllowAny
+# ================= 1. ADMIN PANEL UCHUN (CRUD) =================
+class LeadFormListCreateAPIView(generics.ListCreateAPIView):
+    """Adminlar uchun formalarni shakllantirish va ro'yxatini olish"""
+    queryset = LeadForm.objects.all()
+    serializer_class = LeadFormCRUDSerializer
+
+class LeadFormRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
+    """Adminlar uchun formani tahrirlash (Edit), o'chirish (Delete) va bitta formani ko'rish"""
+    queryset = LeadForm.objects.all()
+    serializer_class = LeadFormCRUDSerializer
+
+
+# ================= 2. TASHQI DUNYO (PUBLIC) UCHUN APILAR =================
+class PublicLeadFormDetailAPIView(generics.RetrieveAPIView):
+    """Avtorizatsiyasiz ishlaydi. Landing sahifa formani chizishi uchun stil va fieldlarni oladi"""
+    queryset = LeadForm.objects.all()
+    serializer_class = LeadFormCRUDSerializer
+    permission_classes = [AllowAny] # Login shart emas!
+
+class PublicLeadSubmitAPIView(APIView):
+    """Mijoz formani to'ldirib 'Sumbit' qilganda ishlaydigan API"""
+    permission_classes = [AllowAny] # Login shart emas!
+
+    def post(self, request):
+        serializer = PublicLeadSubmitSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                "success": True,
+                "message": "Ma'lumotlar qabul qilindi, tez orada aloqaga chiqamiz!"
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

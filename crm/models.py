@@ -1,3 +1,5 @@
+import string
+
 from django.db import models
 from django.conf import settings
 from organizations.models import TenantModel
@@ -32,9 +34,24 @@ class Section(TenantModel):
     def __str__(self):
         return self.name
 
+
 class LeadForm(TenantModel):
-    name = models.CharField(max_length=150)
-    fields = models.JSONField(default=list, blank=True)
+    name = models.CharField(max_length=150, verbose_name="Forma nomi")
+
+    # 🎯 Lid kelib tushadigan joy sozlamalari
+    pipeline = models.ForeignKey(Pipeline, on_delete=models.SET_NULL, null=True, blank=True)
+    section = models.ForeignKey(Section, on_delete=models.SET_NULL, null=True, blank=True)
+    source = models.ForeignKey(Source, on_delete=models.SET_NULL, null=True, blank=True)
+
+    # help_text qismi uchtalik qo'shnoqnoq ichiga olindi:
+    fields = models.JSONField(default=list, blank=True,
+                              help_text="""[{"name": "name", "label": "Ism", "required": true}]""")
+    cover_image = models.ImageField(upload_to='lead_forms/covers/', null=True, blank=True)
+    logo_image = models.ImageField(upload_to='lead_forms/logos/', null=True, blank=True)
+    header_text = models.CharField(max_length=255, null=True, blank=True, verbose_name="Asosiy matn")
+    success_text = models.TextField(default="Ma'lumotlaringiz muvaffaqiyatli yuborildi!",
+                                    verbose_name="Yuborilgandan keyingi matn")
+    theme_color = models.CharField(max_length=30, default="#e28743", verbose_name="Forma rangi (Hex code)")
 
     def __str__(self):
         return self.name

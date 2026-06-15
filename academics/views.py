@@ -1447,3 +1447,34 @@ class TelegramWebhookView(APIView):
         except Exception as e:
             print(f"Error handling webhook for {bot_type}: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+from rest_framework.serializers import ModelSerializer
+class SetLessonTopicSerializer(ModelSerializer):
+    class Meta:
+        model = Attendance
+        fields = ['title', 'description']
+        extra_kwargs = {
+            'title': {'required': True}  # Sarlavha majburiy bo'ladi
+        }
+
+
+class SetLessonTopicAPIView(APIView):
+    """Guruh dars kuniga mavzu va qisqa izoh belgilash API-si"""
+
+    def post(self, request, attendance_id):
+        try:
+            # O'sha kungi dars dars/davomat obyektini olamiz
+            lesson = Attendance.objects.get(id=attendance_id)
+        except Attendance.DoesNotExist:
+            return Response({"error": "Belgilangan dars kuni topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = SetLessonTopicSerializer(lesson, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()  # Signal ishga tushib, onlayn dars materialini ham avtomatik ochadi/yangilaydi
+            return Response({
+                "success": True,
+                "message": "Mavzu muvaffaqiyatli belgilandi va LMS bo'limida bo'sh dars ochildi!",
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

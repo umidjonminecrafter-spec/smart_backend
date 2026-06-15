@@ -8,7 +8,7 @@ from .views import (
     LeaveReasonViewSet, LessonTimeViewSet, OnlineLessonViewSet, StudentGroupLeaveViewSet,
     StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet, SendCodeAPIView,
     VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView, ParentStudentsAPIView, ParentStudentDetailsAPIView,
-    StaffProfileAPIView, StaffScheduleAPIView, BotMessageTemplateViewSet, TelegramWebhookView
+    StaffProfileAPIView, StaffScheduleAPIView, BotMessageTemplateViewSet, TelegramWebhookView, SetLessonTopicAPIView
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -80,4 +80,5 @@ urlpatterns = [
     path('staff/profile/', StaffProfileAPIView.as_view(), name='bot-staff-profile'),
     path('staff/schedule/', StaffScheduleAPIView.as_view(), name='bot-staff-schedule'),
     path('telegram/webhook/<str:bot_type>/<str:token>/', TelegramWebhookView.as_view(), name='telegram-webhook'),
+    path('attendance/<int:attendance_id>/set-topic/', SetLessonTopicAPIView.as_view(), name='set-attendance-topic'),
 ]

@@ -1522,17 +1522,26 @@ class RescheduleLessonAPIView(APIView):
             }, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+from .models import generate_group_lessons
 from rest_framework.generics import ListAPIView
 class GroupLessonListAPIView(ListAPIView):
     """Guruh id-si bo'yicha darslar ro'yxatini olish API-si (?group=1)"""
     serializer_class = GroupLessonListSerializer
 
     def get_queryset(self):
-        queryset = GroupLesson.objects.all()
         group_id = self.request.query_params.get('group')
+        if not group_id:
+            return GroupLesson.objects.none()
 
-        if group_id:
-            queryset = queryset.filter(group_id=group_id)
+        # 🎯 ENG MUHIM JOYI:
+        # Agar bu guruh uchun bazada umuman dars kuni ochilmagan bo'lsa,
+        # Real vaqtda (On-the-fly) darslarni generatsiya qilib yuboramiz!
+        if not GroupLesson.objects.filter(group_id=group_id).exists():
+            try:
+                group = Group.objects.get(id=group_id)
+                generate_group_lessons(group)
+            except Group.DoesNotExist:
+                return GroupLesson.objects.none()
 
-        return queryset.order_by('date')
+        # Darslar generatsiya bo'lgandan keyin ro'yxatni qaytaramiz
+        return GroupLesson.objects.filter(group_id=group_id).order_by('date')

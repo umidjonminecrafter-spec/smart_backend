@@ -184,11 +184,6 @@ class Attendance(TenantModel):
     student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="attendances")
     date = models.DateField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='present')
-    title = models.CharField(max_length=255, null=True, blank=True, verbose_name="Dars mavzusi")
-    description = models.TextField(null=True, blank=True, verbose_name="Dars izohi/tavsifi")
-    is_canceled = models.BooleanField(default=False, verbose_name="Dars bekor qilinganmi?")
-    original_date = models.DateField(null=True, blank=True,
-                                     verbose_name="Darsning asl (ko'chirilishdan oldingi) sanasi")
 
     class Meta:
         # unique_together cheklovi olib tashlandi, chunki student NULL bo'lsa baza konflikt beradi.
@@ -589,36 +584,40 @@ def notify_parent_attendance(sender, instance, created, **kwargs):
             print(f"Error sending attendance notification to parent {chat_id}: {str(e)}")
 
 
-@receiver(post_save, sender=Attendance)
-def sync_attendance_topic_with_online_lesson(sender, instance, created, **kwargs):
-    """
-    Davomat panelida muayyan kunga dars mavzusi yozilsa,
-    LMS (Onlayn dars materiallari) bo'limida avtomatik yangi dars yaratadi.
-    """
-    # Agar darsga hali mavzu belgilanmagan bo'lsa, signal ishlamaydi
+class GroupLesson(TenantModel):
+    """Guruhning yo'qlamadan mustaqil, kalendardagi har bitta dars kuni"""
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="lessons")
+    date = models.DateField(verbose_name="Dars sanasi")
+
+    # Mavzu va izoh
+    title = models.CharField(max_length=255, null=True, blank=True, verbose_name="Dars mavzusi")
+    description = models.TextField(null=True, blank=True, verbose_name="Dars izohi")
+
+    # Bekor qilish va ko'chirish maydonlari
+    is_canceled = models.BooleanField(default=False, verbose_name="Dars bekor qilinganmi?")
+    original_date = models.DateField(null=True, blank=True, verbose_name="Asl sanasi")
+
+    def __str__(self):
+        return f"{self.group.name} - {self.date} - {self.title or 'Mavzusiz'}"
+
+
+
+@receiver(post_save, sender=GroupLesson)
+def sync_group_lesson_with_lms(sender, instance, created, **kwargs):
     if not instance.title:
         return
 
-    # Ushbu guruh va shu sana uchun onlayn dars allaqachon ochilganmi yoki yo'qligini tekshiramiz
+    # Guruh dars kuniga qarab LMS darsini qidiramiz
     online_lesson = OnlineLesson.objects.filter(
         group=instance.group,
-        attendance_date=instance.date,
-        organization=instance.organization
+        video_url__isnull=True, # faqat avtomat ochilgan bo'sh darslarni topish uchun
+        title=instance.title
     ).first()
 
     if not online_lesson:
-        # 1. Agar dars mavjud bo'lmasa -> Yangi bo'sh dars yaratamiz
         OnlineLesson.objects.create(
             organization=instance.organization,
             group=instance.group,
             title=instance.title,
-            description=instance.description,
-            attendance_date=instance.date,
-            is_published=True # o'quvchilar reja sifatida ko'rib turishlari uchun
+            is_published=True
         )
-    else:
-        # 2. Agar mavzu o'zgartirilgan bo'lsa -> Bor darsni tahrirlaymiz
-        if online_lesson.title != instance.title or online_lesson.description != instance.description:
-            online_lesson.title = instance.title
-            online_lesson.description = instance.description
-            online_lesson.save()

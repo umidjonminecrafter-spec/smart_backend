@@ -7,8 +7,9 @@ from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
 from organizations.mixins import TenantViewSetMixin
-from .models import StudentFieldSetting
-from .serializers import StudentFieldSettingSerializer, StudentProfileSerializer
+from .models import StudentFieldSetting, GroupLesson
+from .serializers import StudentFieldSettingSerializer, StudentProfileSerializer, RescheduleLessonSerializer, \
+    SetLessonTopicSerializer
 from academics.models import (
     Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing,
@@ -1448,106 +1449,76 @@ class TelegramWebhookView(APIView):
             print(f"Error handling webhook for {bot_type}: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-from rest_framework.serializers import ModelSerializer
-class SetLessonTopicSerializer(ModelSerializer):
-    class Meta:
-        model = Attendance
-        fields = ['title', 'description']
-        extra_kwargs = {
-            'title': {'required': True}  # Sarlavha majburiy bo'ladi
-        }
 
-
+# 1. MAVZU QO'SHISH
 class SetLessonTopicAPIView(APIView):
-    """Guruh dars kuniga mavzu va qisqa izoh belgilash API-si"""
-
-    def post(self, request, attendance_id):
+    def post(self, request, lesson_id):
         try:
-            # O'sha kungi dars dars/davomat obyektini olamiz
-            lesson = Attendance.objects.get(id=attendance_id)
-        except Attendance.DoesNotExist:
-            return Response({"error": "Belgilangan dars kuni topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
+            lesson = GroupLesson.objects.get(id=lesson_id)
+        except GroupLesson.DoesNotExist:
+            return Response({"error": "Dars kuni topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = SetLessonTopicSerializer(lesson, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()  # Signal ishga tushib, onlayn dars materialini ham avtomatik ochadi/yangilaydi
+            serializer.save()  # Bu yerda signal ishlab ketadi
             return Response({
                 "success": True,
-                "message": "Mavzu muvaffaqiyatli belgilandi va LMS bo'limida bo'sh dars ochildi!",
+                "message": "Mavzu dars kalendariga qo'shildi!",
                 "data": serializer.data
             }, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-import datetime
-class CancelOrRestoreLessonAPIView(APIView):
-    """Darsni bekor qilish yoki qayta tiklash (Faqat bugun va kelajak uchun)"""
 
-    def post(self, request, attendance_id):
+# 2. DARSNI BEKOR QILISH (Bu yerda serializer shart emas, chunki tana (body) bo'sh keladi)
+class CancelOrRestoreLessonAPIView(APIView):
+    def post(self, request, lesson_id):
         try:
-            lesson = Attendance.objects.get(id=attendance_id)
-        except Attendance.DoesNotExist:
+            lesson = GroupLesson.objects.get(id=lesson_id)
+        except GroupLesson.DoesNotExist:
             return Response({"error": "Dars topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Cheklov: O'tgan kunlarni o'zgartirish taqiqlanadi
         today = timezone.now().date()
         if lesson.date < today:
-            return Response({"error": "O'tib ketgan darslarni bekor qilib yoki tiklab bo'lmaydi!"},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "O'tib ketgan darsni bekor qilib bo'lmaydi!"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Holatni teskarisiga o'zgartiramiz (Bekor bo'lsa tiklaydi, faol bo'lsa bekor qiladi)
         lesson.is_canceled = not lesson.is_canceled
         lesson.save()
-
-        status_msg = "bekor qilindi" if lesson.is_canceled else "qayta tiklandi"
         return Response({
             "success": True,
-            "message": f"Dars muvaffaqiyatli {status_msg}!",
-            "is_canceled": lesson.is_canceled
+            "is_canceled": lesson.is_canceled,
+            "message": "Dars holati o'zgardi!"
         }, status=status.HTTP_200_OK)
 
 
-# ================= 2. DARSNI BOSHQA SANAGA KO'CHIRISH API =================
+# 3. DARSNI KO'CHIRISH
 class RescheduleLessonAPIView(APIView):
-    """Dars sanasini boshqa kunga ko'chirish"""
-
-    def post(self, request, attendance_id):
-        new_date_str = request.data.get("new_date")  # "2026-06-20" formatda keladi
-        if not new_date_str:
-            return Response({"error": "Yangi sana (new_date) yuborilmadi!"}, status=status.HTTP_400_BAD_REQUEST)
-
+    def post(self, request, lesson_id):
         try:
-            lesson = Attendance.objects.get(id=attendance_id)
-            new_date = datetime.datetime.strptime(new_date_str, "%Y-%m-%d").date()
-        except Attendance.DoesNotExist:
+            lesson = GroupLesson.objects.get(id=lesson_id)
+        except GroupLesson.DoesNotExist:
             return Response({"error": "Dars topilmadi!"}, status=status.HTTP_404_NOT_FOUND)
-        except ValueError:
-            return Response({"error": "Sana formati noto'g'ri. YYYY-MM-DD ko'rinishida yuboring!"},
-                            status=status.HTTP_400_BAD_REQUEST)
 
         today = timezone.now().date()
-
-        # Cheklov 1: Eski dars o'tib ketgan bo'lsa ko'chirib bo'lmaydi
         if lesson.date < today:
             return Response({"error": "O'tib ketgan darsni ko'chirish mumkin emas!"},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # Cheklov 2: Faqat bugungi yoki kelajakdagi sanaga ko'chirish mumkin
-        if new_date < today:
-            return Response({"error": "Darsni o'tgan sanaga ko'chirish mumkin emas!"},
-                            status=status.HTTP_400_BAD_REQUEST)
+        # Serializer orqali tekshiramiz
+        serializer = RescheduleLessonSerializer(data=request.data)
+        if serializer.is_valid():
+            new_date = serializer.validated_data['new_date']
 
-        # Agar birinchi marta ko'chirilayotgan bo'lsa, asl sanasini eslab qolamiz
-        if not lesson.original_date:
-            lesson.original_date = lesson.date
+            if not lesson.original_date:
+                lesson.original_date = lesson.date
 
-        # Sanani yangilaymiz
-        lesson.date = new_date
-        lesson.save()
+            lesson.date = new_date
+            lesson.save()
 
-        return Response({
-            "success": True,
-            "message": "Dars sanasi muvaffaqiyatli ko'chirildi!",
-            "current_date": lesson.date,
-            "original_date": lesson.original_date
-        }, status=status.HTTP_200_OK)
+            return Response({
+                "success": True,
+                "current_date": lesson.date,
+                "original_date": lesson.original_date
+            }, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

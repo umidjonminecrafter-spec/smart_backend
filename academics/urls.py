@@ -81,9 +81,8 @@ urlpatterns = [
     path('staff/profile/', StaffProfileAPIView.as_view(), name='bot-staff-profile'),
     path('staff/schedule/', StaffScheduleAPIView.as_view(), name='bot-staff-schedule'),
     path('telegram/webhook/<str:bot_type>/<str:token>/', TelegramWebhookView.as_view(), name='telegram-webhook'),
-    path('attendance/<int:attendance_id>/set-topic/', SetLessonTopicAPIView.as_view(), name='set-attendance-topic'),
-
-    path('attendance/<int:attendance_id>/cancel-or-restore/', CancelOrRestoreLessonAPIView.as_view(), name='cancel-restore-lesson'),
-    path('attendance/<int:attendance_id>/reschedule/', RescheduleLessonAPIView.as_view(), name='reschedule-lesson'),
+    path('lessons/<int:lesson_id>/set-topic/', SetLessonTopicAPIView.as_view(), name='set-lesson-topic'),
+    path('lessons/<int:lesson_id>/cancel-or-restore/', CancelOrRestoreLessonAPIView.as_view(), name='cancel-restore-lesson'),
+    path('lessons/<int:lesson_id>/reschedule/', RescheduleLessonAPIView.as_view(), name='reschedule-lesson'),
 ]
 

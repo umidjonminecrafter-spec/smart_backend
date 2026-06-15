@@ -5,7 +5,7 @@ from academics.models import (
     StudentArchive, Holiday, Homework
 )
 from accounts.serializers import UserSerializer
-from .models import StudentFieldSetting
+from .models import StudentFieldSetting, GroupLesson
 from .models import Student, BotMessageTemplate
 
 
@@ -672,3 +672,22 @@ class StudentFieldSettingSerializer(serializers.ModelSerializer):
         model = StudentFieldSetting
         fields = "__all__"
         read_only_fields = ("organization",)
+from django.utils import timezone
+# 1. Mavzu belgilash uchun serializer
+class SetLessonTopicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GroupLesson
+        fields = ['title', 'description']
+        extra_kwargs = {
+            'title': {'required': True, 'allow_blank': False}
+        }
+
+# 2. Sanani ko'chirish uchun serializer
+class RescheduleLessonSerializer(serializers.Serializer):
+    new_date = serializers.DateField(required=True)
+
+    def validate_new_date(self, value):
+        # Cheklov: Sanani o'tgan kunga ko'chirib bo'lmaydi
+        if value < timezone.now().date():
+            raise serializers.ValidationError("Darsni o'tgan sanaga ko'chirish mumkin emas!")
+        return value

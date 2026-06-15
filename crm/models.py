@@ -44,8 +44,11 @@ class LeadForm(TenantModel):
     source = models.ForeignKey(Source, on_delete=models.SET_NULL, null=True, blank=True)
 
     # help_text qismi uchtalik qo'shnoqnoq ichiga olindi:
-    fields = models.JSONField(default=list, blank=True,
-                              help_text="""[{"name": "name", "label": "Ism", "required": true}]""")
+    fields = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="""[{"name": "name", "label": "Ism", "required": true}]"""
+    )
     cover_image = models.ImageField(upload_to='lead_forms/covers/', null=True, blank=True)
     logo_image = models.ImageField(upload_to='lead_forms/logos/', null=True, blank=True)
     header_text = models.CharField(max_length=255, null=True, blank=True, verbose_name="Asosiy matn")

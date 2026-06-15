@@ -691,3 +691,22 @@ class RescheduleLessonSerializer(serializers.Serializer):
         if value < timezone.now().date():
             raise serializers.ValidationError("Darsni o'tgan sanaga ko'chirish mumkin emas!")
         return value
+
+class GroupLessonListSerializer(serializers.ModelSerializer):
+    # LMS bo'limida video dars yuklangan-yuklanmaganini bilish uchun qisqa belgi
+    has_online_material = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GroupLesson
+        fields = [
+            'id', 'group', 'date', 'title', 'description',
+            'is_canceled', 'original_date', 'has_online_material'
+        ]
+
+    def get_has_online_material(self, obj):
+        # Agar shu dars kuniga tegishli onlayn dars bo'lsa va unga video yuklangan bo'lsa true qaytadi
+        from .models import OnlineLesson
+        return OnlineLesson.objects.filter(
+            group=obj.group,
+            attendance_date=obj.date
+        ).exclude(video_url="").exists()

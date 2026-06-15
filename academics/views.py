@@ -9,7 +9,7 @@ from rest_framework.filters import SearchFilter
 from organizations.mixins import TenantViewSetMixin
 from .models import StudentFieldSetting, GroupLesson
 from .serializers import StudentFieldSettingSerializer, StudentProfileSerializer, RescheduleLessonSerializer, \
-    SetLessonTopicSerializer
+    SetLessonTopicSerializer, GroupLessonListSerializer
 from academics.models import (
     Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing,
@@ -1522,3 +1522,17 @@ class RescheduleLessonAPIView(APIView):
             }, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+from rest_framework.generics import ListAPIView
+class GroupLessonListAPIView(ListAPIView):
+    """Guruh id-si bo'yicha darslar ro'yxatini olish API-si (?group=1)"""
+    serializer_class = GroupLessonListSerializer
+
+    def get_queryset(self):
+        queryset = GroupLesson.objects.all()
+        group_id = self.request.query_params.get('group')
+
+        if group_id:
+            queryset = queryset.filter(group_id=group_id)
+
+        return queryset.order_by('date')

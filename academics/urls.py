@@ -9,7 +9,7 @@ from .views import (
     StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet, SendCodeAPIView,
     VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView, ParentStudentsAPIView, ParentStudentDetailsAPIView,
     StaffProfileAPIView, StaffScheduleAPIView, BotMessageTemplateViewSet, TelegramWebhookView, SetLessonTopicAPIView,
-    CancelOrRestoreLessonAPIView, RescheduleLessonAPIView
+    CancelOrRestoreLessonAPIView, RescheduleLessonAPIView, GroupLessonListAPIView
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -84,5 +84,8 @@ urlpatterns = [
     path('lessons/<int:lesson_id>/set-topic/', SetLessonTopicAPIView.as_view(), name='set-lesson-topic'),
     path('lessons/<int:lesson_id>/cancel-or-restore/', CancelOrRestoreLessonAPIView.as_view(), name='cancel-restore-lesson'),
     path('lessons/<int:lesson_id>/reschedule/', RescheduleLessonAPIView.as_view(), name='reschedule-lesson'),
+    path('lessons/', GroupLessonListAPIView.as_view(), name='group-lessons-list'),
+
+
 ]
 

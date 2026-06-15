@@ -1524,18 +1524,22 @@ class RescheduleLessonAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 from .models import generate_group_lessons
 from rest_framework.generics import ListAPIView
+
+
 class GroupLessonListAPIView(ListAPIView):
-    """Guruh id-si bo'yicha darslar ro'yxatini olish API-si (?group=1)"""
+    """Guruh id-si va ixtiyoriy sana oralig'i bo'yicha darslar ro'yxatini olish API-si"""
     serializer_class = GroupLessonListSerializer
+    pagination_class = None  # 🎯 KALENDAR UCHUN PAGINATION'NI O'CHIRAMIZ! Hamma dars birdiga chiqsin.
 
     def get_queryset(self):
         group_id = self.request.query_params.get('group')
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+
         if not group_id:
             return GroupLesson.objects.none()
 
-        # 🎯 ENG MUHIM JOYI:
-        # Agar bu guruh uchun bazada umuman dars kuni ochilmagan bo'lsa,
-        # Real vaqtda (On-the-fly) darslarni generatsiya qilib yuboramiz!
+        # Darslar yaratilmagan bo'lsa real vaqtda yaratish
         if not GroupLesson.objects.filter(group_id=group_id).exists():
             try:
                 group = Group.objects.get(id=group_id)
@@ -1543,5 +1547,12 @@ class GroupLessonListAPIView(ListAPIView):
             except Group.DoesNotExist:
                 return GroupLesson.objects.none()
 
-        # Darslar generatsiya bo'lgandan keyin ro'yxatni qaytaramiz
-        return GroupLesson.objects.filter(group_id=group_id).order_by('date')
+        queryset = GroupLesson.objects.filter(group_id=group_id)
+
+        # 🎯 Frontenddan kelayotgan start_date va end_date filtrlarini qo'shamiz
+        if start_date:
+            queryset = queryset.filter(date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(date__lte=end_date)
+
+        return queryset.order_by('date')

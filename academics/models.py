@@ -675,5 +675,5 @@ def generate_group_lessons(group_instance):
 # Guruh saqlanganda dars kunlarini generatsiya qilish signali
 @receiver(post_save, sender=Group)
 def trigger_lesson_generation(sender, instance, created, **kwargs):
-    if created or instance.tracker.has_changed('start_date') or instance.tracker.has_changed('end_date'):
-        generate_group_lessons(instance)
+    # Tracker xatoligini oldini olish uchun to'g'ridan-to'g'ri funksiyani chaqiramiz
+    generate_group_lessons(instance)

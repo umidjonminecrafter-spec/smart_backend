@@ -520,73 +520,116 @@ def verify_register_code(request):
 from django.db.models import Q
 from academics.models import Student, Group
 from rest_framework.permissions import IsAuthenticated
+
+
+
+# Modellaringiz joylashgan joyga qarab importlarni tekshiring
+from academics.models import Student, Group
+from .serializers import GlobalSearchSerializer
+
+from academics.models import Student, Group
+from organizations.serializers import GlobalSearchSerializer
+
+User = get_user_model()
+
+
 class GlobalSearchAPIView(APIView):
-    """Tizim bo'ylab o'quvchilar, xodimlar va guruhlarni global qidirish API-si"""
+    """Tizimdagi barcha muhim modellar va maydonlar bo'ylab universal global qidiruv"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         query = request.query_params.get('q', '').strip()
 
-        # Agar qidiruv so'rovi 2 ta harfdan kam bo'lsa, bo'sh ro'yxat qaytaramiz (baza qiynalmasligi uchun)
+        # Kamida 2 ta belgi kiritilganda qidiruv ishlaydi
         if len(query) < 2:
             return Response([], status=status.HTTP_200_OK)
 
         user_org = request.user.organization
         results = []
 
-        # 1. O'QUVCHILARNI QIDIRISH (Ismi, familiyasi yoki telefoni bo'yicha)
-        students = Student.objects.filter(
-            organization=user_org
-        ).filter(
+        # =========================================================================
+        # 1. O'QUVCHILAR (Student) QIDIRUVI
+        # =========================================================================
+        students = Student.objects.filter(organization=user_org).filter(
             Q(first_name__icontains=query) |
             Q(last_name__icontains=query) |
-            Q(phone__icontains=query)
-        )[:10]  # Maksimal 10 ta natija cheklovi (tezlik uchun)
+            Q(phone__icontains=query) |
+            Q(address__icontains=query) |
+            Q(passport_series__icontains=query) |
+            Q(notes__icontains=query)
+        )[:15]
 
         for s in students:
+            # f-string ichida xatolik bermasligi uchun o'zgaruvchilarni tepada hal qilamiz
+            s_name = f"{s.first_name} {s.last_name or ''}".strip()
+            s_phone = getattr(s, 'phone', '') or "yo'q"
+            s_address = getattr(s, 'address', '') or "yo'q"
+
             results.append({
                 'id': s.id,
-                'name': f"{s.first_name} {s.last_name or ''}".strip(),
+                'name': s_name,
                 'type': 'student',
                 'type_display': "O'quvchi",
-                'additional_info': getattr(s, 'phone', '') or "Telefon kiritilmagan"
+                'additional_info': f"Tel: {s_phone} | Manzil: {s_address}"
             })
 
-        # 2. XODIMLAR VA O'QITUVCHILARNI QIDIRISH (Ismi, username yoki telefoni bo'yicha)
-        users = User.objects.filter(
-            organization=user_org
-        ).filter(
+        # =========================================================================
+        # 2. XODIMLAR VA O'QITUVCHILAR (User) QIDIRUVI
+        # =========================================================================
+        users = User.objects.filter(organization=user_org).filter(
             Q(first_name__icontains=query) |
             Q(last_name__icontains=query) |
             Q(username__icontains=query) |
-            Q(phone__icontains=query)
-        )[:10]
+            Q(phone__icontains=query) |
+            Q(position__icontains=query) |
+            Q(email__icontains=query)
+        )[:15]
 
         for u in users:
+            role_title = u.get_role_display() if hasattr(u, 'get_role_display') else "Xodim"
+            position_title = f" ({u.position})" if getattr(u, 'position', None) else ""
+
+            u_name = f"{u.first_name or u.username} {u.last_name or ''}".strip()
+            u_phone = getattr(u, 'phone', '') or "yo'q"
+
             results.append({
                 'id': u.id,
-                'name': f"{u.first_name or u.username} {u.last_name or ''}".strip(),
+                'name': u_name,
                 'type': 'staff',
-                'type_display': u.get_role_display() if hasattr(u, 'get_role_display') else "Xodim",
-                'additional_info': u.phone or u.email or "Ma'lumot yo'q"
+                'type_display': f"{role_title}{position_title}",
+                'additional_info': f"Tel: {u_phone} | Login: {u.username}"
             })
 
-        # 3. GURUHLARNI QIDIRISH (Guruh nomi bo'yicha)
-        groups = Group.objects.filter(
-            organization=user_org
-        ).filter(
-            name__icontains=query
-        )[:10]
+        # =========================================================================
+        # 3. GURUHLAR (Group) QIDIRUVI
+        # =========================================================================
+        groups = Group.objects.filter(organization=user_org).filter(
+            Q(name__icontains=query) |
+            Q(room__name__icontains=query) |
+            Q(direction__name__icontains=query)
+        )[:15]
 
         for g in groups:
+            direction = getattr(g.direction, 'name', '') if getattr(g, 'direction', None) else ''
+            room = getattr(g.room, 'name', '') if getattr(g, 'room', None) else ''
+
+            info_list = []
+            if direction:
+                info_list.append(f"Yo'nalish: {direction}")
+            else:
+                info_list.append(f"Kun turi: {getattr(g, 'day_type', '')}")
+
+            if room:
+                info_list.append(f"Xona: {room}")
+
             results.append({
                 'id': g.id,
                 'name': g.name,
                 'type': 'group',
                 'type_display': "Guruh",
-                'additional_info': f"Kun turi: {getattr(g, 'day_type', '')}"
+                'additional_info': " | ".join(info_list)
             })
 
-        # Ma'lumotlarni serializerdan o'tkazib frontendga uzatamiz
+        # Natijalarni serializer yordamida uzatamiz
         serializer = GlobalSearchSerializer(results, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

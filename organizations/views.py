@@ -523,14 +523,7 @@ from rest_framework.permissions import IsAuthenticated
 
 
 
-# Modellaringiz joylashgan joyga qarab importlarni tekshiring
-from academics.models import Student, Group
-from .serializers import GlobalSearchSerializer
 
-from academics.models import Student, Group
-from organizations.serializers import GlobalSearchSerializer
-
-User = get_user_model()
 
 
 class GlobalSearchAPIView(APIView):

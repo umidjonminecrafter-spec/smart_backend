@@ -1556,3 +1556,81 @@ class GroupLessonListAPIView(ListAPIView):
             queryset = queryset.filter(date__lte=end_date)
 
         return queryset.order_by('date')
+
+
+from django.db.models import F
+from rest_framework.permissions import IsAuthenticated
+from .serializers import BirthdayCalendarSerializer
+from academics.models import Student  # Student modeli qaysi appdaligiga qarab importni tekshiring
+
+
+
+class BirthdayCalendarAPIView(APIView):
+    """Xodimlar, o'qituvchilar va o'quvchilarning tug'ilgan kunlarini oy bo'yicha olish APIsi"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Frontenddan kelayotgan oy parametrini olamiz (Default: joriy oy)
+        import datetime
+        now = datetime.datetime.now()
+
+        try:
+            month = int(request.query_params.get('month', now.month))
+        except ValueError:
+            month = now.month
+
+        user_organization = request.user.organization
+
+        # 1. O'quvchilarni (Student) filterlash
+        students = Student.objects.filter(
+            organization=user_organization,
+            birth_date__month=month
+        )
+
+        # 2. Xodimlar va O'qituvchilarni (User) filterlash
+        users = User.objects.filter(
+            organization=user_organization,
+            birth_date__month=month
+        )
+
+        birthday_list = []
+
+        # O'quvchilarni ro'yxatga qo'shish
+        for s in students:
+            birthday_list.append({
+                'id': s.id,
+                'name': f"{s.first_name} {s.last_name or ''}".strip(),
+                'birth_date': s.birth_date,
+                'day': s.birth_date.day,
+                'type': 'student',
+                'role_display': "O'quvchi"
+            })
+
+        # Xodimlarni rollariga qarab ajratib qo'shish
+        for u in users:
+            # Tizimdagi rol nomlanishini chiroyli ko'rinishga keltiramiz
+            if u.role == 'teacher':
+                type_label = 'teacher'
+                role_title = "O'qituvchi"
+            elif u.role in ['owner', 'admin', 'manager']:
+                type_label = 'staff'
+                role_title = u.get_role_display()  # "Admin", "Manager" va hk.
+            else:
+                type_label = 'staff'
+                role_title = "Xodim"
+
+            birthday_list.append({
+                'id': u.id,
+                'name': f"{u.first_name or u.username} {u.last_name or ''}".strip(),
+                'birth_date': u.birth_date,
+                'day': u.birth_date.day,
+                'type': type_label,
+                'role_display': role_title
+            })
+
+        # Kalendarda ketma-ketlik to'g'ri chiqishi uchun kunlar bo'yicha tartiblaymiz (1-dan 31-gacha)
+        birthday_list = sorted(birthday_list, key=lambda x: x['day'])
+
+        # Serializer orqali ma'lumotni formatlab frontendga uzatamiz
+        serializer = BirthdayCalendarSerializer(birthday_list, many=True)
+        return Response(serializer.data)

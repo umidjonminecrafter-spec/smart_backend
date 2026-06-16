@@ -710,3 +710,12 @@ class GroupLessonListSerializer(serializers.ModelSerializer):
             group=obj.group,
             attendance_date=obj.date
         ).exclude(video_url="").exists()
+
+
+class BirthdayCalendarSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    birth_date = serializers.DateField()
+    day = serializers.IntegerField() # Kalendarga joylashtirish oson bo'lishi uchun kunning o'zi (1-31)
+    type = serializers.CharField()   # 'student', 'teacher', 'staff' (xodimlar)
+    role_display = serializers.CharField()

@@ -118,6 +118,53 @@ class Cashbox(TenantModel):
     def __str__(self):
         return self.name
 
+
+class FinanceSetting(TenantModel):
+    """Menejer bonus/jarimalari, Moliya bo'limi, KPI va Talabalar avtochegirmasi sozlamalari"""
+
+    # 1. Menejer bonuslari va jarimalari (Dinamik JSON ro'yxat)
+    is_bonus_enabled = models.BooleanField(default=True)
+    bonus_types = models.JSONField(default=list, blank=True)  # [{"id": 1, "name": "Nomi", "amount": 50000}]
+
+    is_penalty_enabled = models.BooleanField(default=True)
+    penalty_types = models.JSONField(default=list, blank=True)  # [{"id": 1, "name": "Nomi", "amount": 20000}]
+
+    # 2. Moliya bo'limi bonusi Sozlamalari (Foizli va soni bo'yicha)
+    is_percent_bonus_enabled = models.BooleanField(default=False)
+    student_payment_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    debtor_balance_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+
+    is_count_bonus_enabled = models.BooleanField(default=False)
+    has_money_students_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    debtor_students_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+
+    # 3. KPI Sozlamalari
+    kpi_settings = models.JSONField(default=dict, blank=True)
+
+    # 5. Talabalar uchun avtochegirma (Faqat bonus_types yoqilgan bo'lsa ishlaydi)
+    is_auto_discount_enabled = models.BooleanField(default=False)
+    two_groups_discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    three_groups_discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    four_groups_discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+
+    def __str__(self):
+        return f"Finance Settings - {self.organization.name if self.organization else 'No Org'}"
+
+    def save(self, *args, **kwargs):
+        # Talab: Bonus turi o'chsa, avtochegirmani ham majburiy o'chiramiz (yoqish mumkin emas)
+        if not self.is_bonus_enabled:
+            self.is_auto_discount_enabled = False
+        super().save(*args, **kwargs)
+
+
+class StaffSalaryPercent(TenantModel):
+    """4. Xodimlar va o'qituvchilar uchun oylik foiz stavkalari (Dinamik stavkalar qo'shish)"""
+    name = models.CharField(max_length=255)  # Masalan: "Stajor o'qituvchi", "Katta o'qituvchi"
+    percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+
+    def __str__(self):
+        return f"{self.name} ({self.percent}%)"
+
 # ================= MOLIYA KASSA INTEGRATSIYASI SIGNALLARI =================
 from django.db.models.signals import pre_save, post_save, post_delete
 from django.dispatch import receiver

@@ -12,7 +12,10 @@ from finance.views import (
     LeadsReportPieChartView, LeadsReportBarChartView, LeadsReportStatisticsView, CompanyProfitChartView
 )
 
+from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView
+
 router = DefaultRouter()
+router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
 router.register(r'expense-categories', ExpenseCategoryViewSet, basename='expense-category')
 router.register(r'expense-subcategories', ExpenseSubcategoryViewSet, basename='expense-subcategory')
 router.register(r'expenses', ExpenseViewSet, basename='expense')
@@ -34,7 +37,7 @@ urlpatterns = [
     path('teacher-salary/calculate/', TeacherSalaryCalculateView.as_view(), name='teacher-salary-calculate'),
     path('report/', FinanceReportView.as_view(), name='finance-report'),
     path('profit-chart/', CompanyProfitChartView.as_view(), name='company-profit-chart'),
-
+    path('settings/', FinanceSettingAPIView.as_view(), name='finance-settings'),
     
     path('student-debts/summary/', StudentDebtsSummaryView.as_view(), name='student-debts-summary'),
     path('student-debts/', StudentDebtsView.as_view(), name='student-debts-list'),

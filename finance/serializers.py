@@ -5,7 +5,7 @@ from finance.models import (
 )
 from academics.serializers import StudentSerializer
 from accounts.serializers import UserSerializer
-
+from finance.models import FinanceSetting, StaffSalaryPercent
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpenseCategory
@@ -245,3 +245,30 @@ class CashboxSerializer(serializers.ModelSerializer):
         model = Cashbox
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
+
+
+class FinanceSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FinanceSetting
+        fields = '__all__'
+        read_only_fields = ('organization', 'branch', 'created_at', 'updated_at')
+
+    def validate(self, attrs):
+        # Hozirgi holatni olish yoki yangi kelayotgan qiymatni tekshirish
+        is_bonus = attrs.get('is_bonus_enabled', getattr(self.instance, 'is_bonus_enabled', True))
+        is_auto_discount = attrs.get('is_auto_discount_enabled',
+                                     getattr(self.instance, 'is_auto_discount_enabled', False))
+
+        # Talab: Bonus turlari o'chirilgan bo'lsa, chegirma yoqishga ruxsat bermaslik
+        if not is_bonus and is_auto_discount:
+            raise serializers.ValidationError({
+                "is_auto_discount_enabled": "Bonus turlari o'chirilgan holatda avtochegirmani yoqish taqiqlanadi!"
+            })
+        return attrs
+
+
+class StaffSalaryPercentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffSalaryPercent
+        fields = '__all__'
+        read_only_fields = ('organization', 'branch', 'created_at', 'updated_at')

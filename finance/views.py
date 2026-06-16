@@ -1199,3 +1199,41 @@ class LeadsReportStatisticsView(TenantViewSetMixin, APIView):
             "total_leads": total_leads,
             "total_count": total_leads
         }, status=status.HTTP_200_OK)
+
+from finance.models import FinanceSetting, StaffSalaryPercent
+from finance.serializers import FinanceSettingSerializer, StaffSalaryPercentSerializer
+from organizations.mixins import TenantViewSetMixin # Agar mixiningiz nomi boshqacha bo'lsa to'g'rilab oling
+from rest_framework.permissions import IsAuthenticated
+class FinanceSettingAPIView(APIView):
+    """Moliya sozlamalarini bitta ob'ekt sifatida boshqarish endpointi"""
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        # Har bir tashkilot uchun bitta sozlama nusxasi mavjudligini ta'minlaydi
+        setting, created = FinanceSetting.objects.get_or_create(
+            organization=self.request.user.organization
+        )
+        return setting
+
+    def get(self, request):
+        setting = self.get_object()
+        serializer = FinanceSettingSerializer(setting)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def put(self, request):
+        setting = self.get_object()
+        serializer = FinanceSettingSerializer(setting, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class StaffSalaryPercentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    """Dinamik oylik foiz stavkalarini qo'shish va o'chirish endpointi"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = StaffSalaryPercentSerializer
+    queryset = StaffSalaryPercent.objects.all()
+
+    def perform_create(self, serializer):
+        serializer.save(organization=self.request.user.organization)

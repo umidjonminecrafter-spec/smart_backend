@@ -1,10 +1,10 @@
 from rest_framework import serializers
 from organizations.models import Organization, Branch, Tariff, Subscription, ExamSetting, ReceiptSetting, BackupSetting, TelegramNotificationSetting,LessonNotificationTemplate
-
+from finance.models import FinanceSetting, StaffSalaryPercent
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'address', 'phone', 'latitude', 'longitude', 'organization']
+        fields = ['id', 'name', 'address', 'phone', 'latitude', 'longitude', 'organization','address']
         read_only_fields = ('id', 'created_at', 'updated_at')
 
 class BranchSerializer(serializers.ModelSerializer):

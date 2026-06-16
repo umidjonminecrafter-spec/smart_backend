@@ -4,7 +4,7 @@ from finance.models import FinanceSetting, StaffSalaryPercent
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
-        fields = "__aLL__"
+        fields = '__aLL__'
         read_only_fields = ('id', 'created_at', 'updated_at')
 
 class BranchSerializer(serializers.ModelSerializer):

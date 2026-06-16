@@ -9,7 +9,8 @@ from .views import (
     StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet, SendCodeAPIView,
     VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView, ParentStudentsAPIView, ParentStudentDetailsAPIView,
     StaffProfileAPIView, StaffScheduleAPIView, BotMessageTemplateViewSet, TelegramWebhookView, SetLessonTopicAPIView,
-    CancelOrRestoreLessonAPIView, RescheduleLessonAPIView, GroupLessonListAPIView, BirthdayCalendarAPIView
+    CancelOrRestoreLessonAPIView, RescheduleLessonAPIView, GroupLessonListAPIView, BirthdayCalendarAPIView,
+    StudentEvaluationLevelViewSet
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -55,6 +56,7 @@ router.register(r'bot-message-templates', BotMessageTemplateViewSet, basename='b
 router.register(r'teachers/salary-calculations', TeacherSalaryCalculationViewSet, basename='academic-teacher-salary-calc')
 router.register(r'teachers/salary-payments', TeacherSalaryPaymentViewSet, basename='academic-teacher-salary-payment')
 router.register(r'teachers/salary-rules', TeacherSalaryRuleViewSet, basename='academic-teacher-salary-rule')
+router.register(r'evaluation-levels', StudentEvaluationLevelViewSet, basename='evaluation-levels')
 
 urlpatterns = [
     path('student-transactions/', StudentTransactionsView.as_view(), name='student-transactions'),
@@ -65,6 +67,7 @@ urlpatterns = [
         student_field_settings,
         name='student-field-settings'
     ),
+
 
     path(
         'student-field-settings/<int:pk>/',

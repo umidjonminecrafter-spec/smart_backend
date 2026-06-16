@@ -9,7 +9,7 @@ from rest_framework.filters import SearchFilter
 from organizations.mixins import TenantViewSetMixin
 from .models import StudentFieldSetting, GroupLesson
 from .serializers import StudentFieldSettingSerializer, StudentProfileSerializer, RescheduleLessonSerializer, \
-    SetLessonTopicSerializer, GroupLessonListSerializer
+    SetLessonTopicSerializer, GroupLessonListSerializer, StudentEvaluationLevelSerializer
 from academics.models import (
     Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing,
@@ -1634,3 +1634,12 @@ class BirthdayCalendarAPIView(APIView):
         # Serializer orqali ma'lumotni formatlab frontendga uzatamiz
         serializer = BirthdayCalendarSerializer(birthday_list, many=True)
         return Response(serializer.data)
+from .models import StudentEvaluationLevel
+class StudentEvaluationLevelViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    """O'quvchilarni baholash darajalarini CRUD qilish (Yaratish, o'chirish, tahrirlash)"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentEvaluationLevelSerializer
+    queryset = StudentEvaluationLevel.objects.all()
+
+    def perform_create(self, serializer):
+        serializer.save(organization=self.request.user.organization)

@@ -2,7 +2,7 @@ from rest_framework import serializers
 from academics.models import (
     Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing,
-    StudentArchive, Holiday, Homework
+    StudentArchive, Holiday, Homework,StudentEvaluationLevel
 )
 from accounts.serializers import UserSerializer
 from .models import StudentFieldSetting, GroupLesson
@@ -720,3 +720,10 @@ class BirthdayCalendarSerializer(serializers.Serializer):
     day = serializers.IntegerField() # Kalendarga joylashtirish oson bo'lishi uchun kunning o'zi (1-31)
     type = serializers.CharField()   # 'student', 'teacher', 'staff' (xodimlar)
     role_display = serializers.CharField() # Interfeysda chiroyli ko'rinishi uchun (Masalan: "O'qituvchi")
+
+
+class StudentEvaluationLevelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentEvaluationLevel
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')

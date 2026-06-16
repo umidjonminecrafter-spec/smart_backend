@@ -583,7 +583,15 @@ def notify_parent_attendance(sender, instance, created, **kwargs):
         except Exception as e:
             print(f"Error sending attendance notification to parent {chat_id}: {str(e)}")
 
+class StudentEvaluationLevel(TenantModel):
+    """O'quvchilarni baholash darajalari (Nomi, Min/Max foiz va Rangi)"""
+    name = models.CharField(max_length=255) # Masalan: "A'lochi", "Yaxshi"
+    min_percent = models.PositiveIntegerField(default=0)
+    max_percent = models.PositiveIntegerField(default=100)
+    color = models.CharField(max_length=50, default="#FFFFFF") # HEX color code uchun
 
+    def __str__(self):
+        return f"{self.name} ({self.min_percent}% - {self.max_percent}%)"
 
 
 class GroupLesson(TenantModel):

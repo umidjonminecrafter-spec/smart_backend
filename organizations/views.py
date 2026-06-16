@@ -16,6 +16,8 @@ from organizations.serializers import (
 from organizations.backup import run_backup_for_setting
 from accounts.serializers import UserSerializer
 
+from .serializers import GlobalSearchSerializer
+
 User = get_user_model()
 
 
@@ -323,6 +325,8 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         return Response({"detail": "Test xabari muvaffaqiyatli yuborildi! 🚀"}, status=status.HTTP_200_OK)
 
 
+# ... mavjud importlar qatorida tursin
+
 class BranchViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Sozlamalar'
     queryset = Branch.objects.all()
@@ -339,6 +343,60 @@ class BranchViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             user.branch = branch
             user.save()
 
+    # 🌟 YANGI QO'SHILGAN LOKATSIYA METODI:
+    @decorators.action(detail=True, methods=['post'], url_path='set-location')
+    def set_location(self, request, pk=None):
+        """Filial xaritadagi lokatsiyasini (latitude, longitude) saqlash/yangilash"""
+        branch = self.get_object()  # Joriy filialni avtomatik topadi
+
+        latitude = request.data.get('latitude')
+        longitude = request.data.get('longitude')
+
+        if latitude is None or longitude is None:
+            return Response(
+                {"detail": "latitude va longitude maydonlari majburiy!"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        branch.latitude = latitude
+        branch.longitude = longitude
+        branch.save()
+
+        return Response({
+            "detail": "Filial lokatsiyasi muvaffaqiyatli saqlandi! 📍",
+            "id": branch.id,
+            "name": branch.name,
+            "latitude": branch.latitude,
+            "longitude": branch.longitude
+        }, status=status.HTTP_200_OK)
+from rest_framework.permissions import IsAuthenticated
+class UpdateBranchLocationAPIView(APIView):
+    """Filialning geografik koordinatalarini (lokatsiyasini) yangilash API-si"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, branch_id):
+        try:
+            # Foydalanuvchi faqat o'z tashkilotiga tegishli filialni o'zgartira oladi
+            branch = Branch.objects.get(id=branch_id, organization=request.user.organization)
+        except Branch.DoesNotExist:
+            return Response({"error": "Filial topilmadi yoki sizda ruxsat yo'q!"}, status=status.HTTP_404_NOT_FOUND)
+
+        latitude = request.data.get('latitude')
+        longitude = request.data.get('longitude')
+
+        if latitude is None or longitude is None:
+            return Response({"error": "latitude va longitude maydonlari majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        branch.latitude = latitude
+        branch.longitude = longitude
+        branch.save()
+
+        return Response({
+            "success": True,
+            "message": "Filial lokatsiyasi muvaffaqiyatli yangilandi!",
+            "latitude": branch.latitude,
+            "longitude": branch.longitude
+        }, status=status.HTTP_200_OK)
 
 class TariffViewSet(viewsets.ModelViewSet):
     permission_classes = (permissions.IsAuthenticated, HasOrganizationPagePermission)
@@ -458,3 +516,77 @@ def verify_register_code(request):
 
         return Response({"message": "Telefon raqam tasdiqlandi! 🎉"})
     return Response({"error": "Kod noto'g'ri! ❌"}, status=400)
+
+from django.db.models import Q
+from academics.models import Student, Group
+from rest_framework.permissions import IsAuthenticated
+class GlobalSearchAPIView(APIView):
+    """Tizim bo'ylab o'quvchilar, xodimlar va guruhlarni global qidirish API-si"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        query = request.query_params.get('q', '').strip()
+
+        # Agar qidiruv so'rovi 2 ta harfdan kam bo'lsa, bo'sh ro'yxat qaytaramiz (baza qiynalmasligi uchun)
+        if len(query) < 2:
+            return Response([], status=status.HTTP_200_OK)
+
+        user_org = request.user.organization
+        results = []
+
+        # 1. O'QUVCHILARNI QIDIRISH (Ismi, familiyasi yoki telefoni bo'yicha)
+        students = Student.objects.filter(
+            organization=user_org
+        ).filter(
+            Q(first_name__icontains=query) |
+            Q(last_name__icontains=query) |
+            Q(phone__icontains=query)
+        )[:10]  # Maksimal 10 ta natija cheklovi (tezlik uchun)
+
+        for s in students:
+            results.append({
+                'id': s.id,
+                'name': f"{s.first_name} {s.last_name or ''}".strip(),
+                'type': 'student',
+                'type_display': "O'quvchi",
+                'additional_info': getattr(s, 'phone', '') or "Telefon kiritilmagan"
+            })
+
+        # 2. XODIMLAR VA O'QITUVCHILARNI QIDIRISH (Ismi, username yoki telefoni bo'yicha)
+        users = User.objects.filter(
+            organization=user_org
+        ).filter(
+            Q(first_name__icontains=query) |
+            Q(last_name__icontains=query) |
+            Q(username__icontains=query) |
+            Q(phone__icontains=query)
+        )[:10]
+
+        for u in users:
+            results.append({
+                'id': u.id,
+                'name': f"{u.first_name or u.username} {u.last_name or ''}".strip(),
+                'type': 'staff',
+                'type_display': u.get_role_display() if hasattr(u, 'get_role_display') else "Xodim",
+                'additional_info': u.phone or u.email or "Ma'lumot yo'q"
+            })
+
+        # 3. GURUHLARNI QIDIRISH (Guruh nomi bo'yicha)
+        groups = Group.objects.filter(
+            organization=user_org
+        ).filter(
+            name__icontains=query
+        )[:10]
+
+        for g in groups:
+            results.append({
+                'id': g.id,
+                'name': g.name,
+                'type': 'group',
+                'type_display': "Guruh",
+                'additional_info': f"Kun turi: {getattr(g, 'day_type', '')}"
+            })
+
+        # Ma'lumotlarni serializerdan o'tkazib frontendga uzatamiz
+        serializer = GlobalSearchSerializer(results, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

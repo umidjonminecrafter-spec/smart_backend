@@ -4,7 +4,7 @@ from organizations.models import Organization, Branch, Tariff, Subscription, Exa
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
-        fields = ('id', 'name', 'subdomain', 'role_permissions', 'available_roles', 'created_at', 'updated_at')
+        fields = ['id', 'name', 'address', 'phone', 'latitude', 'longitude', 'organization']
         read_only_fields = ('id', 'created_at', 'updated_at')
 
 class BranchSerializer(serializers.ModelSerializer):
@@ -72,5 +72,12 @@ class LessonNotificationTemplateSerializer(serializers.ModelSerializer):
         model = LessonNotificationTemplate
         fields = '__all__'
         read_only_fields = ('organization',)
+
+class GlobalSearchSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    type = serializers.CharField()         # 'student', 'staff', 'group'
+    type_display = serializers.CharField() # "O'quvchi", "Xodim/O'qituvchi", "Guruh"
+    additional_info = serializers.CharField()
 
 

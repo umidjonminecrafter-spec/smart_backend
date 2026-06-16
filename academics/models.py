@@ -584,6 +584,8 @@ def notify_parent_attendance(sender, instance, created, **kwargs):
             print(f"Error sending attendance notification to parent {chat_id}: {str(e)}")
 
 
+
+
 class GroupLesson(TenantModel):
     """Guruhning yo'qlamadan mustaqil, kalendardagi har bitta dars kuni"""
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="lessons")
@@ -677,3 +679,4 @@ def generate_group_lessons(group_instance):
 def trigger_lesson_generation(sender, instance, created, **kwargs):
     # Tracker xatoligini oldini olish uchun to'g'ridan-to'g'ri funksiyani chaqiramiz
     generate_group_lessons(instance)
+

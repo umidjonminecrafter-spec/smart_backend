@@ -80,6 +80,11 @@ class Student(TenantModel):
     mother_email = models.EmailField(null=True, blank=True)
     mother_telegram_chat_id = models.CharField(max_length=100, null=True, blank=True, verbose_name="Onasining Telegram Chat IDsi")
     referred_by = models.CharField(max_length=255, null=True, blank=True, verbose_name="Kim tavsiya qildi")
+    moderator = models.IntegerField(null=True, blank=True,)  # Agar ID bo'lsa
+    debt_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, blank=True,
+                                     verbose_name="Qarzdorlik limiti")
+    student_login = models.CharField(null=True, blank=True,)
+    parent_login = models.CharField(null=True, blank=True,)
 
 class StudentFieldSetting(TenantModel):
 

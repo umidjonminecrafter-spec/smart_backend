@@ -111,6 +111,10 @@ class RoomSerializer(serializers.ModelSerializer):
 
 class StudentSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
+    moderator = serializers.IntegerField(required=False, allow_null=True)  # Agar ID bo'lsa
+    debt_limit = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=0.00)
+    student_login = serializers.CharField(required=False, allow_blank=True)
+    parent_login = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = Student

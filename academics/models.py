@@ -79,7 +79,7 @@ class Student(TenantModel):
     mother_phone = models.CharField(max_length=50, null=True, blank=True)
     mother_email = models.EmailField(null=True, blank=True)
     mother_telegram_chat_id = models.CharField(max_length=100, null=True, blank=True, verbose_name="Onasining Telegram Chat IDsi")
-
+    referred_by = models.CharField(max_length=255, null=True, blank=True, verbose_name="Kim tavsiya qildi")
 
 class StudentFieldSetting(TenantModel):
 

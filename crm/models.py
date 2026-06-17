@@ -1,8 +1,10 @@
 import string
-
 from django.db import models
 from django.conf import settings
 from organizations.models import TenantModel
+from django.db.models.signals import pre_save, post_save
+from django.dispatch import receiver
+
 
 class Pipeline(TenantModel):
     name = models.CharField(max_length=150)
@@ -14,11 +16,13 @@ class Pipeline(TenantModel):
     def __str__(self):
         return self.name
 
+
 class Source(TenantModel):
     name = models.CharField(max_length=150)
 
     def __str__(self):
         return self.name
+
 
 class LostReason(TenantModel):
     reason = models.CharField(max_length=255)
@@ -26,9 +30,9 @@ class LostReason(TenantModel):
     def __str__(self):
         return self.reason
 
+
 class Section(TenantModel):
     name = models.CharField(max_length=150)
-    # TO'G'RILANDI: Pipeline o'chganda section o'chmasligi uchun SET_NULL qilindi
     pipeline = models.ForeignKey(Pipeline, on_delete=models.SET_NULL, null=True, blank=True, related_name="sections")
 
     def __str__(self):
@@ -37,13 +41,9 @@ class Section(TenantModel):
 
 class LeadForm(TenantModel):
     name = models.CharField(max_length=150, verbose_name="Forma nomi")
-
-    # 🎯 Lid kelib tushadigan joy sozlamalari
     pipeline = models.ForeignKey(Pipeline, on_delete=models.SET_NULL, null=True, blank=True)
     section = models.ForeignKey(Section, on_delete=models.SET_NULL, null=True, blank=True)
     source = models.ForeignKey(Source, on_delete=models.SET_NULL, null=True, blank=True)
-
-    # help_text qismi uchtalik qo'shnoqnoq ichiga olindi:
     fields = models.JSONField(
         default=list,
         blank=True,
@@ -60,7 +60,6 @@ class LeadForm(TenantModel):
         return self.name
 
 
-# TO'G'RILANDI: Ko'p martalik izohlar modeli
 class LeadComment(TenantModel):
     lead = models.ForeignKey('Lead', on_delete=models.CASCADE, related_name="lead_comments")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
@@ -76,18 +75,18 @@ class Lead(TenantModel):
         ('open', 'Open'),
         ('won', 'Won'),
         ('lost', 'Lost'),
+        ('first_lesson', 'Birinchi darsga yozilganlar'),  # 🚀 3-RASM UCHUN: Yangi status turi
     )
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=50)
     email = models.EmailField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
-    
-    # TO'G'RILANDI: Pipeline o'chib ketsa lidlar o'chib ketmaydi! SET_NULL qilindi.
+
     pipeline = models.ForeignKey(Pipeline, on_delete=models.SET_NULL, null=True, blank=True, related_name="leads")
     source = models.ForeignKey(Source, on_delete=models.SET_NULL, null=True, blank=True, related_name="leads")
     lost_reason = models.ForeignKey(LostReason, on_delete=models.SET_NULL, null=True, blank=True, related_name="leads")
     section = models.ForeignKey(Section, on_delete=models.SET_NULL, null=True, blank=True, related_name="leads")
-    
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -97,23 +96,54 @@ class Lead(TenantModel):
     )
     comment = models.TextField(null=True, blank=True)
 
-    # Custom fields for contacts, timers and multi-notes
     contacted_at = models.DateTimeField(null=True, blank=True)
     next_contact_at = models.DateTimeField(null=True, blank=True)
     reminder_time = models.DateTimeField(null=True, blank=True)
     notes = models.JSONField(default=list, blank=True)
-
-    # QO'SHILDI: Lid bilan ishlash muddati (Deadline)
     reminder_deadline = models.DateTimeField(null=True, blank=True, help_text="Lidning muddati (Sana va vaqt)")
 
-    # Archiving fields
+    # 🚀 2-RASM UCHUN: Referal tizimi (Ushbu lidni qaysi o'quvchi tavsiya qildi/tashlab berdi)
+    # Eslatma: 'academics.Student' o'rniga o'zingizning o'quvchi model yo'lingizni yozing
+    referred_by = models.ForeignKey(
+        'academics.Student',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='referred_crm_leads',
+        verbose_name="Referal bergan o'quvchi"
+    )
+
+    # 🚀 4-RASM UCHUN: Mas'ul moderator biriktirish
+    moderator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='responsible_crm_leads',
+        verbose_name="Biriktirilgan moderator"
+    )
+
+    # 🚀 4-RASM UCHUN: Talabaning qarzdorlik limiti (Default: 0.00 UZS)
+    debt_limit = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.00,
+        verbose_name="Qarzdorlik limiti"
+    )
+
+    # 🚀 4-RASM UCHUN: Talaba va Ota-ona uchun tizim kirish login-parollari
+    student_login = models.CharField(max_length=150, null=True, blank=True, unique=True)
+    student_password = models.CharField(max_length=128, null=True, blank=True)
+
+    parent_login = models.CharField(max_length=150, null=True, blank=True, unique=True)
+    parent_password = models.CharField(max_length=128, null=True, blank=True)
+
     is_archived = models.BooleanField(default=False)
     archive_reason = models.TextField(null=True, blank=True)
     archive_date = models.DateTimeField(null=True, blank=True)
     archived_by = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
-        # Baza darajasida filtrlash va qidirishni tezlashtiradigan indekslar
         indexes = [
             models.Index(fields=['organization', 'is_archived']),
             models.Index(fields=['pipeline']),
@@ -126,14 +156,16 @@ class Lead(TenantModel):
     def __str__(self):
         return self.name
 
+
 class CRMActivity(TenantModel):
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="activities")
-    activity_type = models.CharField(max_length=50) # call, meeting, etc.
+    activity_type = models.CharField(max_length=50)
     notes = models.TextField()
     date = models.DateField()
 
     def __str__(self):
         return f"{self.activity_type} - {self.lead.name}"
+
 
 class CRMLeadsHistory(TenantModel):
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="history")
@@ -143,15 +175,16 @@ class CRMLeadsHistory(TenantModel):
     def __str__(self):
         return f"History: {self.lead.name} at {self.created_at}"
 
+
 class CRMLeadLost(TenantModel):
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="lost_records")
-    lost_reason = models.ForeignKey(LostReason, on_delete=models.SET_NULL, null=True, blank=True, related_name="lost_records")
+    lost_reason = models.ForeignKey(LostReason, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name="lost_records")
     notes = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return f"Lost: {self.lead.name}"
-from django.db.models.signals import pre_save, post_save
-from django.dispatch import receiver
+
 
 @receiver(pre_save, sender=Lead)
 def track_lead_changes(sender, instance, **kwargs):
@@ -171,10 +204,9 @@ def track_lead_changes(sender, instance, **kwargs):
     except Lead.DoesNotExist:
         pass
 
+
 @receiver(post_save, sender=Lead)
 def save_lead_history(sender, instance, created, **kwargs):
-
-
     changes = []
 
     if created:

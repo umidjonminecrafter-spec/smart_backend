@@ -4,14 +4,17 @@ from organizations.models import Organization, Branch
 
 User = get_user_model()
 
+
 class UserSerializer(serializers.ModelSerializer):
     organization_name = serializers.CharField(source='organization.name', read_only=True)
     branch_name = serializers.CharField(source='branch.name', read_only=True)
-    
+
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'position', 'organization', 'organization_name', 'branch', 'branch_name', 'photo')
+        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'position', 'organization',
+                  'organization_name', 'branch', 'branch_name', 'photo', 'salary_percentage')
         read_only_fields = ('id', 'role')
+
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -27,53 +30,49 @@ class RegisterSerializer(serializers.ModelSerializer):
         phone = attrs.get('phone', '')
         if not phone:
             raise serializers.ValidationError({"phone": "Telefon raqami kiritilishi shart."})
-        
-        # Clean phone number
+
         cleaned = ''.join(c for c in phone if c.isdigit())
-        
-        # Uzbekistan phone number starts with 998 and has 12 digits (or 9 digits without country code)
+
         if len(cleaned) == 9:
             cleaned = '998' + cleaned
-        
+
         if not cleaned.startswith('998') or len(cleaned) != 12:
             raise serializers.ValidationError({
                 "phone": "Telefon raqami noto'g'ri formatda. Loyihada O'zbekiston raqamlari (+998XXXXXXXXX) qabul qilinadi."
             })
-            
+
         formatted_phone = '+' + cleaned
         attrs['phone'] = formatted_phone
-        attrs['username'] = formatted_phone  # Set username as the phone number
-        
-        # Check if username/phone already exists
+        attrs['username'] = formatted_phone
+
         if User.objects.filter(username=formatted_phone).exists():
             raise serializers.ValidationError({
                 "phone": "Ushbu telefon raqamga ega foydalanuvchi allaqachon ro'yxatdan o'tgan."
             })
-            
+
         full_name = attrs.get('full_name', '')
         if not full_name or not full_name.strip():
             raise serializers.ValidationError({"full_name": "Ism va Familiya kiritilishi shart."})
-            
+
         return attrs
 
     def create(self, validated_data):
         full_name = validated_data.pop('full_name', '')
         org_name = validated_data.pop('organization_name', '')
-        
+
         first_name = validated_data.get('first_name', '')
         last_name = validated_data.get('last_name', '')
-        
+
         if full_name and not (first_name or last_name):
             parts = full_name.split(maxsplit=1)
             first_name = parts[0]
             if len(parts) > 1:
                 last_name = parts[1]
-        
+
         organization = None
         if org_name:
             organization = Organization.objects.create(name=org_name)
-        
-        # Set role to owner
+
         user = User.objects.create_user(
             username=validated_data['username'],
             password=validated_data['password'],
@@ -87,6 +86,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
         return user
 
+
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(required=True)
     new_password = serializers.CharField(required=True)
@@ -97,38 +97,36 @@ class ChangePasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError("Old password is not correct.")
         return value
 
+
 class EmployeeSerializer(serializers.ModelSerializer):
     username = serializers.CharField(required=False)
     password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'password', 'email', 'first_name', 'last_name', 'phone', 'role', 'position', 'organization', 'branch', 'birth_date', 'gender', 'photo')
+        # 🚀 fields ro'yxatiga 'salary_percentage' kiritildi
+        fields = ('id', 'username', 'password', 'email', 'first_name', 'last_name', 'phone', 'role', 'position',
+                  'organization', 'branch', 'birth_date', 'gender', 'photo', 'salary_percentage')
         read_only_fields = ('id', 'organization', 'branch')
 
     def to_internal_value(self, data):
-        # Support mutating data copy
         data = data.copy() if hasattr(data, 'copy') else dict(data)
 
-        # Phone mapping to username — normalize to always include '+'
         phone = data.get('phone') or data.get('phone_number')
         if phone:
             phone = phone.strip()
-            # Ensure '+' prefix for Uzbekistan numbers
             if phone.startswith('998') and not phone.startswith('+'):
                 phone = '+' + phone
             data['phone'] = phone
             if not data.get('username'):
                 data['username'] = phone
 
-        # Full name mapping
         full_name = data.get('full_name')
         if full_name and not (data.get('first_name') or data.get('last_name')):
             parts = full_name.split(maxsplit=1)
             data['first_name'] = parts[0]
             data['last_name'] = parts[1] if len(parts) > 1 else ''
 
-        # Position mapping to role
         position = data.get('position')
         if position and not data.get('role'):
             pos = position.lower()
@@ -147,11 +145,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop('password', None) or 'smarttalim123'
-        
-        # Ensure username is set (fallback to phone)
         if not validated_data.get('username'):
             validated_data['username'] = validated_data.get('phone', '')
-        
+
         user = User.objects.create_user(
             password=password,
             **validated_data
@@ -183,6 +179,5 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 'student': 'Talaba'
             }
             rep['position'] = role_to_pos.get(instance.role, 'Xodim')
-        # Map gender back to what the frontend radio buttons expect ('Erkak' / 'Ayol')
         rep['gender'] = 'Erkak' if instance.gender == 'M' else ('Ayol' if instance.gender == 'F' else 'Erkak')
         return rep

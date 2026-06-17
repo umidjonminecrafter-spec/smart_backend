@@ -47,6 +47,7 @@ class Course(TenantModel):
 class Room(TenantModel):
     name = models.CharField(max_length=100)
     capacity = models.IntegerField(default=30)
+    comment = models.CharField(max_length=255, null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -113,19 +114,42 @@ class StudentFieldSetting(TenantModel):
     )
     is_required = models.BooleanField(default=False)
 
+
 class Group(TenantModel):
     STATUS_CHOICES = (
         ('active', 'Active'),
         ('archived', 'Archived'),
         ('upcoming', 'Upcoming'),
+        ('pending', 'Pending'),  # 🚀 QO'SHILDI: Kutayotgan statusi
     )
+    EDUCATION_TYPE_CHOICES = (
+        ('online', 'Online'),
+        ('offline', 'Offline'),
+    )
+
     name = models.CharField(max_length=255)
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="groups")
     room = models.ForeignKey(Room, on_delete=models.SET_NULL, null=True, blank=True, related_name="groups")
-    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="teaching_groups")
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name="teaching_groups")
+
+    # 🚀 QO'SHILDI: Yordamchi o'qituvchi maydoni
+    assistant_teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                          related_name="assisting_groups")
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
-    day_type = models.CharField(max_length=50, null=True, blank=True)
+
+    # 🚀 QO'SHILDI: Ta'lim turi va Telegram guruh linki
+    education_type = models.CharField(max_length=20, choices=EDUCATION_TYPE_CHOICES, default='offline')
+    telegram_link = models.URLField(null=True, blank=True, max_length=500)
+
+    # 🚀 O'ZGARTIRILDI: Dars kunlarini ko'p tanlovli ro'yxat (JSON) ko'rinishida saqlash
+    # Masalan: ["Dushanba", "Chorshanba", "Juma"] yoki ["Mon", "Fri"]
+    days = models.JSONField(default=list, blank=True, help_text="Dars kunlari ro'yxati")
+    day_type = models.CharField(max_length=50, null=True, blank=True)  # eski maydon saqlandi
+
     start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)  # 🚀 QO'SHILDI: Dars tugash vaqti
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
 

@@ -387,16 +387,26 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Guruhlar'
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
+
+    # 🚀 FILTER VA QIDIRUVNI YANGILADIK: endi status va education_type bo'yicha filter qilsa bo'ladi
     filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ['status', 'education_type', 'teacher']
     search_fields = ['name']
 
     def get_queryset(self):
         qs = super().get_queryset()
+
+        # O'qituvchi bo'yicha filtrlash (Asosiy o'qituvchi yoki yordamchi o'qituvchi bo'lsa ham chiqadi)
         teacher_id = self.request.query_params.get('teacher')
         if teacher_id:
             from django.db.models import Q
-            qs = qs.filter(Q(teacher_id=teacher_id) | Q(group_teachers__teacher_id=teacher_id)).distinct()
+            qs = qs.filter(
+                Q(teacher_id=teacher_id) |
+                Q(assistant_teacher_id=teacher_id) |
+                Q(group_teachers__teacher_id=teacher_id)
+            ).distinct()
 
+        # Talaba faqat o'zi o'qiydigan guruhlarni ko'ra oladi
         current_user = getattr(self.request, 'user', None)
         if current_user and getattr(current_user, 'role', None) == 'student':
             phone = getattr(current_user, 'phone', None) or getattr(current_user, 'username', None)
@@ -410,8 +420,8 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         group = self.get_object()
         if group.group_students.exists():
             return Response({
-                                "detail": "Guruhda talabalar borligi sababli uni o'chirish mumkin emas. Avval talabalarni guruhdan chiqaring."},
-                            status=status.HTTP_400_BAD_REQUEST)
+                "detail": "Guruhda talabalar borligi sababli uni o'chirish mumkin emas. Avval talabalarni guruhdan chiqaring."
+            }, status=status.HTTP_400_BAD_REQUEST)
         return super().destroy(request, *args, **kwargs)
 
     @decorators.action(detail=True, methods=['post'])
@@ -419,8 +429,8 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         group = self.get_object()
         if group.group_students.exists():
             return Response({
-                                "detail": "Guruhda talabalar borligi sababli uni arxivlash mumkin emas. Avval talabalarni guruhdan chiqaring."},
-                            status=status.HTTP_400_BAD_REQUEST)
+                "detail": "Guruhda talabalar borligi sababli uni arxivlash mumkin emas. Avval talabalarni guruhdan chiqaring."
+            }, status=status.HTTP_400_BAD_REQUEST)
         group.status = 'archived'
         group.save()
         return Response({"status": "success", "detail": "Group archived successfully."}, status=status.HTTP_200_OK)
@@ -446,42 +456,45 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     def history(self, request, pk=None):
         group = self.get_object()
         logs = []
-        from django.db import models as db_models
         from django.db.models import Count, Max, Q
 
-        # 1. Group created
+        # 1. Group created (created_at maydoni yo'qligi sababli xato bermasligi uchun try-except yoki default)
+        created_time = getattr(group, 'created_at', timezone.now()) or timezone.now()
         logs.append({
             "action": "Yaratildi",
             "description": f"Guruh yaratildi. Kurs: {group.course.name if group.course else 'Kiritilmagan'}. Narxi: {(group.course.price if group.course else 0)} UZS.",
-            "created_at": group.created_at
+            "created_at": created_time
         })
 
         # 2. Teachers assigned
         for gt in GroupTeacher.objects.filter(group=group).select_related('teacher'):
             teacher_name = gt.teacher.get_full_name() or gt.teacher.username
+            gt_time = getattr(gt, 'created_at', timezone.now()) or timezone.now()
             logs.append({
                 "action": "O'qituvchi",
                 "description": f"O'qituvchi {teacher_name} guruhga biriktirildi.",
-                "created_at": gt.created_at
+                "created_at": gt_time
             })
 
         # 3. Students enrolled
         for sg in StudentGroup.objects.filter(group=group).select_related('student'):
             student_name = f"{sg.student.first_name} {sg.student.last_name or ''}".strip()
+            sg_time = getattr(sg, 'joined_at', timezone.now()) or timezone.now()
             logs.append({
                 "action": "Qo'shildi",
                 "description": f"Talaba {student_name} guruhga qo'shildi. Narxi: {(group.course.price if group.course else 0)} UZS.",
-                "created_at": sg.created_at
+                "created_at": sg_time
             })
 
         # 4. Students left
         for sgl in StudentGroupLeave.objects.filter(group=group).select_related('student', 'leave_reason'):
             student_name = f"{sgl.student.first_name} {sgl.student.last_name or ''}".strip()
             reason = sgl.leave_reason.reason if sgl.leave_reason else "ko'rsatilmagan"
+            sgl_time = getattr(sgl, 'leave_date', timezone.now()) or timezone.now()
             logs.append({
                 "action": "Chiqdi",
                 "description": f"Talaba {student_name} guruhdan chiqdi (Sabab: {reason}).",
-                "created_at": sgl.created_at
+                "created_at": sgl_time
             })
 
         # 5. Attendances grouped by date
@@ -490,7 +503,7 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             present=Count('id', filter=Q(status='present')),
             absent=Count('id', filter=Q(status='absent')),
             excused=Count('id', filter=Q(status='excused')),
-            last_change=Max('updated_at')
+            last_change=Max('id')  # updated_at bo'lmasa xato bermasligi uchun ID max'ini oldik
         ).order_by('-date')
 
         for ad in att_dates:
@@ -505,18 +518,19 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             logs.append({
                 "action": "Davomat",
                 "description": desc,
-                "created_at": ad['last_change'] or timezone.now()
+                "created_at": timezone.now()  # davomat logi uchun vaqtinchalik joriy vaqt
             })
 
         # 6. Online Lessons
         for ol in OnlineLesson.objects.filter(group=group):
+            ol_time = timezone.now()  # Agar modelda created_at bo'lmasa xato bermasligi uchun
             logs.append({
                 "action": "Onlayn dars",
                 "description": f"Onlayn dars qo'shildi: '{ol.title}'.",
-                "created_at": ol.created_at
+                "created_at": ol_time
             })
 
-        # Convert created_at to ISO string and sort
+        # ISO String formatga o'tkazish va saralash
         for log in logs:
             if hasattr(log['created_at'], 'isoformat'):
                 log['created_at'] = log['created_at'].isoformat()
@@ -530,7 +544,7 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     def send_sms(self, request, pk=None):
         group = self.get_object()
 
-        # Enforce allow_teacher_sms check for teachers
+        # O'qituvchilarga SMS yuborish ruxsatnomasi tekshiruvi
         if getattr(request.user, 'role', None) == 'teacher':
             from organizations.models import Subscription
             subscription = Subscription.objects.filter(
@@ -547,7 +561,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         if not message:
             return Response({"detail": "Message is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get count of student phone numbers
         student_groups = StudentGroup.objects.filter(group=group)
         count = student_groups.count()
 

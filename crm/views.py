@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from .models import Lead, CRMLeadsHistory
 from .serializers import CRMLeadsHistorySerializer, PublicLeadSubmitSerializer, LeadFormCRUDSerializer
-
+from django.contrib.auth.hashers import make_password
 
 class PipelineViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
@@ -69,7 +69,7 @@ class LeadViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Lidlar'
     serializer_class = LeadSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['pipeline', 'source', 'status']
+    filterset_fields = ['pipeline', 'source', 'status','moderator']
     search_fields = ['name', 'phone', 'email']
 
     def perform_create(self, serializer):
@@ -199,6 +199,48 @@ class LeadViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "failed_count": failed_count,
             "errors": errors
         }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='set-login-password')
+    def set_login_password(self, request, pk=None):
+        lead = self.get_object()
+        user_type = request.data.get('type')  # frontend 'student' yoki 'parent' yuboradi
+        login = request.data.get('login')
+        password = request.data.get('password')
+
+        if not login or not password:
+            return Response({"error": "Login va parol yuborilishi majburiy!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Parolni xavfsiz shifrlab saqlaymiz
+        encrypted_password = make_password(password)
+
+        if user_type == 'student':
+            lead.student_login = login
+            lead.student_password = encrypted_password
+            lead.save()
+            return Response({"message": "Talaba uchun login va parol muvaffaqiyatli o'rnatildi."},
+                            status=status.HTTP_200_OK)
+
+        elif user_type == 'parent':
+            lead.parent_login = login
+            lead.parent_password = encrypted_password
+            lead.save()
+            return Response({"message": "Ota-ona uchun login va parol muvaffaqiyatli o'rnatildi."},
+                            status=status.HTTP_200_OK)
+
+        return Response({"error": "Noto'g'ri 'type' yuborildi. ('student' yoki 'parent' bo'lishi kerak)"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='assign-moderator')
+    def assign_moderator(self, request, pk=None):
+        lead = self.get_object()
+        moderator_id = request.data.get('moderator_id')  # frontend xodimning ID sini yuboradi
+
+        if not moderator_id:
+            return Response({"error": "Moderator ID si yuborilmadi!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        lead.moderator_id = moderator_id
+        lead.save()
+        return Response({"message": "Mas'ul moderator muvaffaqiyatli biriktirildi."}, status=status.HTTP_200_OK)
 
 
 from rest_framework import mixins

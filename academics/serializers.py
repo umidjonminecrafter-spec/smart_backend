@@ -114,7 +114,11 @@ class StudentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Student
-        fields = '__all__'
+        fields = [
+            'id', 'first_name', 'last_name', 'phone', 'balance',
+            'referred_by', 'moderator', 'debt_limit',
+            'student_login', 'parent_login'
+        ]
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
     def validate(self, attrs):
@@ -347,6 +351,41 @@ class GroupSerializer(serializers.ModelSerializer):
             })
         return exams
 
+    def validate(self, attrs):
+        teacher = attrs.get('teacher')
+        days = attrs.get('days', [])
+        start_time = attrs.get('start_time')
+        end_time = attrs.get('end_time')
+
+        # Agar update bo'layotgan bo'lsa, joriy guruh ma'lumotlarini fallback qilamiz
+        if self.instance:
+            teacher = teacher or self.instance.teacher
+            days = days if 'days' in attrs else self.instance.days
+            start_time = start_time or self.instance.start_time
+            end_time = end_time or self.instance.end_time
+
+        # 🚀 O'QITUVCHI BANDLIGINI TEKSHIRISH (Rasmdagi asosiy talab)
+        if teacher and days and start_time and end_time:
+            # O'qituvchining boshqa barcha faol guruhlarini olamiz
+            existing_groups = Group.objects.filter(
+                teacher=teacher,
+                status='active'
+            )
+            if self.instance:
+                existing_groups = existing_groups.exclude(pk=self.instance.pk)
+
+            for g in existing_groups:
+                # Kunlar kesishishini tekshiramiz (kamida bitta kun bir xil bo'lsa)
+                common_days = set([str(d).lower() for d in days]) & set([str(d).lower() for d in g.days])
+                if common_days:
+                    # Vaqtlar ustma-ust tushishini tekshiramiz:
+                    # (StartA < EndB) AND (EndA > StartB) mantiqi kesishishni aniqlaydi
+                    if (start_time < g.end_time) and (end_time > g.start_time):
+                        raise serializers.ValidationError({
+                            "teacher": "Guruh o'qituvchisi band"
+                        })
+
+        return attrs
     def to_internal_value(self, data):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
 

@@ -117,7 +117,7 @@ class StudentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'first_name', 'last_name', 'phone', 'balance',
             'referred_by', 'moderator', 'debt_limit',
-            'student_login', 'parent_login'
+            'student_login', 'parent_login','password'
         ]
         read_only_fields = ('organization', 'created_at', 'updated_at')
 

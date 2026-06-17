@@ -161,7 +161,7 @@ class StaffSalaryPercent(TenantModel):
     """4. Xodimlar va o'qituvchilar uchun oylik foiz stavkalari (Dinamik stavkalar qo'shish)"""
     name = models.CharField(max_length=255)  # Masalan: "Stajor o'qituvchi", "Katta o'qituvchi"
     percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
-
+    comment = models.CharField(max_length=255, null=True, blank=True, verbose_name="Izoh")
     def __str__(self):
         return f"{self.name} ({self.percent}%)"
 

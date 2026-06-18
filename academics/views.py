@@ -445,11 +445,46 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         student = get_object_or_404(Student.objects.filter(organization_id=org_id), id=student_id)
 
+        # 1. Talabani guruhga biriktiramiz
         student_group, created = StudentGroup.objects.get_or_create(
             organization_id=org_id,
             student=student,
             group=group
         )
+
+        from django.utils import timezone
+        from .models import GroupLesson, Attendance  # Modellar nomini loyihangizga qarab tekshiring
+
+        # Guruhning barcha dars kunlarini sanasi bo'yicha tartiblab olamiz
+        all_lessons = GroupLesson.objects.filter(group=group).order_by('date')
+        all_lessons_count = all_lessons.count()
+
+        # Bugungi sana
+        today = timezone.now().date()
+
+        # Guruhning shu vaqtgacha o'tilgan (bugun va bugundan oldingi) darslari soni
+        past_lessons_count = all_lessons.filter(date__lte=today).count()
+
+        # Qaysi darslardan boshlab davomat ochishni aniqlaymiz
+        if past_lessons_count <= 3:
+            # 🔥 Agar guruh boshlanganiga hali 3 ta dars bo'lmagan bo'lsa (yoki endi boshlanayotgan bo'lsa)
+            # Talabani guruhning eng birinchi darsidan boshlab hamma darsga yozamiz
+            target_lessons = all_lessons
+        else:
+            # Agar guruh ochilganiga 3 tadan ko'p dars bo'lgan bo'lsa
+            # Talaba faqat bugun va bugundan keyingi darslarga yoziladi
+            target_lessons = all_lessons.filter(date__gte=today)
+
+        # Davomat (Attendance) qatorlarini yaratamiz
+        for lesson in target_lessons:
+            Attendance.objects.get_or_create(
+                organization_id=org_id,
+                student=student,
+                group=group,
+                date=lesson.date,
+                defaults={'status': 'present'}  # Standart holatda 'present' yoki tizimingizga qarab 'absent'/'none'
+            )
+
         return Response(StudentGroupSerializer(student_group).data, status=status.HTTP_201_CREATED)
 
     @decorators.action(detail=True, methods=['get'])

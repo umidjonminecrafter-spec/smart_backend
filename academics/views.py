@@ -624,33 +624,28 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         self._sync_lesson_schedules(group)
 
         # 🚀 JADVALNI MODELGA KO'CHIRISHNING ASOSIY METODI
-    def _sync_lesson_schedules(self, group):
-        from .models import LessonSchedule  # Modelingiz joylashgan joy
 
-            # 1. Eski dars jadvallarini tozalaymiz (agar guruh yangilangan bo'lsa, ustma-ust tushmasligi uchun)
+    def _sync_lesson_schedules(self, group):
+        from .models import LessonSchedule
+
         LessonSchedule.objects.filter(group=group).delete()
 
-            # 2. Agar guruhda kunlar, boshlanish va tugash vaqtlari bo'lsa ishga tushamiz
         if group.days and group.start_time and group.end_time:
-
-                # Abdulmajid yuborgan kunlar nomiga qarab 'even' (juft) yoki 'odd' (toq) ekanini aniqlaymiz
-                # Bu yerda frontenddan kunlar o'zbekcha yoki inglizcha kelishiga qarab qolip qilamiz
+            # Hamma harfni kichik qilib, ro'yxatni bitta matnga birlashtiramiz
             days_str = "".join([str(d).lower() for d in group.days])
 
-                # Dushanba, Chorshanba, Juma -> Juft kunlar
-            if any(x in days_str for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri']):
+            # 🔥 TEKSHIRUV: Agar ro'yxatda 1,3,5 raqamlari yoki o'zbekcha/inglizcha kunlar bo'lsa Juft kun qilamiz
+            if any(x in days_str for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5']):
                 calculated_day_type = 'even'
-                # Seshanba, Payshanba, Shanba -> Toq kunlar
-            elif any(x in days_str for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat']):
+            elif any(x in days_str for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6']):
                 calculated_day_type = 'odd'
             else:
-                calculated_day_type = 'even'  # Fallback default
+                calculated_day_type = 'even'
 
-                # 3. LessonSchedule modeliga yangi dars jadvali qatorini yozamiz
             LessonSchedule.objects.create(
-                organization_id=group.organization_id,  # Multi-tenant uchun
+                organization_id=group.organization_id,
                 group=group,
-                room_name=group.room.name if group.room else "Xona biriktirilmagan",  # CharField bo'lgani uchun
+                room_name=group.room.name if group.room else "Xona biriktirilmagan",
                 teacher=group.teacher,
                 start_time=group.start_time,
                 end_time=group.end_time,

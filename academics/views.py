@@ -599,25 +599,37 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     def _sync_lesson_schedules(self, group):
         from .models import LessonSchedule
 
-        # Mavjud dars jadvallarini tozalaymiz
+        # 1. Avval eski jadvallarni tozalaymiz
         LessonSchedule.objects.filter(group=group).delete()
 
         if group.days and group.start_time and group.end_time:
-            # Kunlarni bitta kichik harfli tekstga yig'amiz
-            days_str = "".join([str(d).lower() for d in group.days])
+            # 2. group.days ichidagi elementlarni toza stringga aylantiramiz
+            if isinstance(group.days, list):
+                days_list = [str(d).lower().strip() for d in group.days]
+            else:
+                # Agar string bo'lsa, uni ham tozalaymiz
+                days_list = [str(group.days).lower().strip()]
 
-            # Juft va Toq kunlarni aniqlash
-            if any(x in days_str for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5']):
+            # Barcha elementlarni bitta matnga birlashtiramiz
+            days_combined = " ".join(days_list)
+
+            # 3. Juft yoki toq kunligini aniqlash (inglizcha, o'zbekcha va raqamli formatlar uchun)
+            is_even = any(
+                x in days_combined for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5'])
+            is_odd = any(
+                x in days_combined for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6'])
+
+            if is_even:
                 calculated_day_type = 'even'
-            elif any(x in days_str for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6']):
+            elif is_odd:
                 calculated_day_type = 'odd'
             else:
+                # Agar birortasi ham o'xshasa default holatda 'even' qilamiz
                 calculated_day_type = 'even'
 
-            # Tashkilot ID sini olish (Multi-tenant xavfsizligi uchun)
             org_id = getattr(group, 'organization_id', None) or self.get_organization_id()
 
-            # LessonSchedule'ga dars vaqtlarini yozamiz
+            # 4. LessonSchedule ob'ektini yaratamiz
             LessonSchedule.objects.create(
                 organization_id=org_id,
                 group=group,

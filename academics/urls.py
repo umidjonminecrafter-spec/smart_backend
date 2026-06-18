@@ -3,14 +3,14 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     CourseViewSet, RoomViewSet, StudentViewSet, GroupViewSet,
     StudentGroupViewSet, GroupTeacherViewSet, TeacherSalaryPaymentViewSet,
-    StudentTransactionsView, GroupAttendanceView, LessonScheduleViewSet,
+    StudentTransactionsView, GroupAttendanceView,
     StudentBalancesViewSet, BalanceHistoryViewSet, ExamViewSet, ExamResultViewSet,
     LeaveReasonViewSet, LessonTimeViewSet, OnlineLessonViewSet, StudentGroupLeaveViewSet,
     StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet, SendCodeAPIView,
     VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView, ParentStudentsAPIView, ParentStudentDetailsAPIView,
     StaffProfileAPIView, StaffScheduleAPIView, BotMessageTemplateViewSet, TelegramWebhookView, SetLessonTopicAPIView,
     CancelOrRestoreLessonAPIView, RescheduleLessonAPIView, GroupLessonListAPIView, BirthdayCalendarAPIView,
-    StudentEvaluationLevelViewSet
+    StudentEvaluationLevelViewSet, TimetableView
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -34,7 +34,6 @@ router.register(r'courses', CourseViewSet, basename='course')
 router.register(r'rooms', RoomViewSet, basename='room')
 router.register(r'student-groups', StudentGroupViewSet, basename='student-group')
 router.register(r'group-teachers', GroupTeacherViewSet, basename='group-teacher')
-router.register(r'lesson-schedules', LessonScheduleViewSet, basename='lesson-schedule')
 router.register(r'student-balances', StudentBalancesViewSet, basename='student-balance')
 router.register(r'attendances', AttendanceViewSet, basename='attendance')
 
@@ -89,6 +88,7 @@ urlpatterns = [
     path('lessons/<int:lesson_id>/reschedule/', RescheduleLessonAPIView.as_view(), name='reschedule-lesson'),
     path('lessons/', GroupLessonListAPIView.as_view(), name='group-lessons-list'),
     path('birthdays/', BirthdayCalendarAPIView.as_view(), name='birthday-calendar'),
+    path('timetable/', TimetableView.as_view(), name='lesson-schedule-timetable'),
 
 
 ]

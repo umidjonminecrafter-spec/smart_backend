@@ -842,31 +842,56 @@ class GroupAttendanceView(TenantViewSetMixin, APIView):
         count, _ = queryset.delete()
         return Response({"detail": f"Successfully deleted {count} attendance records."}, status=status.HTTP_200_OK)
 
+from rest_framework.permissions import IsAuthenticated
+from collections import defaultdict
+class TimetableView(APIView):
+    permission_classes = [IsAuthenticated]
 
-class LessonScheduleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
-    permission_page_name = 'Darslar hisoboti'
-    serializer_class = LessonScheduleSerializer
-    filter_backends = [DjangoFilterBackend]
-    # QO'SHILDI: Guruh va o'qituvchi bo'yicha ham filterlash imkoniyati
-    filterset_fields = ['group', 'teacher']
-
-    def get_queryset(self):
-        org_id = self.get_organization_id()
+    def get(self, request):
+        # 1. Multi-tenant bo'yicha tashkilot ID sini olamiz
+        org_id = getattr(request.user, 'organization_id', None)
         if not org_id:
-            return LessonSchedule.objects.none()
+            return Response({"even": {}, "odd": {}})
 
-        queryset = LessonSchedule.objects.filter(organization_id=org_id).select_related(
+        # 2. Shu tashkilotga tegishli barcha LessonSchedule'larni vaqti bo'yicha tartiblab olamiz
+        schedules = LessonSchedule.objects.filter(organization_id=org_id).select_related(
             'group', 'group__course', 'teacher'
-        )
+        ).order_by('start_time')
 
-        schedule_type = self.request.query_params.get('type')
-        if schedule_type == 'juft':
-            queryset = queryset.filter(day_type='even')
-        elif schedule_type == 'toq':
-            queryset = queryset.filter(day_type='odd')
+        # 3. Juft va Toq kunlar uchun vaqtbay guruhlash qoliplari
+        timetable = {
+            'even': defaultdict(list),  # Juft kunlar uchun (Even Days)
+            'odd': defaultdict(list)  # Toq kunlar uchun (Odd Days)
+        }
 
-        return queryset
+        # 4. Ma'lumotlarni aylantirib, "start_time - end_time" kaliti ostiga yig'amiz
+        for schedule in schedules:
+            # Vaqtni frontendga tushunarli formatga keltiramiz (Masalan: "09:00 - 11:00")
+            time_slot = f"{schedule.start_time.strftime('%H:%M')} - {schedule.end_time.strftime('%H:%M')}"
+
+            # Abdulmajid ekranga chiqarishi kerak bo'lgan tayyor dars malumotlari
+            lesson_data = {
+                "id": schedule.id,
+                "group_id": schedule.group_id,
+                "group_name": schedule.group.name,
+                "course_name": schedule.group.course.name if schedule.group.course else "",
+                "room_name": schedule.room_name,  # sizning modelingizdagi xona nomi (CharField)
+                "teacher_name": f"{schedule.teacher.first_name} {schedule.teacher.last_name}".strip() or schedule.teacher.username if schedule.teacher else "O'qituvchi biriktirilmagan",
+            }
+
+            # To'g'ri kun guruhiga va o'sha kunning ichidagi dars soatiga joylashtiramiz
+            if schedule.day_type == 'even':
+                timetable['even'][time_slot].append(lesson_data)
+            elif schedule.day_type == 'odd':
+                timetable['odd'][time_slot].append(lesson_data)
+
+        # 5. REST Framework serializer xato bermasligi uchun defaultdict'ni oddiy dict'ga o'giramiz
+        cleaned_timetable = {
+            'even': dict(timetable['even']),
+            'odd': dict(timetable['odd'])
+        }
+
+        return Response(cleaned_timetable)
 
 
 class StudentBalancesViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):

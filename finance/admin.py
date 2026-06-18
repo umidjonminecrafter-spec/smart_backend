@@ -3,28 +3,32 @@ from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Expense, MonthlyIncome,
     Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation,StaffSalaryPercent
 )
-from organizations.admin import TenantAdminMixin
 
 @admin.register(StaffSalaryPercent)
-class StaffSalaryPercentAdmin(TenantAdminMixin, admin.ModelAdmin):
-    # Admin panel ro'yxatida ko'rinadigan ustunlar
+class StaffSalaryPercentAdmin(admin.ModelAdmin):
     list_display = ('id', 'name', 'percent', 'organization', 'comment')
-
-    # Qidiruv maydonlari
     search_fields = ('name', 'comment')
-
-    # Filterlar (o'ng tarafda turadigan)
     list_filter = ('percent', 'organization')
-
-    # Yangi foiz qo'shish oynasida ko'rinadigan maydonlar strukturasi
     fields = ('name', 'percent', 'comment')
 
-    # Multi-tenant qoidasiga ko'ra organization avtomat orqada saqlanadi
+    # Tashkilotni (organization) avtomat aniqlab saqlash mantiqi
     def save_model(self, request, obj, form, change):
-        if not change:  # Agar yangi yaratilayotgan bo'lsa
-            # Agar sizda request.user orqali tashkilotni aniqlash mantiqi bo'lsa:
-            obj.organization_id = getattr(request.user, 'organization_id', None)
+        if not change:  # Yangi yaratilayotgan bo'lsa
+            # Agar request.user da organization_id bo'lsa, o'shani biriktiradi
+            user_org_id = getattr(request.user, 'organization_id', None)
+            if user_org_id:
+                obj.organization_id = user_org_id
         super().save_model(request, obj, form, change)
+
+    # Har bir admin faqat o'z tashkilotiga tegishli foizlarni ko'rishi uchun
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        user_org_id = getattr(request.user, 'organization_id', None)
+        if user_org_id:
+            return qs.filter(organization_id=user_org_id)
+        return qs.none()
 
 @admin.register(ExpenseCategory)
 class ExpenseCategoryAdmin(admin.ModelAdmin):

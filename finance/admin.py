@@ -4,32 +4,37 @@ from finance.models import (
     Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation,StaffSalaryPercent
 )
 
+
 @admin.register(StaffSalaryPercent)
 class StaffSalaryPercentAdmin(admin.ModelAdmin):
+    # Ro'yxatda nimalar ko'rinishi
     list_display = ('id', 'name', 'percent', 'organization', 'comment')
     search_fields = ('name', 'comment')
     list_filter = ('percent', 'organization')
-    fields = ('name', 'percent', 'comment')
 
-    # Tashkilotni (organization) avtomat aniqlab saqlash mantiqi
+    # 🔥 MANA SHU YERGA 'organization'ni qo'shdik! Endi foiz yaratayotganda tashkilotni qo'lda tanlasa bo'ladi.
+    fields = ('name', 'percent', 'organization', 'comment')
+
     def save_model(self, request, obj, form, change):
-        if not change:  # Yangi yaratilayotgan bo'lsa
-            # Agar request.user da organization_id bo'lsa, o'shani biriktiradi
+        # Agar admin o'zi qo'lda tashkilot tanlagan bo'lsa, o'shani saqlaydi
+        # Agar tanlamagan bo'lsa va yangi bo'lsa, adminning o'z tashkilotini biriktiradi
+        if not obj.organization_id and not change:
             user_org_id = getattr(request.user, 'organization_id', None)
             if user_org_id:
                 obj.organization_id = user_org_id
         super().save_model(request, obj, form, change)
 
-    # Har bir admin faqat o'z tashkilotiga tegishli foizlarni ko'rishi uchun
     def get_queryset(self, request):
+        # Superuser hamma tashkilotni foizlarini ko'ra oladi va boshqara oladi
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
+
+        # Oddiy adminlar faqat o'z tashkilotinikini ko'radi
         user_org_id = getattr(request.user, 'organization_id', None)
         if user_org_id:
             return qs.filter(organization_id=user_org_id)
         return qs.none()
-
 @admin.register(ExpenseCategory)
 class ExpenseCategoryAdmin(admin.ModelAdmin):
     list_display = ('id', 'name', 'organization')

@@ -893,67 +893,7 @@ class LessonScheduleViewSet(viewsets.ModelViewSet):  # Agar mixiningiz bo'lsa: (
             queryset = queryset.filter(day_type='odd')
 
         return queryset
-from rest_framework.permissions import IsAuthenticated
-from collections import defaultdict
-class TimetableView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        from collections import defaultdict
-
-        org_id = getattr(request.user, 'organization_id', None)
-        if not org_id:
-            return Response({"even": {}, "odd": {}})
-
-        schedules = LessonSchedule.objects.filter(organization_id=org_id).select_related(
-            'group', 'group__course', 'teacher'
-        ).order_by('start_time')
-
-        timetable = {
-            'even': defaultdict(list),
-            'odd': defaultdict(list)
-        }
-
-        for schedule in schedules:
-            if not schedule.group:
-                continue
-
-            # 🛠️ VAQTLARNI STRING YOKI OBJECT EKANLIGINI TEKSHIRIB FORMATLASH (Crash xavfi yo'q qilindi)
-            try:
-                st = schedule.start_time.strftime('%H:%M') if hasattr(schedule.start_time, 'strftime') else str(
-                    schedule.start_time)[:5]
-                et = schedule.end_time.strftime('%H:%M') if hasattr(schedule.end_time, 'strftime') else str(
-                    schedule.end_time)[:5]
-                time_slot = f"{st} - {et}"
-            except Exception:
-                time_slot = f"{schedule.start_time} - {schedule.end_time}"
-
-            # O'qituvchi ismini olish
-            if schedule.teacher:
-                teacher_name = f"{schedule.teacher.first_name or ''} {schedule.teacher.last_name or ''}".strip()
-                if not teacher_name:
-                    teacher_name = schedule.teacher.username
-            else:
-                teacher_name = "O'qituvchi biriktirilmagan"
-
-            lesson_data = {
-                "id": schedule.id,
-                "group_id": schedule.group_id,
-                "group_name": schedule.group.name,
-                "course_name": schedule.group.course.name if schedule.group.course else "",
-                "room_name": schedule.room_name,
-                "teacher_name": teacher_name,
-            }
-
-            if schedule.day_type == 'even':
-                timetable['even'][time_slot].append(lesson_data)
-            elif schedule.day_type == 'odd':
-                timetable['odd'][time_slot].append(lesson_data)
-
-        return Response({
-            'even': dict(timetable['even']),
-            'odd': dict(timetable['odd'])
-        })
 
 
 class StudentBalancesViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):

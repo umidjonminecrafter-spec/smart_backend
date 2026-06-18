@@ -388,15 +388,12 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
 
-    # 🚀 FILTER VA QIDIRUVNI YANGILADIK: endi status va education_type bo'yicha filter qilsa bo'ladi
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['status', 'education_type', 'teacher']
     search_fields = ['name']
 
     def get_queryset(self):
         qs = super().get_queryset()
-
-        # O'qituvchi bo'yicha filtrlash (Asosiy o'qituvchi yoki yordamchi o'qituvchi bo'lsa ham chiqadi)
         teacher_id = self.request.query_params.get('teacher')
         if teacher_id:
             from django.db.models import Q
@@ -406,7 +403,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 Q(group_teachers__teacher_id=teacher_id)
             ).distinct()
 
-        # Talaba faqat o'zi o'qiydigan guruhlarni ko'ra oladi
         current_user = getattr(self.request, 'user', None)
         if current_user and getattr(current_user, 'role', None) == 'student':
             phone = getattr(current_user, 'phone', None) or getattr(current_user, 'username', None)
@@ -445,7 +441,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         student = get_object_or_404(Student.objects.filter(organization_id=org_id), id=student_id)
 
-        # 🔥 1. TEKSHIRUV: Talaba ushbu guruhga allaqachon qo'shilganmi yoki yo'qligini tekshiramiz
         from .models import StudentGroup
         if StudentGroup.objects.filter(group=group, student=student).exists():
             return Response(
@@ -453,7 +448,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 2. Agar guruhda yo'q bo'lsa, xavfsiz ravishda yangi a'zolik yaratamiz
         student_group = StudentGroup.objects.create(
             organization_id=org_id,
             student=student,
@@ -461,35 +455,24 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         )
 
         from django.utils import timezone
-        from .models import GroupLesson, Attendance  # Modellar nomini loyihangizga qarab tekshiring
+        from .models import GroupLesson, Attendance
 
-        # Guruhning barcha dars kunlarini sanasi bo'yicha tartiblab olamiz
         all_lessons = GroupLesson.objects.filter(group=group).order_by('date')
-
-        # Bugungi sana
         today = timezone.now().date()
-
-        # Guruhning shu vaqtgacha o'tilgan (bugun va bugundan oldingi) darslari soni
         past_lessons_count = all_lessons.filter(date__lte=today).count()
 
-        # Qaysi darslardan boshlab davomat ochishni aniqlaymiz
         if past_lessons_count <= 3:
-            # Agar guruh boshlanganiga hali 3 ta dars bo'lmagan bo'lsa (yoki endi boshlanayotgan bo'lsa)
-            # Talabani guruhning eng birinchi darsidan boshlab hamma darsga yozamiz
             target_lessons = all_lessons
         else:
-            # Agar guruh ochilganiga 3 tadan ko'p dars bo'lgan bo'lsa
-            # Talaba faqat bugun va bugundan keyingi darslarga yoziladi
             target_lessons = all_lessons.filter(date__gte=today)
 
-        # Davomat (Attendance) qatorlarini yaratamiz
         for lesson in target_lessons:
             Attendance.objects.get_or_create(
                 organization_id=org_id,
                 student=student,
                 group=group,
                 date=lesson.date,
-                defaults={'status': 'present'}  # Tizimingizga qarab 'present', 'absent' yoki 'none'
+                defaults={'status': 'present'}
             )
 
         return Response(StudentGroupSerializer(student_group).data, status=status.HTTP_201_CREATED)
@@ -499,8 +482,8 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         group = self.get_object()
         logs = []
         from django.db.models import Count, Max, Q
+        from django.utils import timezone
 
-        # 1. Group created (created_at maydoni yo'qligi sababli xato bermasligi uchun try-except yoki default)
         created_time = getattr(group, 'created_at', timezone.now()) or timezone.now()
         logs.append({
             "action": "Yaratildi",
@@ -508,7 +491,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "created_at": created_time
         })
 
-        # 2. Teachers assigned
         for gt in GroupTeacher.objects.filter(group=group).select_related('teacher'):
             teacher_name = gt.teacher.get_full_name() or gt.teacher.username
             gt_time = getattr(gt, 'created_at', timezone.now()) or timezone.now()
@@ -518,7 +500,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 "created_at": gt_time
             })
 
-        # 3. Students enrolled
         for sg in StudentGroup.objects.filter(group=group).select_related('student'):
             student_name = f"{sg.student.first_name} {sg.student.last_name or ''}".strip()
             sg_time = getattr(sg, 'joined_at', timezone.now()) or timezone.now()
@@ -528,7 +509,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 "created_at": sg_time
             })
 
-        # 4. Students left
         for sgl in StudentGroupLeave.objects.filter(group=group).select_related('student', 'leave_reason'):
             student_name = f"{sgl.student.first_name} {sgl.student.last_name or ''}".strip()
             reason = sgl.leave_reason.reason if sgl.leave_reason else "ko'rsatilmagan"
@@ -539,13 +519,12 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 "created_at": sgl_time
             })
 
-        # 5. Attendances grouped by date
         att_dates = Attendance.objects.filter(group=group).values('date').annotate(
             total=Count('id'),
             present=Count('id', filter=Q(status='present')),
             absent=Count('id', filter=Q(status='absent')),
             excused=Count('id', filter=Q(status='excused')),
-            last_change=Max('id')  # updated_at bo'lmasa xato bermasligi uchun ID max'ini oldik
+            last_change=Max('id')
         ).order_by('-date')
 
         for ad in att_dates:
@@ -560,19 +539,17 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             logs.append({
                 "action": "Davomat",
                 "description": desc,
-                "created_at": timezone.now()  # davomat logi uchun vaqtinchalik joriy vaqt
+                "created_at": timezone.now()
             })
 
-        # 6. Online Lessons
         for ol in OnlineLesson.objects.filter(group=group):
-            ol_time = timezone.now()  # Agar modelda created_at bo'lmasa xato bermasligi uchun
+            ol_time = timezone.now()
             logs.append({
                 "action": "Onlayn dars",
                 "description": f"Onlayn dars qo'shildi: '{ol.title}'.",
                 "created_at": ol_time
             })
 
-        # ISO String formatga o'tkazish va saralash
         for log in logs:
             if hasattr(log['created_at'], 'isoformat'):
                 log['created_at'] = log['created_at'].isoformat()
@@ -586,7 +563,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     def send_sms(self, request, pk=None):
         group = self.get_object()
 
-        # O'qituvchilarga SMS yuborish ruxsatnomasi tekshiruvi
         if getattr(request.user, 'role', None) == 'teacher':
             from organizations.models import Subscription
             subscription = Subscription.objects.filter(
@@ -611,30 +587,26 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "message": f"SMS successfully broadcasted to {count} students in group {group.name}."
         }, status=status.HTTP_200_OK)
 
-        # 🚀 1. YANGI GURUH YARATILGANDA JADVALNI AVTOMAT SHAKLLANTIRISH
+    # 🚀 MANA ENDI BU METODLAR TO'G'RI JOYGA — KLASS ICHIGA TUSHDI!
     def perform_create(self, serializer):
-            # Guruhni saqlaymiz va ob'ektni olamiz
         group = serializer.save()
         self._sync_lesson_schedules(group)
 
-        # 🚀 2. MAVJUD GURUH YANGILANGANDA (VAQTI YOKI KUNLARI O'ZGARSA) JADVALNI YANGILASH
     def perform_update(self, serializer):
-            # Guruhni yangilaymiz
         group = serializer.save()
         self._sync_lesson_schedules(group)
-
-        # 🚀 JADVALNI MODELGA KO'CHIRISHNING ASOSIY METODI
 
     def _sync_lesson_schedules(self, group):
         from .models import LessonSchedule
 
+        # Mavjud dars jadvallarini tozalaymiz
         LessonSchedule.objects.filter(group=group).delete()
 
         if group.days and group.start_time and group.end_time:
-            # Hamma harfni kichik qilib, ro'yxatni bitta matnga birlashtiramiz
+            # Kunlarni bitta kichik harfli tekstga yig'amiz
             days_str = "".join([str(d).lower() for d in group.days])
 
-            # 🔥 TEKSHIRUV: Agar ro'yxatda 1,3,5 raqamlari yoki o'zbekcha/inglizcha kunlar bo'lsa Juft kun qilamiz
+            # Juft va Toq kunlarni aniqlash
             if any(x in days_str for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5']):
                 calculated_day_type = 'even'
             elif any(x in days_str for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6']):
@@ -642,8 +614,12 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             else:
                 calculated_day_type = 'even'
 
+            # Tashkilot ID sini olish (Multi-tenant xavfsizligi uchun)
+            org_id = getattr(group, 'organization_id', None) or self.get_organization_id()
+
+            # LessonSchedule'ga dars vaqtlarini yozamiz
             LessonSchedule.objects.create(
-                organization_id=group.organization_id,
+                organization_id=org_id,
                 group=group,
                 room_name=group.room.name if group.room else "Xona biriktirilmagan",
                 teacher=group.teacher,
@@ -651,7 +627,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 end_time=group.end_time,
                 day_type=calculated_day_type
             )
-
 
 class StudentGroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]

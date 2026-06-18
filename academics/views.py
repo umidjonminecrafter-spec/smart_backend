@@ -445,8 +445,16 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         student = get_object_or_404(Student.objects.filter(organization_id=org_id), id=student_id)
 
-        # 1. Talabani guruhga biriktiramiz
-        student_group, created = StudentGroup.objects.get_or_create(
+        # 🔥 1. TEKSHIRUV: Talaba ushbu guruhga allaqachon qo'shilganmi yoki yo'qligini tekshiramiz
+        from .models import StudentGroup
+        if StudentGroup.objects.filter(group=group, student=student).exists():
+            return Response(
+                {"detail": "Bu talaba ushbu guruhga allaqachon qo'shilgan!"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 2. Agar guruhda yo'q bo'lsa, xavfsiz ravishda yangi a'zolik yaratamiz
+        student_group = StudentGroup.objects.create(
             organization_id=org_id,
             student=student,
             group=group
@@ -457,7 +465,6 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
         # Guruhning barcha dars kunlarini sanasi bo'yicha tartiblab olamiz
         all_lessons = GroupLesson.objects.filter(group=group).order_by('date')
-        all_lessons_count = all_lessons.count()
 
         # Bugungi sana
         today = timezone.now().date()
@@ -467,7 +474,7 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
         # Qaysi darslardan boshlab davomat ochishni aniqlaymiz
         if past_lessons_count <= 3:
-            # 🔥 Agar guruh boshlanganiga hali 3 ta dars bo'lmagan bo'lsa (yoki endi boshlanayotgan bo'lsa)
+            # Agar guruh boshlanganiga hali 3 ta dars bo'lmagan bo'lsa (yoki endi boshlanayotgan bo'lsa)
             # Talabani guruhning eng birinchi darsidan boshlab hamma darsga yozamiz
             target_lessons = all_lessons
         else:
@@ -482,7 +489,7 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 student=student,
                 group=group,
                 date=lesson.date,
-                defaults={'status': 'present'}  # Standart holatda 'present' yoki tizimingizga qarab 'absent'/'none'
+                defaults={'status': 'present'}  # Tizimingizga qarab 'present', 'absent' yoki 'none'
             )
 
         return Response(StudentGroupSerializer(student_group).data, status=status.HTTP_201_CREATED)

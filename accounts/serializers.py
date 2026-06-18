@@ -98,15 +98,31 @@ class ChangePasswordSerializer(serializers.Serializer):
         return value
 
 
+from finance.serializers import StaffSalaryPercentSerializer  # 👈 Moliya serializeridan import qilamiz
+from finance.models import StaffSalaryPercent
+
+
 class EmployeeSerializer(serializers.ModelSerializer):
     username = serializers.CharField(required=False)
     password = serializers.CharField(write_only=True, required=False)
 
+    # 🚀 1-MUHIM O'ZGARISH: GET so'rovida Abdulmajid foizni to'liq ob'ekt shaklida ko'rishi uchun
+    salary_percentage_detail = StaffSalaryPercentSerializer(source='salary_percentage', read_only=True)
+
+    # 🚀 2-MUHIM O'ZGARISH: POST/PUT so'rovida faqat ID (raqam) yuborib saqlashi uchun
+    salary_percentage = serializers.PrimaryKeyRelatedField(
+        queryset=StaffSalaryPercent.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+
     class Meta:
         model = User
-        # 🚀 fields ro'yxatiga 'salary_percentage' kiritildi
+        # 🚀 fields ro'yxatiga 'salary_percentage_detail' ham qo'shildi
         fields = ('id', 'username', 'password', 'email', 'first_name', 'last_name', 'phone', 'role', 'position',
-                  'organization', 'branch', 'birth_date', 'gender', 'photo', 'salary_percentage')
+                  'organization', 'branch', 'birth_date', 'gender', 'photo', 'salary_percentage',
+                  'salary_percentage_detail')
         read_only_fields = ('id', 'organization', 'branch')
 
     def to_internal_value(self, data):

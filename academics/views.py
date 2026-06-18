@@ -611,6 +611,52 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "message": f"SMS successfully broadcasted to {count} students in group {group.name}."
         }, status=status.HTTP_200_OK)
 
+        # 🚀 1. YANGI GURUH YARATILGANDA JADVALNI AVTOMAT SHAKLLANTIRISH
+    def perform_create(self, serializer):
+            # Guruhni saqlaymiz va ob'ektni olamiz
+        group = serializer.save()
+        self._sync_lesson_schedules(group)
+
+        # 🚀 2. MAVJUD GURUH YANGILANGANDA (VAQTI YOKI KUNLARI O'ZGARSA) JADVALNI YANGILASH
+    def perform_update(self, serializer):
+            # Guruhni yangilaymiz
+        group = serializer.save()
+        self._sync_lesson_schedules(group)
+
+        # 🚀 JADVALNI MODELGA KO'CHIRISHNING ASOSIY METODI
+    def _sync_lesson_schedules(self, group):
+        from .models import LessonSchedule  # Modelingiz joylashgan joy
+
+            # 1. Eski dars jadvallarini tozalaymiz (agar guruh yangilangan bo'lsa, ustma-ust tushmasligi uchun)
+        LessonSchedule.objects.filter(group=group).delete()
+
+            # 2. Agar guruhda kunlar, boshlanish va tugash vaqtlari bo'lsa ishga tushamiz
+        if group.days and group.start_time and group.end_time:
+
+                # Abdulmajid yuborgan kunlar nomiga qarab 'even' (juft) yoki 'odd' (toq) ekanini aniqlaymiz
+                # Bu yerda frontenddan kunlar o'zbekcha yoki inglizcha kelishiga qarab qolip qilamiz
+            days_str = "".join([str(d).lower() for d in group.days])
+
+                # Dushanba, Chorshanba, Juma -> Juft kunlar
+            if any(x in days_str for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri']):
+                calculated_day_type = 'even'
+                # Seshanba, Payshanba, Shanba -> Toq kunlar
+            elif any(x in days_str for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat']):
+                calculated_day_type = 'odd'
+            else:
+                calculated_day_type = 'even'  # Fallback default
+
+                # 3. LessonSchedule modeliga yangi dars jadvali qatorini yozamiz
+            LessonSchedule.objects.create(
+                organization_id=group.organization_id,  # Multi-tenant uchun
+                group=group,
+                room_name=group.room.name if group.room else "Xona biriktirilmagan",  # CharField bo'lgani uchun
+                teacher=group.teacher,
+                start_time=group.start_time,
+                end_time=group.end_time,
+                day_type=calculated_day_type
+            )
+
 
 class StudentGroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
@@ -842,6 +888,29 @@ class GroupAttendanceView(TenantViewSetMixin, APIView):
         count, _ = queryset.delete()
         return Response({"detail": f"Successfully deleted {count} attendance records."}, status=status.HTTP_200_OK)
 
+
+class LessonScheduleViewSet(viewsets.ModelViewSet):  # Agar mixiningiz bo'lsa: (TenantViewSetMixin, viewsets.ModelViewSet)
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = LessonScheduleSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['group', 'teacher']
+
+    def get_queryset(self):
+        org_id = getattr(self.request.user, 'organization_id', None)
+        if not org_id:
+            return LessonSchedule.objects.none()
+
+        queryset = LessonSchedule.objects.filter(organization_id=org_id).select_related(
+            'group', 'group__course', 'teacher'
+        )
+
+        schedule_type = self.request.query_params.get('type')
+        if schedule_type == 'juft':
+            queryset = queryset.filter(day_type='even')
+        elif schedule_type == 'toq':
+            queryset = queryset.filter(day_type='odd')
+
+        return queryset
 from rest_framework.permissions import IsAuthenticated
 from collections import defaultdict
 class TimetableView(APIView):

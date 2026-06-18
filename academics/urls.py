@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     CourseViewSet, RoomViewSet, StudentViewSet, GroupViewSet,
     StudentGroupViewSet, GroupTeacherViewSet, TeacherSalaryPaymentViewSet,
-    StudentTransactionsView, GroupAttendanceView,
+    StudentTransactionsView, GroupAttendanceView, LessonScheduleViewSet,
     StudentBalancesViewSet, BalanceHistoryViewSet, ExamViewSet, ExamResultViewSet,
     LeaveReasonViewSet, LessonTimeViewSet, OnlineLessonViewSet, StudentGroupLeaveViewSet,
     StudentPricingViewSet, StudentArchiveViewSet, AttendanceViewSet, HolidayViewSet, HomeworkViewSet, SendCodeAPIView,
@@ -34,6 +34,7 @@ router.register(r'courses', CourseViewSet, basename='course')
 router.register(r'rooms', RoomViewSet, basename='room')
 router.register(r'student-groups', StudentGroupViewSet, basename='student-group')
 router.register(r'group-teachers', GroupTeacherViewSet, basename='group-teacher')
+router.register(r'lesson-schedules', LessonScheduleViewSet, basename='lesson-schedule')
 router.register(r'student-balances', StudentBalancesViewSet, basename='student-balance')
 router.register(r'attendances', AttendanceViewSet, basename='attendance')
 

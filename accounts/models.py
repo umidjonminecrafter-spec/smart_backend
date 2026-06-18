@@ -49,14 +49,13 @@ class User(AbstractUser):
 
     def clean(self):
         super().clean()
-        # Role 'teacher' bo'lganda foiz stavkasi majburiy bo'lishini tekshirish
         if self.role == 'teacher' and not self.salary_percentage:
             raise ValidationError({
                 'salary_percentage': "O'qituvchi roli uchun oladigan foizini tanlash majburiy!"
             })
 
     def save(self, *args, **kwargs):
-        self.full_clean()
+        # 🔥 self.full_clean() satrini olib tashladik, chunki u DRF serializer validatsiyasiga xalaqit beradi
         super().save(*args, **kwargs)
 
     def __str__(self):

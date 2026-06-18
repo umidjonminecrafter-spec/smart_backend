@@ -106,10 +106,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     username = serializers.CharField(required=False)
     password = serializers.CharField(write_only=True, required=False)
 
-    # 🚀 1-MUHIM O'ZGARISH: GET so'rovida Abdulmajid foizni to'liq ob'ekt shaklida ko'rishi uchun
     salary_percentage_detail = StaffSalaryPercentSerializer(source='salary_percentage', read_only=True)
-
-    # 🚀 2-MUHIM O'ZGARISH: POST/PUT so'rovida faqat ID (raqam) yuborib saqlashi uchun
     salary_percentage = serializers.PrimaryKeyRelatedField(
         queryset=StaffSalaryPercent.objects.all(),
         write_only=True,
@@ -119,15 +116,26 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        # 🚀 fields ro'yxatiga 'salary_percentage_detail' ham qo'shildi
         fields = ('id', 'username', 'password', 'email', 'first_name', 'last_name', 'phone', 'role', 'position',
                   'organization', 'branch', 'birth_date', 'gender', 'photo', 'salary_percentage',
                   'salary_percentage_detail')
         read_only_fields = ('id', 'organization', 'branch')
 
-    def to_internal_value(self, data):
-        data = data.copy() if hasattr(data, 'copy') else dict(data)
+    # 🚀 1-YANGILIK: Abdulmajidga xatolik chiroyli "400 Bad Request" bo'lib borishi uchun:
+    def validate(self, attrs):
+        role = attrs.get('role')
+        salary_percentage = attrs.get('salary_percentage')
 
+        # to_internal_value dan kelgan rolni ham tekshiramiz
+        if role == 'teacher' and not salary_percentage:
+            raise serializers.ValidationError({
+                "salary_percentage": "O'qituvchi yaratish uchun ish haqi foizini yuborish majburiy!"
+            })
+        return attrs
+
+    def to_internal_value(self, data):
+        # Sizning mavjud to_internal_value kodingiz (o'zgarishsiz qoladi)
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
         phone = data.get('phone') or data.get('phone_number')
         if phone:
             phone = phone.strip()
@@ -159,15 +167,25 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
         return super().to_internal_value(data)
 
+    # 🚀 2-YANGILIK: create mantiqini xavfsiz va aniq saqlaydigan qildik
     def create(self, validated_data):
         password = validated_data.pop('password', None) or 'smarttalim123'
+        salary_percentage = validated_data.pop('salary_percentage', None)  # alohida sug'urib olamiz
+
         if not validated_data.get('username'):
             validated_data['username'] = validated_data.get('phone', '')
 
+        # Userni yaratamiz
         user = User.objects.create_user(
             password=password,
             **validated_data
         )
+
+        # Foizni majburiy ravishda bog'lab saqlaymiz
+        if salary_percentage:
+            user.salary_percentage = salary_percentage
+            user.save()
+
         return user
 
     def update(self, instance, validated_data):
@@ -180,6 +198,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
         return instance
 
     def to_representation(self, instance):
+        # Sizning mavjud to_representation kodingiz (o'zgarishsiz qoladi)
         rep = super().to_representation(instance)
         rep['full_name'] = f"{instance.first_name} {instance.last_name}".strip() or instance.username
         if instance.position:

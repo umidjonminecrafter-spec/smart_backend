@@ -717,3 +717,93 @@ def trigger_lesson_generation(sender, instance, created, **kwargs):
     # Tracker xatoligini oldini olish uchun to'g'ridan-to'g'ri funksiyani chaqiramiz
     generate_group_lessons(instance)
 
+
+def generate_group_lessons(group_instance):
+    """Guruhning boshlanish va tugash sanasi oralig'idagi dars kunlarini yaratadi"""
+    if not group_instance.start_date or not group_instance.end_date:
+        return
+
+    current_date = group_instance.start_date
+    delta = datetime.timedelta(days=1)
+
+    # Kunlarni matn ko'rinishiga keltiramiz
+    day_type = ""
+    if isinstance(group_instance.days, list):
+        day_type = " ".join([str(d).lower().strip() for d in group_instance.days])
+    elif group_instance.days:
+        day_type = str(group_instance.days).lower().strip()
+
+    if not day_type and group_instance.day_type:
+        day_type = str(group_instance.day_type).lower().strip()
+
+    lessons_to_create = []
+
+    while current_date <= group_instance.end_date:
+        weekday = current_date.weekday()
+        should_create = False
+
+        # Juft kunlar: Tue (Seshanba=1), Thu (Payshanba=3), Sat (Shanba=5)
+        if any(x in day_type for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6']):
+            if weekday in [1, 3, 5]:
+                should_create = True
+        # Toq kunlar: Mon (Dushanba=0), Wed (Chorshanba=2), Fri (Juma=4)
+        elif any(x in day_type for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5']):
+            if weekday in [0, 2, 4]:
+                should_create = True
+        else:
+            if weekday != 6:  # Yakshanbadan tashqari hammasi
+                should_create = True
+
+        if should_create:
+            if not GroupLesson.objects.filter(group=group_instance, date=current_date).exists():
+                lessons_to_create.append(
+                    GroupLesson(
+                        organization=group_instance.organization,
+                        group=group_instance,
+                        date=current_date
+                    )
+                )
+        current_date += delta
+
+    if lessons_to_create:
+        GroupLesson.objects.bulk_create(lessons_to_create)
+
+
+@receiver(post_save, sender=Group)
+def trigger_lesson_generation(sender, instance, created, **kwargs):
+    """Guruh saqlanganda LessonSchedule va GroupLessonni avtomat yaratadi (Admin panel uchun ham)"""
+    # 1. Taqvim kunlarini yaratish
+    generate_group_lessons(instance)
+
+    # 2. Dars jadvalini yaratish mantiqi
+    LessonSchedule.objects.filter(group=instance).delete()
+
+    if instance.start_time and instance.end_time:
+        days_combined = ""
+        if isinstance(instance.days, list):
+            days_combined = " ".join([str(d).lower().strip() for d in instance.days])
+        elif instance.days:
+            days_combined = str(instance.days).lower().strip()
+
+        if not days_combined and instance.day_type:
+            days_combined = str(instance.day_type).lower().strip()
+
+        # Toq yoki Juft kunligini aniqlash (Strict checking)
+        is_even = any(
+            x in days_combined for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6'])
+        is_odd = any(x in days_combined for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5'])
+
+        if is_even and not is_odd:
+            calculated_day_type = 'odd'  # Model tanlovi bo'yicha: Juft kunlar -> odd (Toq kunlar)
+        else:
+            calculated_day_type = 'even'  # Dushanba-Chorshanba-Juma -> even (Juft kunlar)
+
+        LessonSchedule.objects.create(
+            organization=instance.organization,
+            group=instance,
+            room_name=instance.room.name if instance.room else "Xona biriktirilmagan",
+            teacher=instance.teacher,
+            start_time=instance.start_time,
+            end_time=instance.end_time,
+            day_type=calculated_day_type
+        )

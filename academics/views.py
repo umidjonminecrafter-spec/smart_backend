@@ -899,50 +899,61 @@ class TimetableView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # 1. Multi-tenant bo'yicha tashkilot ID sini olamiz
+        from collections import defaultdict
+
         org_id = getattr(request.user, 'organization_id', None)
         if not org_id:
             return Response({"even": {}, "odd": {}})
 
-        # 2. Shu tashkilotga tegishli barcha LessonSchedule'larni vaqti bo'yicha tartiblab olamiz
         schedules = LessonSchedule.objects.filter(organization_id=org_id).select_related(
             'group', 'group__course', 'teacher'
         ).order_by('start_time')
 
-        # 3. Juft va Toq kunlar uchun vaqtbay guruhlash qoliplari
         timetable = {
-            'even': defaultdict(list),  # Juft kunlar uchun (Even Days)
-            'odd': defaultdict(list)  # Toq kunlar uchun (Odd Days)
+            'even': defaultdict(list),
+            'odd': defaultdict(list)
         }
 
-        # 4. Ma'lumotlarni aylantirib, "start_time - end_time" kaliti ostiga yig'amiz
         for schedule in schedules:
-            # Vaqtni frontendga tushunarli formatga keltiramiz (Masalan: "09:00 - 11:00")
-            time_slot = f"{schedule.start_time.strftime('%H:%M')} - {schedule.end_time.strftime('%H:%M')}"
+            if not schedule.group:
+                continue
 
-            # Abdulmajid ekranga chiqarishi kerak bo'lgan tayyor dars malumotlari
+            # 🛠️ VAQTLARNI STRING YOKI OBJECT EKANLIGINI TEKSHIRIB FORMATLASH (Crash xavfi yo'q qilindi)
+            try:
+                st = schedule.start_time.strftime('%H:%M') if hasattr(schedule.start_time, 'strftime') else str(
+                    schedule.start_time)[:5]
+                et = schedule.end_time.strftime('%H:%M') if hasattr(schedule.end_time, 'strftime') else str(
+                    schedule.end_time)[:5]
+                time_slot = f"{st} - {et}"
+            except Exception:
+                time_slot = f"{schedule.start_time} - {schedule.end_time}"
+
+            # O'qituvchi ismini olish
+            if schedule.teacher:
+                teacher_name = f"{schedule.teacher.first_name or ''} {schedule.teacher.last_name or ''}".strip()
+                if not teacher_name:
+                    teacher_name = schedule.teacher.username
+            else:
+                teacher_name = "O'qituvchi biriktirilmagan"
+
             lesson_data = {
                 "id": schedule.id,
                 "group_id": schedule.group_id,
                 "group_name": schedule.group.name,
                 "course_name": schedule.group.course.name if schedule.group.course else "",
-                "room_name": schedule.room_name,  # sizning modelingizdagi xona nomi (CharField)
-                "teacher_name": f"{schedule.teacher.first_name} {schedule.teacher.last_name}".strip() or schedule.teacher.username if schedule.teacher else "O'qituvchi biriktirilmagan",
+                "room_name": schedule.room_name,
+                "teacher_name": teacher_name,
             }
 
-            # To'g'ri kun guruhiga va o'sha kunning ichidagi dars soatiga joylashtiramiz
             if schedule.day_type == 'even':
                 timetable['even'][time_slot].append(lesson_data)
             elif schedule.day_type == 'odd':
                 timetable['odd'][time_slot].append(lesson_data)
 
-        # 5. REST Framework serializer xato bermasligi uchun defaultdict'ni oddiy dict'ga o'giramiz
-        cleaned_timetable = {
+        return Response({
             'even': dict(timetable['even']),
             'odd': dict(timetable['odd'])
-        }
-
-        return Response(cleaned_timetable)
+        })
 
 
 class StudentBalancesViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):

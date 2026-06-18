@@ -1,8 +1,30 @@
 from django.contrib import admin
 from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Expense, MonthlyIncome,
-    Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation
+    Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation,StaffSalaryPercent
 )
+from organizations.admin import TenantAdminMixin
+
+@admin.register(StaffSalaryPercent)
+class StaffSalaryPercentAdmin(TenantAdminMixin, admin.ModelAdmin):
+    # Admin panel ro'yxatida ko'rinadigan ustunlar
+    list_display = ('id', 'name', 'percent', 'organization', 'comment')
+
+    # Qidiruv maydonlari
+    search_fields = ('name', 'comment')
+
+    # Filterlar (o'ng tarafda turadigan)
+    list_filter = ('percent', 'organization')
+
+    # Yangi foiz qo'shish oynasida ko'rinadigan maydonlar strukturasi
+    fields = ('name', 'percent', 'comment')
+
+    # Multi-tenant qoidasiga ko'ra organization avtomat orqada saqlanadi
+    def save_model(self, request, obj, form, change):
+        if not change:  # Agar yangi yaratilayotgan bo'lsa
+            # Agar sizda request.user orqali tashkilotni aniqlash mantiqi bo'lsa:
+            obj.organization_id = getattr(request.user, 'organization_id', None)
+        super().save_model(request, obj, form, change)
 
 @admin.register(ExpenseCategory)
 class ExpenseCategoryAdmin(admin.ModelAdmin):

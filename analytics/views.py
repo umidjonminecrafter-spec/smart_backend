@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Count, Q
 from django.utils import timezone
-from academics.models import Attendance, Group, GroupLesson
+from academics.models import Attendance, Group, GroupLesson,Student
 from crm.models import Lead  # Lead modelingiz qaysi appda bo'lsa o'sha yo'lni yozing (masalan: crm.models)
 from .serializers import GlobalAttendanceSerializer
 
@@ -138,51 +138,47 @@ class BranchStatusAPIView(APIView):
         if not org_id:
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
-        # Sanani filter qilish (agar sanaga bog'liq statistika so'ralsa)
-        date_param = request.query_params.get('date', timezone.now().date().isoformat())
-
-        # Bu yerda asosiy hisobot statistikalarini yig'amiz.
-        # Loyihangiz arxitekturasidan kelib chiqib, Student va Lead modellaridan agregatsiya qilamiz:
-
-        # 1. Lidlar (Buyurtmalar) bo'yicha hisob-kitoblar
-        leads_stats = Lead.objects.filter(organization_id=org_id, is_archived=False).aggregate(
-            buyurtma_soni=Count('id'),
-            birinchi_dars=Count('id', filter=Q(status='first_lesson')),
-            won_leads=Count('id', filter=Q(status='won')),
-            lost_leads=Count('id', filter=Q(status='lost'))
+        # 1. Lidlar (Buyurtmalar) statistikasi
+        leads_stats = Lead.objects.filter(organization_id=org_id).aggregate(
+            buyurtma_soni=Count('id', filter=Q(is_archived=False)),
+            birinchi_dars=Count('id', filter=Q(status='first_lesson', is_archived=False)),
+            buyurtmadan_ketgan=Count('id', filter=Q(status='lost'))
         )
 
-        # 2. O'quvchilar (Students) bo'yicha hisob-kitoblar (agar alohida Student modeli bo'lsa)
-        # Hozircha Lead modelingizdagi ma'lumotlar va qarzdorliklar asosida hisoblaymiz:
-        total_active = Lead.objects.filter(organization_id=org_id, status='won', is_archived=False).count()
+        # 2. Real O'quvchilar (Students) soni (0 chiqmasligi uchun Student modelidan sanaymiz)
+        # Agar sizda statuslar boshqacha bo'lsa, ularni moslang (masalan, 'active')
+        total_students = Student.objects.filter(organization_id=org_id).count()
 
-        # Qarzdorlar: qarzdorlik limiti yoki balansi minusda bo'lganlar (sizning balansingiz mantiqiga ko'ra)
-        # Misol uchun debt_limit dan oshgan yoki balansi 0 dan kichiklar:
-        debtors_count = Lead.objects.filter(organization_id=org_id, debt_limit__gt=0).count()
+        # 3. Aktiv guruhlar soni
+        active_groups_count = Group.objects.filter(organization_id=org_id, status='Active').count()
 
-        # Qarzdorlarning aktivga nisbatan foizi
+        # 4. Qarzdorlar soni (Balansi 0 dan kichik bo'lgan talabalar)
+        # Student modelida 'balance' maydoni bor deb hisoblasak:
+        debtors_count = Student.objects.filter(organization_id=org_id, balance__lt=0).count()
+
+        # Foizni hisoblash
         debt_percentage = 0
-        if total_active > 0:
-            debt_percentage = round((debtors_count / total_active) * 100, 2)
+        if total_students > 0:
+            debt_percentage = round((debtors_count / total_students) * 100, 2)
 
-        # Skrinshotdagi ustunlar ketma-ketligida javob qaytaramiz
+        # Frontend kutayotgan aniq struktura
         branch_report = [{
             "id": org_id,
-            "filial": getattr(request.user.organization, 'name', "Asosiy Filial"),  # Filial nomi
+            "filial": getattr(request.user.organization, 'name', "Asosiy Filial"),
             "buyurtma": leads_stats['buyurtma_soni'] or 0,
             "birinchi_darsga_keladiganlar": leads_stats['birinchi_dars'] or 0,
-            "yangi_oquvchi": leads_stats['won_leads'] or 0,
-            "aktiv_oquvchilar": total_active,
-            "jami_real_bor": total_active,
-            "guruh_oquvchilari": total_active,  # Guruhga biriktirilganlar
-            "buyurtmadan_ketganlar": leads_stats['lost_leads'] or 0,
+            "yangi_oquvchi": total_students,  # Yangi kelgan real o'quvchilar
+            "aktiv_oquvchilar": total_students,
+            "jami_real_bor": total_students,
+            "guruh_oquvchilari": total_students,
+            "buyurtmadan_ketganlar": leads_stats['buyurtmadan_ketgan'] or 0,
             "yangi_oquvchidan_ketganlar": 0,
             "aktiv_oquvchidan_ketganlar": 0,
             "qarzdorlar": debtors_count,
-            "guruh": 0,  # Jami aktiv guruhlar soni
+            "guruh": active_groups_count,
             "birinchi_tolovni_qilganlar": 0,
-            "jami_oquvchi": total_active,
-            "jami_aktiv": total_active,
+            "jami_oquvchi": total_students,
+            "jami_aktiv": total_students,
             "qarzdorlarning_aktivga_nisbatan_foizi": f"{debt_percentage}%"
         }]
 

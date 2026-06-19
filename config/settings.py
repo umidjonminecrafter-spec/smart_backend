@@ -149,8 +149,8 @@ REST_FRAMEWORK = {
 
 # SimpleJWT Settings
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=10000),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=6000),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': False,
     'ALGORITHM': 'HS256',

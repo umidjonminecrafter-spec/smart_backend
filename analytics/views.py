@@ -138,47 +138,55 @@ class BranchStatusAPIView(APIView):
         if not org_id:
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
-        # 1. Lidlar (Buyurtmalar) statistikasi
+        # 1. CRM Lead modeli statistikasi
         leads_stats = Lead.objects.filter(organization_id=org_id).aggregate(
             buyurtma_soni=Count('id', filter=Q(is_archived=False)),
             birinchi_dars=Count('id', filter=Q(status='first_lesson', is_archived=False)),
             buyurtmadan_ketgan=Count('id', filter=Q(status='lost'))
         )
 
-        # 2. Real O'quvchilar (Students) soni (0 chiqmasligi uchun Student modelidan sanaymiz)
-        # Agar sizda statuslar boshqacha bo'lsa, ularni moslang (masalan, 'active')
+        # 2. Real O'quvchilar (Student) soni
         total_students = Student.objects.filter(organization_id=org_id).count()
 
-        # 3. Aktiv guruhlar soni
-        active_groups_count = Group.objects.filter(organization_id=org_id, status='Active').count()
+        # 3. CRM dagi muvaffaqiyatli darsga o'tganlar (Won statusidagi lidlar)
+        won_leads_count = Lead.objects.filter(organization_id=org_id, status='won', is_archived=False).count()
 
-        # 4. Qarzdorlar soni (Balansi 0 dan kichik bo'lgan talabalar)
-        # Student modelida 'balance' maydoni bor deb hisoblasak:
-        debtors_count = Student.objects.filter(organization_id=org_id, balance__lt=0).count()
+        # Jami real o'quvchilar soni (Student bor bo'lsa o'shani oladi, bo'lmasa Won lidlarni hisoblaydi)
+        real_active_count = total_students if total_students > 0 else won_leads_count
 
-        # Foizni hisoblash
-        debt_percentage = 0
-        if total_students > 0:
-            debt_percentage = round((debtors_count / total_students) * 100, 2)
+        # 4. QARZDORLAR FILTRI: Ham Student balansi minus bo'lganlarni, ham Lead dagi qarzdorlarni yig'amiz
+        student_debtors = Student.objects.filter(organization_id=org_id, balance__lt=0.00).count()
+        lead_debtors = Lead.objects.filter(organization_id=org_id, status='won', debt_limit__gt=0.00).count()
 
-        # Frontend kutayotgan aniq struktura
+        # Ikkisidan kelgan jami qarzdorlar (0 chiqmasligi uchun kafolat)
+        total_debtors = student_debtors if student_debtors > 0 else lead_debtors
+
+        # 5. Guruhlar soni (Kichik harfdagi 'active' sharti bilan)
+        active_groups_count = Group.objects.filter(organization_id=org_id, status='active').count()
+
+        # Qarzdorlik foizini hisoblash
+        debt_percentage = 0.0
+        if real_active_count > 0:
+            debt_percentage = round((total_debtors / real_active_count) * 100, 1)
+
+        # Frontend jadvali uchun tayyor ma'lumotlar paketi
         branch_report = [{
             "id": org_id,
             "filial": getattr(request.user.organization, 'name', "Asosiy Filial"),
             "buyurtma": leads_stats['buyurtma_soni'] or 0,
             "birinchi_darsga_keladiganlar": leads_stats['birinchi_dars'] or 0,
-            "yangi_oquvchi": total_students,  # Yangi kelgan real o'quvchilar
-            "aktiv_oquvchilar": total_students,
-            "jami_real_bor": total_students,
-            "guruh_oquvchilari": total_students,
+            "yangi_oquvchi": real_active_count,
+            "aktiv_oquvchilar": real_active_count,
+            "jami_real_bor": real_active_count,
+            "guruh_oquvchilari": real_active_count,
             "buyurtmadan_ketganlar": leads_stats['buyurtmadan_ketgan'] or 0,
             "yangi_oquvchidan_ketganlar": 0,
             "aktiv_oquvchidan_ketganlar": 0,
-            "qarzdorlar": debtors_count,
+            "qarzdorlar": total_debtors,  # Ham Lead, ham Studentdan tekshirildi!
             "guruh": active_groups_count,
             "birinchi_tolovni_qilganlar": 0,
-            "jami_oquvchi": total_students,
-            "jami_aktiv": total_students,
+            "jami_oquvchi": real_active_count,
+            "jami_aktiv": real_active_count,
             "qarzdorlarning_aktivga_nisbatan_foizi": f"{debt_percentage}%"
         }]
 

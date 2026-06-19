@@ -75,7 +75,7 @@ class Lead(TenantModel):
         ('open', 'Open'),
         ('won', 'Won'),
         ('lost', 'Lost'),
-        ('first_lesson', 'Birinchi darsga yozilganlar'),  # 🚀 3-RASM UCHUN: Yangi status turi
+        ('first_lesson', 'Birinchi darsga yozilganlar'),
     )
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=50)

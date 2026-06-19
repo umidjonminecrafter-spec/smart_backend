@@ -55,7 +55,8 @@ INSTALLED_APPS = [
     'audit',
     'communication',
     'billing',
-    'drf_spectacular'
+    'drf_spectacular',
+    'analytics',
 ]
 
 MIDDLEWARE = [

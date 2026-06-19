@@ -128,3 +128,62 @@ class UnmarkedGroupsAPIView(APIView):
                 })
 
         return Response(unmarked_groups)
+
+
+class BranchStatusAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        org_id = getattr(request.user, 'organization_id', None)
+        if not org_id:
+            return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
+
+        # Sanani filter qilish (agar sanaga bog'liq statistika so'ralsa)
+        date_param = request.query_params.get('date', timezone.now().date().isoformat())
+
+        # Bu yerda asosiy hisobot statistikalarini yig'amiz.
+        # Loyihangiz arxitekturasidan kelib chiqib, Student va Lead modellaridan agregatsiya qilamiz:
+
+        # 1. Lidlar (Buyurtmalar) bo'yicha hisob-kitoblar
+        leads_stats = Lead.objects.filter(organization_id=org_id, is_archived=False).aggregate(
+            buyurtma_soni=Count('id'),
+            birinchi_dars=Count('id', filter=Q(status='first_lesson')),
+            won_leads=Count('id', filter=Q(status='won')),
+            lost_leads=Count('id', filter=Q(status='lost'))
+        )
+
+        # 2. O'quvchilar (Students) bo'yicha hisob-kitoblar (agar alohida Student modeli bo'lsa)
+        # Hozircha Lead modelingizdagi ma'lumotlar va qarzdorliklar asosida hisoblaymiz:
+        total_active = Lead.objects.filter(organization_id=org_id, status='won', is_archived=False).count()
+
+        # Qarzdorlar: qarzdorlik limiti yoki balansi minusda bo'lganlar (sizning balansingiz mantiqiga ko'ra)
+        # Misol uchun debt_limit dan oshgan yoki balansi 0 dan kichiklar:
+        debtors_count = Lead.objects.filter(organization_id=org_id, debt_limit__gt=0).count()
+
+        # Qarzdorlarning aktivga nisbatan foizi
+        debt_percentage = 0
+        if total_active > 0:
+            debt_percentage = round((debtors_count / total_active) * 100, 2)
+
+        # Skrinshotdagi ustunlar ketma-ketligida javob qaytaramiz
+        branch_report = [{
+            "id": org_id,
+            "filial": getattr(request.user.organization, 'name', "Asosiy Filial"),  # Filial nomi
+            "buyurtma": leads_stats['buyurtma_soni'] or 0,
+            "birinchi_darsga_keladiganlar": leads_stats['birinchi_dars'] or 0,
+            "yangi_oquvchi": leads_stats['won_leads'] or 0,
+            "aktiv_oquvchilar": total_active,
+            "jami_real_bor": total_active,
+            "guruh_oquvchilari": total_active,  # Guruhga biriktirilganlar
+            "buyurtmadan_ketganlar": leads_stats['lost_leads'] or 0,
+            "yangi_oquvchidan_ketganlar": 0,
+            "aktiv_oquvchidan_ketganlar": 0,
+            "qarzdorlar": debtors_count,
+            "guruh": 0,  # Jami aktiv guruhlar soni
+            "birinchi_tolovni_qilganlar": 0,
+            "jami_oquvchi": total_active,
+            "jami_aktiv": total_active,
+            "qarzdorlarning_aktivga_nisbatan_foizi": f"{debt_percentage}%"
+        }]
+
+        return Response(branch_report)

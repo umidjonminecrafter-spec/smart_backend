@@ -25,6 +25,9 @@ from django.contrib.auth import get_user_model
 
 from finance.serializers import CashTransactionSerializer
 from organizations.models import TenantModel
+
+from .serializers import FinanceActionSerializer
+
 User = get_user_model()
 
 class ExpenseCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
@@ -1379,8 +1382,7 @@ from django.db import transaction
 class FinanceActionViewSet(viewsets.ModelViewSet):
     queryset = FinanceAction.objects.all()
 
-    # serializer_class = FinanceActionSerializer -> o'zingizniki
-
+    serializer_class = FinanceActionSerializer
     def perform_create(self, serializer):
         with transaction.atomic():
             instance = serializer.save()

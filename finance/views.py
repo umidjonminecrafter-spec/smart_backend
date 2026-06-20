@@ -12,7 +12,7 @@ from organizations.permissions import HasOrganizationPagePermission
 from datetime import datetime
 from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Expense, MonthlyIncome,
-    Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox
+    Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox,CashTransaction
 )
 from finance.serializers import (
     ExpenseCategorySerializer, ExpenseSubcategorySerializer, ExpenseSerializer,
@@ -22,6 +22,8 @@ from finance.serializers import (
 from academics.models import Student, Group, StudentGroup, TeacherSalaryPayment
 from academics.serializers import StudentSerializer, TeacherSalaryPaymentSerializer
 from django.contrib.auth import get_user_model
+
+from finance.serializers import CashTransactionSerializer
 
 User = get_user_model()
 
@@ -1237,3 +1239,100 @@ class StaffSalaryPercentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(organization=self.request.user.organization)
+
+class CashboxListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Faqat foydalanuvchining tashkilotiga tegishli kassalarni olish
+        cashboxes = Cashbox.objects.filter(organization=request.user.organization, is_archived=False)
+        serializer = CashboxSerializer(cashboxes, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = CashboxSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(organization=request.user.organization)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdvancedPaymentReportAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """To'lovlar uchun o'qituvchi, sana va kassa bo'yicha o'ta tez ishlaydigan filter"""
+        org_id = getattr(request.user, 'organization_id', None)
+        queryset = Payment.objects.filter(organization_id=org_id).select_related('student', 'cashbox', 'employee')
+
+        # 1. Sana bo'yicha filter (Sana oralig'i)
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        if start_date and end_date:
+            queryset = queryset.filter(date__range=[start_date, end_date])
+
+        # 2. Kassa bo'yicha filter
+        cashbox_id = request.query_params.get('cashbox_id')
+        if cashbox_id:
+            queryset = queryset.filter(cashbox_id=cashbox_id)
+
+        # 3. O'QITUVCHI BO'YICHA FILTER (Eng muhimi va tez ishlaydigani)
+        # O'quvchi o'qituvchining faol guruhlarida bormi yoki yo'qligini StudentGroup orqali bog'lab tekshiradi
+        teacher_id = request.query_params.get('teacher_id')
+        if teacher_id:
+            queryset = queryset.filter(
+                student__student_groups__group__teacher_id=teacher_id
+            ).distinct()
+
+        serializer = PaymentSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+
+
+class TransactionCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Kirim yoki Chiqim yaratish (Rasmdagi Saqlash tugmasi uchun)"""
+        serializer = CashTransactionSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(organization=request.user.organization)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TransactionReportAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Moliya jadvali va filterlar (Sana, Kassa, O'qituvchi bo'yicha)"""
+        queryset = CashTransaction.objects.filter(
+            organization=request.user.organization
+        ).select_related('student', 'cashbox').order_by('-date', '-id')
+
+        # Filter: Kassa bo'yicha
+        cashbox_id = request.query_params.get('cashbox_id')
+        if cashbox_id:
+            queryset = queryset.filter(cashbox_id=cashbox_id)
+
+        # Filter: To'lov turi (Naqd, Plastik, Terminal)
+        payment_method = request.query_params.get('payment_method')
+        if payment_method:
+            queryset = queryset.filter(payment_method=payment_method)
+
+        # Filter: Sana oralig'i
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        if start_date and end_date:
+            queryset = queryset.filter(date__range=[start_date, end_date])
+
+        # Filter: O'qituvchi bo'yicha
+        teacher_id = request.query_params.get('teacher_id')
+        if teacher_id:
+            queryset = queryset.filter(
+                student__student_groups__group__teacher_id=teacher_id
+            ).distinct()
+
+        serializer = CashTransactionSerializer(queryset, many=True)
+        return Response(serializer.data)

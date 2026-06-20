@@ -5,7 +5,7 @@ from finance.models import (
 )
 from academics.serializers import StudentSerializer
 from accounts.serializers import UserSerializer
-from finance.models import FinanceSetting, StaffSalaryPercent
+from .models import FinanceSetting, StaffSalaryPercent,CashTransaction
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpenseCategory
@@ -246,7 +246,17 @@ class CashboxSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
+class CashTransactionSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    cashbox_name = serializers.CharField(source='cashbox.name', read_only=True)
 
+    class Meta:
+        model = CashTransaction
+        fields = [
+            'id', 'cashbox', 'cashbox_name', 'transaction_type',
+            'payment_method', 'amount', 'date', 'student',
+            'student_name', 'description'
+        ]
 class FinanceSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = FinanceSetting

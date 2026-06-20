@@ -22,6 +22,7 @@ class Expense(TenantModel):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     description = models.TextField(null=True, blank=True)
     date = models.DateField()
+    cashbox = models.ForeignKey('Cashbox', on_delete=models.SET_NULL, null=True, blank=True, related_name="expenses")
 
     def __str__(self):
         return f"{self.category.name}: {self.amount} ({self.date})"
@@ -38,6 +39,7 @@ class Payment(TenantModel):
     student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="payments")
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     date = models.DateField()
+    cashbox = models.ForeignKey('Cashbox', on_delete=models.SET_NULL, null=True, blank=True, related_name="payments")
     payment_method = models.CharField(max_length=100)  # e.g. Cash, Card, Bank
     employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name="payments")
@@ -157,6 +159,30 @@ class FinanceSetting(TenantModel):
         super().save(*args, **kwargs)
 
 
+class CashTransaction(models.Model):
+    TRANSACTION_TYPES = (
+        ('kirim', 'Kirim'),
+        ('chiqim', 'Chiqim'),
+    )
+
+    PAYMENT_METHODS = (
+        ('naqd', 'Naqd'),
+        ('plastik', 'Plastik'),
+        ('terminal', 'Terminal'),
+    )
+
+    organization = models.ForeignKey('organizations.Organization', on_delete=models.CASCADE)
+    cashbox = models.ForeignKey(Cashbox, on_delete=models.CASCADE, related_name='transactions')
+    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
+    payment_method = models.CharField(max_length=15, choices=PAYMENT_METHODS)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    date = models.DateField()
+
+    # Kim xarajat qilgani yoki qaysi o'quvchi to'lov qilgani
+    student = models.ForeignKey('academics.Student', on_delete=models.SET_NULL, null=True, blank=True)
+    category_name = models.CharField(max_length=255, null=True, blank=True)  # Marker, Hodimga oylik va h.k.
+    comment = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 class StaffSalaryPercent(TenantModel):
     """4. Xodimlar va o'qituvchilar uchun oylik foiz stavkalari (Dinamik stavkalar qo'shish)"""
     name = models.CharField(max_length=255)  # Masalan: "Stajor o'qituvchi", "Katta o'qituvchi"
@@ -169,47 +195,39 @@ class StaffSalaryPercent(TenantModel):
 from django.db.models.signals import pre_save, post_save, post_delete
 from django.dispatch import receiver
 
-def update_cashbox_balance(organization):
-    """
-    Tashkilotning kassa balansini qayta hisoblab chiquvchi yordamchi funksiya.
-    Bu metod ma'lumotlar bazasidagi barcha kirim, chiqim va ish haqi tranzaksiyalarining summasini 
-    qayta hisoblash orqali balansni yangilaydi (ikki marta hisoblanish yoki xatoliklarni oldini oladi).
-    """
-    if not organization:
+
+def update_specific_cashbox(cashbox_obj):
+    """Faqatgina o'sha kassa uchun kirim va chiqimni qayta hisoblaydi"""
+    if not cashbox_obj:
         return
-        
     from django.db.models import Sum
     from decimal import Decimal
-    from academics.models import TeacherSalaryPayment
-    
-    # Asosiy kassa ob'ektini topamiz yoki yaratamiz
-    cashbox, _ = Cashbox.objects.get_or_create(
-        organization=organization,
-        defaults={'name': 'Asosiy Kassa', 'balance': Decimal('0.00')}
-    )
-    
-    total_income = Payment.objects.filter(organization=organization).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-    total_expense = Expense.objects.filter(organization=organization).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-    total_salary = Salary.objects.filter(organization=organization, status='paid').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-    total_teacher_salary = TeacherSalaryPayment.objects.filter(organization=organization).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-    
-    cashbox.balance = total_income - total_expense - total_salary - total_teacher_salary
-    cashbox.save()
+
+    org = cashbox_obj.organization
+
+    # Ushbu kassaga tegishli jami kirimlar
+    incomes = Payment.objects.filter(organization=org, cashbox=cashbox_obj).aggregate(total=Sum('amount'))[
+                  'total'] or Decimal('0.00')
+    # Ushbu kassaga tegishli jami chiqimlar
+    expenses = Expense.objects.filter(organization=org, cashbox=cashbox_obj).aggregate(total=Sum('amount'))[
+                   'total'] or Decimal('0.00')
+
+    cashbox_obj.balance = incomes - expenses
+    cashbox_obj.save()
+
 
 @receiver(post_save, sender=Payment)
 @receiver(post_delete, sender=Payment)
 def payment_cashbox_update(sender, instance, **kwargs):
-    update_cashbox_balance(instance.organization)
+    if instance.cashbox:
+        update_specific_cashbox(instance.cashbox)
+
 
 @receiver(post_save, sender=Expense)
 @receiver(post_delete, sender=Expense)
 def expense_cashbox_update(sender, instance, **kwargs):
-    update_cashbox_balance(instance.organization)
-
-@receiver(post_save, sender=Salary)
-@receiver(post_delete, sender=Salary)
-def salary_cashbox_update(sender, instance, **kwargs):
-    update_cashbox_balance(instance.organization)
+    if instance.cashbox:
+        update_specific_cashbox(instance.cashbox)
 
 
 # ================= TELEGRAM BOT ORQALI XABARNOMALAR INTEGRATSIYASI =================

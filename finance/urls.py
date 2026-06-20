@@ -14,6 +14,10 @@ from finance.views import (
 
 from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView
 
+from finance.views import CashboxListCreateAPIView, AdvancedPaymentReportAPIView
+
+from finance.views import TransactionCreateAPIView, TransactionReportAPIView
+
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
 router.register(r'expense-categories', ExpenseCategoryViewSet, basename='expense-category')
@@ -42,10 +46,17 @@ urlpatterns = [
     path('student-debts/summary/', StudentDebtsSummaryView.as_view(), name='student-debts-summary'),
     path('student-debts/', StudentDebtsView.as_view(), name='student-debts-list'),
     path('student-debts/<int:pk>/', StudentDebtDetailView.as_view(), name='student-debts-detail'),
-    
+    path('cashboxes/', CashboxListCreateAPIView.as_view(), name='cashbox-list-create'),
+
+    # 2. Kuchaytirilgan moliya filtri (Sana, Kassa, O'qituvchi bo'yicha)
+    path('payments/report/', AdvancedPaymentReportAPIView.as_view(), name='payments-report'),
     path('teacher-debts/summary/', TeacherDebtsSummaryView.as_view(), name='teacher-debts-summary'),
     path('teacher-debts/', TeacherDebtsView.as_view(), name='teacher-debts-list'),
-    
+    # Kirim/Chiqim tranzaksiyalarini yaratish
+    path('transactions/create/', TransactionCreateAPIView.as_view(), name='transaction-create'),
+
+    # Asosiy jadval va moliya hisoboti (Filterlar bilan)
+    path('transactions/report/', TransactionReportAPIView.as_view(), name='transaction-report'),
     path('all-debts/', AllDebtsView.as_view(), name='all-debts'),
     
     # CRM Conversion Reports

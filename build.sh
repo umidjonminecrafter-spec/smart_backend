@@ -10,7 +10,6 @@ python manage.py migrate analytics --fake
 python manage.py migrate audit --fake
 python manage.py migrate billing --fake
 python manage.py migrate communication --fake
-python manage.py migrate config --fake
 python manage.py migrate crm --fake
 python manage.py migrate organizations --fake
 python manage.py migrate finance --fake

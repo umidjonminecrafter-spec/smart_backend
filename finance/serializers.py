@@ -276,9 +276,24 @@ class FinanceSettingSerializer(serializers.ModelSerializer):
             })
         return attrs
 
-
+from .models import Transaction, FinanceAction
 class StaffSalaryPercentSerializer(serializers.ModelSerializer):
     class Meta:
         model = StaffSalaryPercent
         fields = '__all__'
         read_only_fields = ('organization', 'branch', 'created_at', 'updated_at')
+class TransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Transaction
+        fields = ['id', 'cashbox', 'amount', 'type', 'description', 'created_at']
+
+class FinanceActionSerializer(serializers.ModelSerializer):
+    # Bu maydon frontend'da kassani tanlash uchun kerak bo'ladi, lekin modelning o'zida yo'q
+    cashbox = serializers.IntegerField(write_only=True, required=False)
+
+    class Meta:
+        model = FinanceAction
+        fields = [
+            'id', 'action_type', 'target_type', 'student',
+            'employee', 'amount', 'reason', 'cashbox', 'created_at'
+        ]

@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
 from decimal import Decimal
-
+from django.db import transaction
 from organizations.mixins import TenantViewSetMixin
 from organizations.permissions import HasOrganizationPagePermission
 from datetime import datetime
@@ -24,7 +24,7 @@ from academics.serializers import StudentSerializer, TeacherSalaryPaymentSeriali
 from django.contrib.auth import get_user_model
 
 from finance.serializers import CashTransactionSerializer
-
+from organizations.models import TenantModel
 User = get_user_model()
 
 class ExpenseCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
@@ -465,6 +465,36 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ReadOnlyModel
             "teachers_count": calcs.count(),
             "calculations": TeacherSalaryCalculationSerializer(calcs, many=True).data
         }, status=status.HTTP_200_OK)
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            # 1. Oylik hisob-kitobini saqlaymiz
+            salary_calc = serializer.save()
+
+            # 2. Frontenddan qaysi kassadan oylik berilayotgani keladi
+            cashbox_id = self.request.data.get('cashbox')
+            if not cashbox_id:
+                raise serializers.ValidationError({"cashbox": "Oylik berish uchun kassa tanlanishi shart!"})
+
+            cashbox = Cashbox.objects.get(id=cashbox_id)
+
+            # 3. Haqiqatda kassadan chiqib ketadigan yakuniy summani hisoblaymiz:
+            # Formula: (Asosiy Oylik + Bonuslar) - (Avans + Jarimalar)
+            # eslatma: field nomlarini o'zingizning modelingizga qarab moslab olasiz
+            final_payout = (salary_calc.calculated_amount + salary_calc.bonus) - (
+                        salary_calc.advance + salary_calc.penalty)
+
+            # 4. Moliyaviy tranzaksiya yaratamiz (Chiqim)
+            Transaction.objects.create(
+                cashbox=cashbox,
+                amount=final_payout,
+                type='EXPENSE',
+                description=f"Oylik to'lovi: {salary_calc.teacher} uchun ({salary_calc.period} davri)"
+            )
+
+            # 5. Kassaning haqiqiy balansini kamaytiramiz
+            cashbox.balance -= final_payout
+            cashbox.save()
 
 class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
@@ -1336,3 +1366,44 @@ class TransactionReportAPIView(APIView):
 
         serializer = CashTransactionSerializer(queryset, many=True)
         return Response(serializer.data)
+
+
+# finance/models.py faylining oxiriga qo'shing:
+
+# finance/views.py ichida:
+from rest_framework import viewsets
+from .models import FinanceAction, Transaction, Cashbox
+from django.db import transaction
+
+
+class FinanceActionViewSet(viewsets.ModelViewSet):
+    queryset = FinanceAction.objects.all()
+
+    # serializer_class = FinanceActionSerializer -> o'zingizniki
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            instance = serializer.save()
+
+            # 1. AGAR BONUS BO'LSA (Kassadan pul chiqadi)
+            if instance.action_type == 'BONUS':
+                cashbox_id = self.request.data.get('cashbox')
+                if cashbox_id:
+                    cashbox = Cashbox.objects.get(id=cashbox_id)
+                    t = Transaction.objects.create(
+                        cashbox=cashbox,
+                        amount=instance.amount,
+                        type='EXPENSE',
+                        description=f"{instance.get_target_type_display()} uchun bonus: {instance.reason}"
+                    )
+                    cashbox.balance -= instance.amount
+                    cashbox.save()
+
+                    instance.transaction = t
+                    instance.save()
+
+            # 2. AGAR JARIMA BO'LSA
+            elif instance.action_type == 'PENALTY':
+                # Kassadan pul yechilmaydi! Shunchaki bazaga yoziladi.
+                # Bu jarima oylik hisoblanayotganda avtomatik chegirib tashlanadi.
+                pass

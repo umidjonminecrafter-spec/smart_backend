@@ -472,3 +472,40 @@ def payment_student_balance_delete(sender, instance, **kwargs):
     if student:
         student.balance -= instance.amount
         student.save(update_fields=['balance'])
+
+from django.contrib.auth import get_user_model
+# finance/models.py faylining oxiriga qo'shing:
+User = get_user_model()
+class Transaction(TenantModel):
+    TRANSACTION_TYPES = [
+        ('INCOME', 'Kirim'),
+        ('EXPENSE', 'Chiqim'),
+    ]
+    # related_name'ni 'finance_transactions' qildik, CashTransaction bilan to'qnashmaydi
+    cashbox = models.ForeignKey('Cashbox', on_delete=models.PROTECT, related_name='finance_transactions')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
+    description = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class FinanceAction(TenantModel):
+    ACTION_TYPES = [
+        ('BONUS', 'Bonus'),
+        ('PENALTY', 'Jarima'),
+    ]
+    TARGET_TYPES = [
+        ('STUDENT', 'Talaba'),
+        ('EMPLOYEE', 'Xodim'),
+    ]
+    action_type = models.CharField(max_length=10, choices=ACTION_TYPES)
+    target_type = models.CharField(max_length=10, choices=TARGET_TYPES)
+
+    student = models.ForeignKey('academics.Student', on_delete=models.SET_NULL, null=True, blank=True)
+    # Bu yerda to'g'ridan-to'g'ri tizimdagi User (Xodim)ga ulaymiz:
+    employee = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.TextField(null=True, blank=True)
+    transaction = models.OneToOneField(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)

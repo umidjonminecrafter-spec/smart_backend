@@ -9,7 +9,7 @@ from finance.views import (
     TeacherDebtsView, TeacherDebtsSummaryView, AllDebtsView, CashboxViewSet, FinanceReportView,
     WithdrawalViewSet, ConversionReportsFunnelView, CRMLeadsListView,
     ConversionReportsOverviewView, ConversionReportsLostReasonsView, ConversionReportsPipelineTransitionsView,
-    LeadsReportPieChartView, LeadsReportBarChartView, LeadsReportStatisticsView, CompanyProfitChartView
+    LeadsReportPieChartView, LeadsReportBarChartView, LeadsReportStatisticsView, CompanyProfitChartView,FinanceActionViewSet
 )
 
 from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView
@@ -21,6 +21,7 @@ from finance.views import TransactionCreateAPIView, TransactionReportAPIView
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
 router.register(r'expense-categories', ExpenseCategoryViewSet, basename='expense-category')
+router.register(r'actions', FinanceActionViewSet, basename='finance-actions')
 router.register(r'expense-subcategories', ExpenseSubcategoryViewSet, basename='expense-subcategory')
 router.register(r'expenses', ExpenseViewSet, basename='expense')
 router.register(r'detailed-expenses', DetailedExpenseViewSet, basename='detailed-expense')
@@ -31,7 +32,7 @@ router.register(r'bonuses', BonusViewSet, basename='bonus')
 router.register(r'fines', FineViewSet, basename='fine')
 router.register(r'salaries', SalaryViewSet, basename='salary')
 router.register(r'teacher-salary-rules', TeacherSalaryRuleViewSet, basename='teacher-salary-rule')
-router.register(r'teacher-salary-calculations', TeacherSalaryCalculationViewSet, basename='teacher-salary-calculation')
+router.register(r'salary-calculations', TeacherSalaryCalculationViewSet, basename='teacher-salary-calculation')
 router.register(r'teacher-salary-payments', TeacherSalaryPaymentsView, basename='teacher-salary-payment')
 router.register(r'cashboxes', CashboxViewSet, basename='cashbox')
 router.register(r'withdrawals', WithdrawalViewSet, basename='withdrawal')

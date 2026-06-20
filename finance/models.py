@@ -116,7 +116,7 @@ class TeacherSalaryCalculation(TenantModel):
 class Cashbox(TenantModel):
     name = models.CharField(max_length=255)
     balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    s_archived = models.BooleanField(default=False)
+    is_archived = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name

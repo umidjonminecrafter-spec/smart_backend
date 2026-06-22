@@ -1504,8 +1504,8 @@ class FinancialAnalyticsView(APIView):
     def get(self, request):
         report_type = request.query_params.get('type', 'kirim').lower()
 
-        # Xavfsiz tenant filtri (_id orqali)
-        tx_queryset = Transaction.objects.filter(cashbox__tenant_id=request.user.organization_id)
+        # 🌟 TO'G'RILANDI: cashbox__tenant_id o'rniga model maydoningizga mos cashbox__organization_id qo'yildi
+        tx_queryset = Transaction.objects.filter(cashbox__organization_id=request.user.organization_id)
 
         filtered_tx = FinancialReportFilter(request.GET, queryset=tx_queryset).qs
 
@@ -1532,7 +1532,11 @@ class FinancialAnalyticsView(APIView):
                 table_rows.append({"nomi": desc, "summa": float(tx.amount), "sana": tx.created_at})
 
         elif report_type == 'bonus':
+            # Har bir tashkilot o'z bonuslarini ko'rishi uchun agar FinanceAction ichida ham organization bo'lsa filter qo'shish tavsiya etiladi
             actions = FinanceAction.objects.filter(action_type='BONUS')
+            if hasattr(FinanceAction, 'organization_id'):
+                actions = actions.filter(organization_id=request.user.organization_id)
+
             if request.GET.get('start_date'):
                 actions = actions.filter(created_at__gte=request.GET.get('start_date'))
             if request.GET.get('end_date'):
@@ -1548,6 +1552,9 @@ class FinancialAnalyticsView(APIView):
 
         elif report_type == 'jarima':
             actions = FinanceAction.objects.filter(action_type='PENALTY')
+            if hasattr(FinanceAction, 'organization_id'):
+                actions = actions.filter(organization_id=request.user.organization_id)
+
             if request.GET.get('start_date'):
                 actions = actions.filter(created_at__gte=request.GET.get('start_date'))
             if request.GET.get('end_date'):
@@ -1575,15 +1582,13 @@ class FinancialReportsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        # 1. Query parametrlarni olamiz
         start_date_str = request.query_params.get('from_date')
         end_date_str = request.query_params.get('to_date')
         cashbox_id = request.query_params.get('kassa') or request.query_params.get('cashbox')
 
-        # Xavfsiz tenant filtri (_id orqali)
-        queryset = Transaction.objects.filter(cashbox__tenant_id=request.user.organization_id)
+        # 🌟 TO'G'RILANDI: cashbox__tenant_id o'rniga cashbox__organization_id ishlatildi
+        queryset = Transaction.objects.filter(cashbox__organization_id=request.user.organization_id)
 
-        # Sana filtri (Xavfsiz try-except bilan)
         if start_date_str:
             try:
                 start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
@@ -1598,22 +1603,17 @@ class FinancialReportsView(APIView):
             except ValueError:
                 pass
 
-        # 🌟 MANA SHU JOYI MUAMMONI YECHADI:
-        # Kelgan kassa parametrini faqat RAQAM bo'lsagina filterga tiqamiz!
+        # Abdulmajid xatolik yuborganda filtrdan xavfsiz o'tish
         if cashbox_id:
             try:
-                # Agar parametr 'Abdulmajid' kabi tekst bo'lsa, int() uni srazu ValueError qiladi
-                # va pastdagi filter ishlamay, xatosiz o'tib ketadi.
                 queryset = queryset.filter(cashbox_id=int(cashbox_id))
             except ValueError:
                 pass
 
-        # 2. Jami Kirim va Chiqimni hisoblaymiz
         total_income = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or 0
         total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or 0
         balance = total_income - total_expense
 
-        # 3. Grafik uchun guruhlashlar
         income_breakdown = {}
         for tx in queryset.filter(type='INCOME'):
             desc = tx.description or "Boshqa kirimlar"
@@ -1624,7 +1624,6 @@ class FinancialReportsView(APIView):
             desc = tx.description or "Boshqa chiqimlar"
             expense_breakdown[desc] = expense_breakdown.get(desc, 0) + float(tx.amount)
 
-        # 4. Chiziqli Grafik uchun kunlik ma'lumotlar
         daily_data = {}
         for tx in queryset.order_by('created_at'):
             date_key = tx.created_at.strftime('%d.%m')

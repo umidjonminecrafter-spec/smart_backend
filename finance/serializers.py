@@ -19,10 +19,14 @@ class ExpenseSubcategorySerializer(serializers.ModelSerializer):
         model = ExpenseSubcategory
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
+import datetime
+import json
+from .models import Expense, Cashbox
 
 class ExpenseSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
     subcategory_name = serializers.CharField(source='subcategory.name', default='', read_only=True)
+    cashbox_name = serializers.CharField(source='cashbox.name', read_only=True)
 
     class Meta:
         model = Expense
@@ -31,34 +35,36 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
     def to_internal_value(self, data):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
-        
-        # Map frontend fields to backend model fields
+
+        # Frontend fields mapping
         if 'expense_date' in data and 'date' not in data:
             data['date'] = data['expense_date']
 
         if 'date' in data and data['date']:
             try:
-                import datetime
                 datetime.date.fromisoformat(str(data['date']))
             except ValueError:
-                raise serializers.ValidationError({"expense_date": "Sana formati noto'g'ri (YYYY-MM-DD bo'lishi kerak)."})
-            
+                raise serializers.ValidationError(
+                    {"expense_date": "Sana formati noto'g'ri (YYYY-MM-DD bo'lishi kerak)."})
+
         request = self.context.get('request')
         user = request.user if request else None
-        
+
         if user and user.is_authenticated:
             full_name = user.get_full_name().strip()
             created_by = full_name if full_name else user.username
         else:
             created_by = "Tizim"
-        
-        # Collect extra fields to pack in description
+
+        # 🌟 Eng muhim joyi: Frontend yuborgan payment_type (Kassa ID) ni cashbox maydoniga o'giramiz
+        payment_type = data.get('payment_type')
+        if payment_type:
+            data['cashbox'] = payment_type  # Modelga cashbox_id bo'lib boradi
+
         recipient = data.get('recipient', '')
-        payment_type = data.get('payment_type', '')
         comment = data.get('comment', '') or data.get('izoh', '')
         name = data.get('name', '') or data.get('title', '') or data.get('nomi', '')
-        
-        import json
+
         packed_data = {
             'recipient': recipient,
             'payment_type': payment_type,
@@ -66,40 +72,38 @@ class ExpenseSerializer(serializers.ModelSerializer):
             'name': name,
             'created_by': created_by
         }
-        data['description'] = json.dumps(packed_data)
-        
+        data['description'] = json.dumps(packed_data, ensure_ascii=False)
+
         return super().to_internal_value(data)
 
     def to_representation(self, instance):
         rep = super().to_representation(instance)
-        
-        # Default fallback values
+
+        # Default fallbacks
         rep['recipient'] = ''
-        rep['payment_type'] = None
+        rep['payment_type'] = instance.cashbox_id if instance.cashbox else None
         rep['comment'] = instance.description or ''
         rep['izoh'] = instance.description or ''
         rep['name'] = instance.description or ''
         rep['title'] = instance.description or ''
         rep['created_by'] = 'Admin'
         rep['expense_date'] = instance.date.isoformat() if instance.date else None
-        
-        # Try to parse JSON from description
+
         if instance.description:
-            import json
             try:
                 unpacked = json.loads(instance.description)
                 if isinstance(unpacked, dict):
                     rep['recipient'] = unpacked.get('recipient', '')
-                    rep['payment_type'] = unpacked.get('payment_type', None)
+                    rep['payment_type'] = unpacked.get('payment_type') or instance.cashbox_id
                     rep['comment'] = unpacked.get('comment', '')
                     rep['izoh'] = unpacked.get('comment', '')
-                    rep['name'] = unpacked.get('name') or unpacked.get('comment') or (instance.category.name if instance.category else 'Xarajat')
+                    rep['name'] = unpacked.get('name') or unpacked.get('comment') or (
+                        instance.category.name if instance.category else 'Xarajat')
                     rep['title'] = rep['name']
                     rep['created_by'] = unpacked.get('created_by') or 'Admin'
             except json.JSONDecodeError:
-                # Not JSON, keep original description as name/comment/izoh
                 pass
-                
+
         return rep
 
 class MonthlyIncomeSerializer(serializers.ModelSerializer):
@@ -283,9 +287,17 @@ class StaffSalaryPercentSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization', 'branch', 'created_at', 'updated_at')
 class TransactionSerializer(serializers.ModelSerializer):
+    cashbox_name = serializers.CharField(source='cashbox.name', read_only=True)
+    student_name = serializers.CharField(source='student.full_name', read_only=True, default=None)
+    employee_name = serializers.CharField(source='employee.username', read_only=True, default=None)
+
     class Meta:
         model = Transaction
-        fields = ['id', 'cashbox', 'amount', 'type', 'description', 'created_at']
+        fields = [
+            'id', 'cashbox', 'cashbox_name', 'amount', 'type',
+            'category', 'student', 'student_name', 'employee',
+            'employee_name', 'description', 'created_at'
+        ]
 
 class FinanceActionSerializer(serializers.ModelSerializer):
     # Bu maydon frontend'da kassani tanlash uchun kerak bo'ladi, lekin modelning o'zida yo'q

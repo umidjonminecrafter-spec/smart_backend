@@ -14,7 +14,7 @@ from finance.views import (
 
 from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView,FinancialReportsView,FinancialAnalyticsView,TransactionReportAPIView,TransactionCreateAPIView,AdvancedPaymentReportAPIView,CashboxListCreateAPIView
 
-from finance.views import CashFlowReportView, ProfitAndLossReportView
+from finance.views import CashFlowReportView, ProfitAndLossReportView,TransactionViewSet
 
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
@@ -34,6 +34,7 @@ router.register(r'salary-calculations', TeacherSalaryCalculationViewSet, basenam
 router.register(r'teacher-salary-payments', TeacherSalaryPaymentsView, basename='teacher-salary-payment')
 router.register(r'cashboxes', CashboxViewSet, basename='cashbox')
 router.register(r'withdrawals', WithdrawalViewSet, basename='withdrawal')
+router.register(r'transactions', TransactionViewSet, basename='transactions')
 
 urlpatterns = [
     # Custom endpoints

@@ -26,7 +26,7 @@ from django.contrib.auth import get_user_model
 from finance.serializers import CashTransactionSerializer
 from organizations.models import TenantModel
 
-from .serializers import FinanceActionSerializer
+from .serializers import FinanceActionSerializer,TransactionSerializer
 
 User = get_user_model()
 
@@ -35,65 +35,130 @@ class ExpenseCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     queryset = ExpenseCategory.objects.all()
     serializer_class = ExpenseCategorySerializer
 
+from decimal import Decimal
+from rest_framework import viewsets, status, decorators
+from rest_framework.response import Response
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import SearchFilter
+from rest_framework import filters
+
+class TransactionViewSet(viewsets.ModelViewSet):
+    serializer_class = TransactionSerializer
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    filterset_fields = ['type', 'category', 'cashbox']
+    search_fields = ['description', 'student__full_name', 'employee__username']
+    ordering_fields = ['created_at', 'amount']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        # Faqat foydalanuvchining o'z tashkilotiga tegishli tranzaksiyalar
+        return Transaction.objects.filter(cashbox__tenant=request.user.organization)
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            tx = serializer.save()
+            cashbox = tx.cashbox
+
+            # Kirim bo'lsa kassa balansiga qo'shiladi, chiqim bo'lsa ayiriladi
+            if tx.type == 'INCOME':
+                cashbox.balance += tx.amount
+            elif tx.type == 'EXPENSE':
+                cashbox.balance -= tx.amount
+
+            cashbox.save()
+
+
 class ExpenseSubcategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Xarajatlar'
     queryset = ExpenseSubcategory.objects.all()
     serializer_class = ExpenseSubcategorySerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['category']
+from django.db import transaction as db_transaction
 
-class ExpenseViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+class ExpenseViewSet(viewsets.ModelViewSet):  # Agar TenantViewSetMixin kerak bo'lsa, merosxo'rlikka qaytarib qo'ying
     permission_page_name = 'Xarajatlar'
-    queryset = Expense.objects.all().select_related('category', 'subcategory')
+    queryset = Expense.objects.all().select_related('category', 'subcategory', 'cashbox')
     serializer_class = ExpenseSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['category', 'subcategory']
+    filterset_fields = ['category', 'subcategory', 'cashbox']
     search_fields = ['description']
     pagination_class = None
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        
+
         # Date range filtering
         start_date = self.request.query_params.get('start_date')
         if start_date:
             queryset = queryset.filter(date__gte=start_date)
-            
+
         end_date = self.request.query_params.get('end_date')
         if end_date:
             queryset = queryset.filter(date__lte=end_date)
-            
+
         # Category filtering
         category_id = self.request.query_params.get('expense_category')
         if category_id:
             queryset = queryset.filter(category_id=category_id)
-            
-        # Search query (for name/recipient/izoh inside packed JSON description or plain text)
+
+        # Search query
         search_query = self.request.query_params.get('search')
         if search_query:
             queryset = queryset.filter(description__icontains=search_query)
-            
+
         # Payment type / Cashbox filtering
         payment_type = self.request.query_params.get('payment_type')
         if payment_type:
-            queryset = queryset.filter(description__icontains=f'"payment_type": {payment_type}') | queryset.filter(description__icontains=f'"payment_type": "{payment_type}"')
-            
+            queryset = queryset.filter(cashbox_id=payment_type)
+
         return queryset
+
+    # 🌟 Real vaqtda kassa balansi va tranzaksiyani boshqarish
+    def perform_create(self, serializer):
+        with db_transaction.atomic():
+            # Xarajatni saqlaymiz
+            expense = serializer.save()
+
+            # Agar kassa tanlangan bo'lsa, pul ayiramiz va tranzaksiya yozamiz
+            if expense.cashbox:
+                cashbox = expense.cashbox
+                cashbox.balance -= expense.amount
+                cashbox.save()
+
+                # Sarlavhani description JSON ichidan o'qib olishga harakat qilamiz
+                try:
+                    import json
+                    unpacked = json.loads(expense.description)
+                    title = unpacked.get('name') or expense.category.name
+                except:
+                    title = expense.category.name if expense.category else "Xarajat"
+
+                Transaction.objects.create(
+                    cashbox=cashbox,
+                    amount=expense.amount,
+                    type='EXPENSE',
+                    category='DIRECT',
+                    description=f"Xarajat: {title}"
+                )
 
     @decorators.action(detail=False, methods=['get'], url_path='monthly-summary')
     def monthly_summary(self, request):
-        org_id = self.get_organization_id()
+        # Tashkilot ID'sini olish qismi
+        org_id = getattr(request.user, 'organization_id', None) or self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        expenses = Expense.objects.filter(organization_id=org_id)
-        # In SQLite, we can extract month using strftime or process in python
-        # Processing in Python is extremely safe and database-agnostic
+
+        # Faqat joriy tashkilot xarajatlari
+        expenses = Expense.objects.filter(cashbox__tenant_id=org_id) if hasattr(Cashbox,
+                                                                                'tenant') else Expense.objects.all()
+
         summary = {}
         for exp in expenses:
-            month_key = exp.date.strftime('%Y-%m')
-            summary[month_key] = summary.get(month_key, Decimal('0.00')) + exp.amount
-            
+            if exp.date:
+                month_key = exp.date.strftime('%Y-%m')
+                summary[month_key] = summary.get(month_key, Decimal('0.00')) + exp.amount
+
         result = [{"month": k, "total_expense": v} for k, v in sorted(summary.items())]
         return Response(result, status=status.HTTP_200_OK)
 
@@ -1411,17 +1476,17 @@ class FinanceActionViewSet(viewsets.ModelViewSet):
                 pass
 
 from .filters import FinancialReportFilter
+
+
 class FinancialAnalyticsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        # 1. Kelayotgan so'rov turini aniqlaymiz (kirim, chiqim, bonus, jarima)
         report_type = request.query_params.get('type', 'kirim').lower()
 
-        # 2. Tranzaksiyalarni filterlash
-        tx_queryset = Transaction.objects.filter(cashbox__tenant=request.user.organization)  # tenant bo'lsa
+        # Xavfsiz tenant filtri (_id orqali)
+        tx_queryset = Transaction.objects.filter(cashbox__tenant_id=request.user.organization_id)
 
-        # Sana va Kassa filtrlarini qo'llaymiz
         filtered_tx = FinancialReportFilter(request.GET, queryset=tx_queryset).qs
 
         labels_data = {}
@@ -1429,18 +1494,15 @@ class FinancialAnalyticsView(APIView):
         table_rows = []
 
         if report_type == 'kirim':
-            # Faqat kirimlar (masalan: O'quvchi to'lovlari)
             queryset = filtered_tx.filter(type='INCOME')
             total_sum = queryset.aggregate(total=Sum('amount'))['total'] or 0
 
-            # Diagramma uchun tavsif bo'yicha guruhlaymiz
             for tx in queryset:
                 desc = tx.description or "Boshqa kirimlar"
                 labels_data[desc] = labels_data.get(desc, 0) + float(tx.amount)
                 table_rows.append({"nomi": desc, "summa": float(tx.amount), "sana": tx.created_at})
 
         elif report_type == 'chiqim':
-            # Faqat chiqimlar (Oylik, avans, ijara va h.k.)
             queryset = filtered_tx.filter(type='EXPENSE')
             total_sum = queryset.aggregate(total=Sum('amount'))['total'] or 0
 
@@ -1450,9 +1512,7 @@ class FinancialAnalyticsView(APIView):
                 table_rows.append({"nomi": desc, "summa": float(tx.amount), "sana": tx.created_at})
 
         elif report_type == 'bonus':
-            # FinanceAction ichidagi hamma BONUS'lar
             actions = FinanceAction.objects.filter(action_type='BONUS')
-            # Sanani filterlash (agar actions'da ham xuddi shunday filter kerak bo'lsa)
             if request.GET.get('start_date'):
                 actions = actions.filter(created_at__gte=request.GET.get('start_date'))
             if request.GET.get('end_date'):
@@ -1467,7 +1527,6 @@ class FinancialAnalyticsView(APIView):
                     {"nomi": f"{name} ({act.reason or ''})", "summa": float(act.amount), "sana": act.created_at})
 
         elif report_type == 'jarima':
-            # FinanceAction ichidagi hamma PENALTY'lar
             actions = FinanceAction.objects.filter(action_type='PENALTY')
             if request.GET.get('start_date'):
                 actions = actions.filter(created_at__gte=request.GET.get('start_date'))
@@ -1482,7 +1541,6 @@ class FinancialAnalyticsView(APIView):
                 table_rows.append(
                     {"nomi": f"{name} - {act.reason or ''}", "summa": float(act.amount), "sana": act.created_at})
 
-        # Frontend kutayotgan chiroyli formatda javob qaytaramiz
         return Response({
             "total_amount": total_sum,
             "chart_data": {
@@ -1492,39 +1550,50 @@ class FinancialAnalyticsView(APIView):
             "table_data": table_rows
         })
 
-from datetime import datetime, time
+
 class FinancialReportsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        # 1. Tenant/Sana va Kassa parametrlarini olamiz
+        # 1. Query parametrlarni olamiz
         start_date_str = request.query_params.get('from_date')
         end_date_str = request.query_params.get('to_date')
-        cashbox_id = request.query_params.get('kassa')
+        cashbox_id = request.query_params.get('kassa') or request.query_params.get('cashbox')
 
-        # Baza so'rovini boshlaymiz (faqat foydalanuvchining tashkilotiga tegishli tranzaksiyalar)
-        queryset = Transaction.objects.filter(cashbox__tenant=request.user.organization)
+        # Xavfsiz tenant filtri (_id orqali)
+        queryset = Transaction.objects.filter(cashbox__tenant_id=request.user.organization_id)
 
-        # Sana filtri
+        # Sana filtri (Xavfsiz try-except bilan)
         if start_date_str:
-            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-            queryset = queryset.filter(created_at__gte=start_date)
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+                queryset = queryset.filter(created_at__gte=start_date)
+            except ValueError:
+                pass
+
         if end_date_str:
-            end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
-            # Kun tugashigacha bo'lgan vaqtni olish uchun max vaqtini qo'yamiz
-            queryset = queryset.filter(created_at__lte=datetime.combine(end_date, time.max))
+            try:
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+                queryset = queryset.filter(created_at__lte=datetime.combine(end_date, time.max))
+            except ValueError:
+                pass
 
-        # Kassa filtri
+        # 🌟 MANA SHU JOYI MUAMMONI YECHADI:
+        # Kelgan kassa parametrini faqat RAQAM bo'lsagina filterga tiqamiz!
         if cashbox_id:
-            queryset = queryset.filter(cashbox_id=cashbox_id)
+            try:
+                # Agar parametr 'Abdulmajid' kabi tekst bo'lsa, int() uni srazu ValueError qiladi
+                # va pastdagi filter ishlamay, xatosiz o'tib ketadi.
+                queryset = queryset.filter(cashbox_id=int(cashbox_id))
+            except ValueError:
+                pass
 
-        # 2. Yuqoridagi kartalar uchun jami Kirim va Chiqimni hisoblaymiz
+        # 2. Jami Kirim va Chiqimni hisoblaymiz
         total_income = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or 0
         total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or 0
         balance = total_income - total_expense
 
-        # 3. Tranzaksiya turi bo'yicha dumaloq grafik (Pie chart) uchun guruhlash
-        # Masalan: "O'quvchi to'lovlari", "Kitob sotishdan" va h.k.
+        # 3. Grafik uchun guruhlashlar
         income_breakdown = {}
         for tx in queryset.filter(type='INCOME'):
             desc = tx.description or "Boshqa kirimlar"
@@ -1535,8 +1604,7 @@ class FinancialReportsView(APIView):
             desc = tx.description or "Boshqa chiqimlar"
             expense_breakdown[desc] = expense_breakdown.get(desc, 0) + float(tx.amount)
 
-        # 4. Chiziqli Grafik (Linear Chart) uchun kunlik guruhlash
-        # Bu grafikda kirim va chiqim chiziqlarini chizish uchun kunlar kesimida yig'adi
+        # 4. Chiziqli Grafik uchun kunlik ma'lumotlar
         daily_data = {}
         for tx in queryset.order_by('created_at'):
             date_key = tx.created_at.strftime('%d.%m')
@@ -1548,7 +1616,6 @@ class FinancialReportsView(APIView):
             else:
                 daily_data[date_key]['chiqim'] += float(tx.amount)
 
-        # Frontend-ga skrinshotdagidek chiroyli formatda javob qaytaramiz
         return Response({
             "cards": {
                 "total_income": float(total_income),

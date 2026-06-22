@@ -1671,15 +1671,32 @@ class CashFlowReportView(APIView):
     def get(self, request):
         from_date = request.query_params.get('from_date')
         to_date = request.query_params.get('to_date')
+        cashbox_id = request.query_params.get('kassa') or request.query_params.get('cashbox')
 
-        # Faqat joriy tashkilot tranzaksiyalari
-        queryset = Transaction.objects.filter(cashbox__tenant=request.user.organization)
+        # 1. 🌟 To'g'rilandi: Tashkilot bo'yicha filterlashni organization_id orqali qilamiz
+        queryset = Transaction.objects.filter(cashbox__organization_id=request.user.organization_id)
 
+        # 2. Sana filtri (Xavfsiz parsing bilan)
         if from_date:
-            queryset = queryset.filter(created_at__gte=datetime.strptime(from_date, '%Y-%m-%d'))
+            try:
+                queryset = queryset.filter(created_at__gte=datetime.strptime(from_date, '%Y-%m-%d'))
+            except ValueError:
+                pass
         if to_date:
-            queryset = queryset.filter(
-                created_at__lte=datetime.combine(datetime.strptime(to_date, '%Y-%m-%d'), time.max))
+            try:
+                queryset = queryset.filter(
+                    created_at__lte=datetime.combine(datetime.strptime(to_date, '%Y-%m-%d'), time.max)
+                )
+            except ValueError:
+                pass
+
+        # 3. 🌟 MANA SHU JOYI GLOBAL XATOLIKNI OLDINI OLADI:
+        # Abdulmajid xato matn yuborib qolsa ham ushlab qolib, dasturni qulatmaydi
+        if cashbox_id:
+            try:
+                queryset = queryset.filter(cashbox_id=int(cashbox_id))
+            except ValueError:
+                pass
 
         # Kirim va Chiqimlarni tavsifi (description) bo'yicha guruhlaymiz
         incomes = queryset.filter(type='INCOME').values('description').annotate(total=Sum('amount'))
@@ -1689,15 +1706,18 @@ class CashFlowReportView(APIView):
         total_expense = sum(item['total'] for item in expenses) or 0
 
         return Response({
-            "kirimlar": [{"kategoriya": item['description'] or "Boshqa kirim", "summa": float(item['total'])} for item
-                         in incomes],
-            "chiqimlar": [{"kategoriya": item['description'] or "Boshqa xarajat", "summa": float(item['total'])} for
-                          item in expenses],
+            "kirimlar": [
+                {"kategoriya": item['description'] or "Boshqa kirim", "summa": float(item['total'])}
+                for item in incomes
+            ],
+            "chiqimlar": [
+                {"kategoriya": item['description'] or "Boshqa xarajat", "summa": float(item['total'])}
+                for item in expenses
+            ],
             "jami_kirim": float(total_income),
             "jami_chiqim": float(total_expense),
             "sof_pul_oqimi": float(total_income - total_expense)
-        })
-
+        }, status=status.HTTP_200_OK)
 
 class ProfitAndLossReportView(APIView):
     permission_classes = [permissions.IsAuthenticated]

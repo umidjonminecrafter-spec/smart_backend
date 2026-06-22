@@ -12,7 +12,7 @@ from organizations.permissions import HasOrganizationPagePermission
 from datetime import datetime
 from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Expense, MonthlyIncome,
-    Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox,CashTransaction
+    Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox,CashTransaction,TransactionCategory
 )
 from finance.serializers import (
     ExpenseCategorySerializer, ExpenseSubcategorySerializer, ExpenseSerializer,
@@ -26,7 +26,7 @@ from django.contrib.auth import get_user_model
 from finance.serializers import CashTransactionSerializer
 from organizations.models import TenantModel
 
-from .serializers import FinanceActionSerializer,TransactionSerializer
+from .serializers import FinanceActionSerializer, TransactionSerializer, TransactionCategorySerializer
 
 User = get_user_model()
 
@@ -71,7 +71,6 @@ class TransactionViewSet(viewsets.ModelViewSet):
 class TransactionTypesView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    # 🌟 Barcha turdagi HTTP metodlarini bitta funksiyaga bog'laymiz
     def get(self, request, *args, **kwargs):
         return self._get_types_response()
 
@@ -1768,5 +1767,17 @@ class ProfitAndLossReportView(APIView):
             },
             "sof_foyda": float(total_revenue - total_expense)
         })
+class TransactionCategoryViewSet(viewsets.ModelViewSet):
 
+    serializer_class = TransactionCategorySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['type']
+
+    def get_queryset(self):
+
+        return TransactionCategory.objects.filter(organization_id=self.request.user.organization_id)
+
+    def perform_create(self, serializer):
+        serializer.save(organization_id=self.request.user.organization_id)
 

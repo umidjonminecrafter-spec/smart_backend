@@ -16,6 +16,16 @@ class ExpenseSubcategory(TenantModel):
     def __str__(self):
         return f"{self.category.name} -> {self.name}"
 
+class TransactionCategory(models.Model):
+    organization = models.ForeignKey('organizations.Organization', on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    type = models.CharField(max_length=10, choices=[('INCOME', 'Kirim'), ('EXPENSE', 'Chiqim')])
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.type})"
+
+
 class Expense(TenantModel):
     category = models.ForeignKey(ExpenseCategory, on_delete=models.CASCADE, related_name="expenses")
     subcategory = models.ForeignKey(ExpenseSubcategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="expenses")

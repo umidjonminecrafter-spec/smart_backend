@@ -16,6 +16,8 @@ from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView,Finan
 
 from finance.views import CashFlowReportView, ProfitAndLossReportView,TransactionViewSet,TransactionTypesView
 
+from finance.views import TransactionCategoryViewSet
+
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
 router.register(r'expense-categories', ExpenseCategoryViewSet, basename='expense-category')
@@ -33,6 +35,7 @@ router.register(r'teacher-salary-rules', TeacherSalaryRuleViewSet, basename='tea
 router.register(r'salary-calculations', TeacherSalaryCalculationViewSet, basename='teacher-salary-calculation')
 router.register(r'teacher-salary-payments', TeacherSalaryPaymentsView, basename='teacher-salary-payment')
 router.register(r'cashboxes', CashboxViewSet, basename='cashbox')
+router.register(r'transactions-types-crud', TransactionCategoryViewSet, basename='transaction-category')
 router.register(r'withdrawals', WithdrawalViewSet, basename='withdrawal')
 router.register(r'transactions', TransactionViewSet, basename='transactions')
 

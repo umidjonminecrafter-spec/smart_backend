@@ -5,7 +5,7 @@ from finance.models import (
 )
 from academics.serializers import StudentSerializer
 from accounts.serializers import UserSerializer
-from .models import FinanceSetting, StaffSalaryPercent,CashTransaction
+from .models import FinanceSetting, StaffSalaryPercent,CashTransaction,TransactionCategory
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpenseCategory
@@ -22,6 +22,16 @@ class ExpenseSubcategorySerializer(serializers.ModelSerializer):
 import datetime
 import json
 from .models import Expense, Cashbox
+
+class TransactionCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TransactionCategory
+        fields = ['id', 'name', 'type', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+
+
 
 class ExpenseSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)

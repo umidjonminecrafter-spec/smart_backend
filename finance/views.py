@@ -71,8 +71,24 @@ class TransactionViewSet(viewsets.ModelViewSet):
 class TransactionTypesView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def get(self, request):
-        # Modelda yozilgan TRANSACTION_TYPES va CATEGORY_CHOICES ro'yxatini xatosiz qaytaramiz
+    # 🌟 Barcha turdagi HTTP metodlarini bitta funksiyaga bog'laymiz
+    def get(self, request, *args, **kwargs):
+        return self._get_types_response()
+
+    def post(self, request, *args, **kwargs):
+        return self._get_types_response()
+
+    def put(self, request, *args, **kwargs):
+        return self._get_types_response()
+
+    def patch(self, request, *args, **kwargs):
+        return self._get_types_response()
+
+    def delete(self, request, *args, **kwargs):
+        return self._get_types_response()
+
+    # Asosiy ma'lumot qaytaruvchi logika
+    def _get_types_response(self):
         types = [
             {"key": key, "label": label}
             for key, label in Transaction.TRANSACTION_TYPES

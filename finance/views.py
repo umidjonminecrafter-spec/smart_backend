@@ -1491,3 +1491,83 @@ class FinancialAnalyticsView(APIView):
             },
             "table_data": table_rows
         })
+
+from datetime import datetime, time
+class FinancialReportsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        # 1. Tenant/Sana va Kassa parametrlarini olamiz
+        start_date_str = request.query_params.get('from_date')
+        end_date_str = request.query_params.get('to_date')
+        cashbox_id = request.query_params.get('kassa')
+
+        # Baza so'rovini boshlaymiz (faqat foydalanuvchining tashkilotiga tegishli tranzaksiyalar)
+        queryset = Transaction.objects.filter(cashbox__tenant=request.user.organization)
+
+        # Sana filtri
+        if start_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            queryset = queryset.filter(created_at__gte=start_date)
+        if end_date_str:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+            # Kun tugashigacha bo'lgan vaqtni olish uchun max vaqtini qo'yamiz
+            queryset = queryset.filter(created_at__lte=datetime.combine(end_date, time.max))
+
+        # Kassa filtri
+        if cashbox_id:
+            queryset = queryset.filter(cashbox_id=cashbox_id)
+
+        # 2. Yuqoridagi kartalar uchun jami Kirim va Chiqimni hisoblaymiz
+        total_income = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or 0
+        total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or 0
+        balance = total_income - total_expense
+
+        # 3. Tranzaksiya turi bo'yicha dumaloq grafik (Pie chart) uchun guruhlash
+        # Masalan: "O'quvchi to'lovlari", "Kitob sotishdan" va h.k.
+        income_breakdown = {}
+        for tx in queryset.filter(type='INCOME'):
+            desc = tx.description or "Boshqa kirimlar"
+            income_breakdown[desc] = income_breakdown.get(desc, 0) + float(tx.amount)
+
+        expense_breakdown = {}
+        for tx in queryset.filter(type='EXPENSE'):
+            desc = tx.description or "Boshqa chiqimlar"
+            expense_breakdown[desc] = expense_breakdown.get(desc, 0) + float(tx.amount)
+
+        # 4. Chiziqli Grafik (Linear Chart) uchun kunlik guruhlash
+        # Bu grafikda kirim va chiqim chiziqlarini chizish uchun kunlar kesimida yig'adi
+        daily_data = {}
+        for tx in queryset.order_by('created_at'):
+            date_key = tx.created_at.strftime('%d.%m')
+            if date_key not in daily_data:
+                daily_data[date_key] = {'kirim': 0, 'chiqim': 0}
+
+            if tx.type == 'INCOME':
+                daily_data[date_key]['kirim'] += float(tx.amount)
+            else:
+                daily_data[date_key]['chiqim'] += float(tx.amount)
+
+        # Frontend-ga skrinshotdagidek chiroyli formatda javob qaytaramiz
+        return Response({
+            "cards": {
+                "total_income": float(total_income),
+                "total_expense": float(total_expense),
+                "balance": float(balance)
+            },
+            "linear_chart": {
+                "labels": list(daily_data.keys()),
+                "kirim_line": [v['kirim'] for v in daily_data.values()],
+                "chiqim_line": [v['chiqim'] for v in daily_data.values()]
+            },
+            "pie_chart": {
+                "kirim": {
+                    "labels": list(income_breakdown.keys()),
+                    "values": list(income_breakdown.values())
+                },
+                "chiqim": {
+                    "labels": list(expense_breakdown.keys()),
+                    "values": list(expense_breakdown.values())
+                }
+            }
+        })

@@ -12,13 +12,7 @@ from finance.views import (
     LeadsReportPieChartView, LeadsReportBarChartView, LeadsReportStatisticsView, CompanyProfitChartView,FinanceActionViewSet
 )
 
-from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView
-
-from finance.views import CashboxListCreateAPIView, AdvancedPaymentReportAPIView
-
-from finance.views import TransactionCreateAPIView, TransactionReportAPIView
-
-from finance.views import FinancialAnalyticsView
+from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView,FinancialReportsView,FinancialAnalyticsView,TransactionReportAPIView,TransactionCreateAPIView,AdvancedPaymentReportAPIView,CashboxListCreateAPIView
 
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
@@ -50,7 +44,7 @@ urlpatterns = [
     path('student-debts/', StudentDebtsView.as_view(), name='student-debts-list'),
     path('student-debts/<int:pk>/', StudentDebtDetailView.as_view(), name='student-debts-detail'),
     path('cashboxes/', CashboxListCreateAPIView.as_view(), name='cashbox-list-create'),
-
+    path('financial-reports/', FinancialReportsView.as_view(), name='financial-reports'),
     # 2. Kuchaytirilgan moliya filtri (Sana, Kassa, O'qituvchi bo'yicha)
     path('payments/report/', AdvancedPaymentReportAPIView.as_view(), name='payments-report'),
     path('teacher-debts/summary/', TeacherDebtsSummaryView.as_view(), name='teacher-debts-summary'),

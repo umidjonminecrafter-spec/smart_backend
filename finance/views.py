@@ -51,11 +51,11 @@ class TransactionViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        # Faqat foydalanuvchining o'z tashkilotiga tegishli tranzaksiyalar
-        return Transaction.objects.filter(cashbox__tenant=request.user.organization)
+        # 🌟 MANA SHU YERDA: request.user o'rniga self.request.user yozildi!
+        return Transaction.objects.filter(cashbox__tenant_id=self.request.user.organization_id)
 
     def perform_create(self, serializer):
-        with transaction.atomic():
+        with db_transaction.atomic():  # db_transaction importi bilan xavfsiz qilindi
             tx = serializer.save()
             cashbox = tx.cashbox
 
@@ -66,6 +66,26 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 cashbox.balance -= tx.amount
 
             cashbox.save()
+
+
+class TransactionTypesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        # Modelda yozilgan TRANSACTION_TYPES va CATEGORY_CHOICES ro'yxatini xatosiz qaytaramiz
+        types = [
+            {"key": key, "label": label}
+            for key, label in Transaction.TRANSACTION_TYPES
+        ]
+        categories = [
+            {"key": key, "label": label}
+            for key, label in Transaction.CATEGORY_CHOICES
+        ]
+
+        return Response({
+            "types": types,          # Kirim, Chiqim
+            "categories": categories  # To'g'ridan-to'g'ri, Bonus, Jarima, Voucher, Oylik
+        }, status=status.HTTP_200_OK)
 
 
 class ExpenseSubcategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
@@ -1715,21 +1735,3 @@ class ProfitAndLossReportView(APIView):
         })
 
 
-class TransactionTypesView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
-        # Modelda yozilgan TRANSACTION_TYPES va CATEGORY_CHOICES ro'yxatini qaytaramiz
-        types = [
-            {"key": key, "label": label}
-            for key, label in Transaction.TRANSACTION_TYPES
-        ]
-        categories = [
-            {"key": key, "label": label}
-            for key, label in Transaction.CATEGORY_CHOICES
-        ]
-
-        return Response({
-            "types": types,  # Kirim, Chiqim
-            "categories": categories  # To'g'ridan-to'g'ri, Bonus, Jarima, Voucher, Oylik
-        }, status=status.HTTP_200_OK)

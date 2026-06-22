@@ -14,7 +14,7 @@ from finance.views import (
 
 from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView,FinancialReportsView,FinancialAnalyticsView,TransactionReportAPIView,TransactionCreateAPIView,AdvancedPaymentReportAPIView,CashboxListCreateAPIView
 
-from finance.views import CashFlowReportView, ProfitAndLossReportView,TransactionViewSet
+from finance.views import CashFlowReportView, ProfitAndLossReportView,TransactionViewSet,TransactionTypesView
 
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
@@ -72,5 +72,6 @@ urlpatterns = [
     path('leads-report/statistics/', LeadsReportStatisticsView.as_view(), name='leads-report-statistics'),
     path('reports/cash-flow/', CashFlowReportView.as_view(), name='report-cash-flow'),
     path('reports/profit-loss/', ProfitAndLossReportView.as_view(), name='report-profit-loss'),
+    path('transactions/types/', TransactionTypesView.as_view(), name='transaction-types'),
     path('', include(router.urls)),
 ]

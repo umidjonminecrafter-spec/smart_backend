@@ -1713,3 +1713,23 @@ class ProfitAndLossReportView(APIView):
             },
             "sof_foyda": float(total_revenue - total_expense)
         })
+
+
+class TransactionTypesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        # Modelda yozilgan TRANSACTION_TYPES va CATEGORY_CHOICES ro'yxatini qaytaramiz
+        types = [
+            {"key": key, "label": label}
+            for key, label in Transaction.TRANSACTION_TYPES
+        ]
+        categories = [
+            {"key": key, "label": label}
+            for key, label in Transaction.CATEGORY_CHOICES
+        ]
+
+        return Response({
+            "types": types,  # Kirim, Chiqim
+            "categories": categories  # To'g'ridan-to'g'ri, Bonus, Jarima, Voucher, Oylik
+        }, status=status.HTTP_200_OK)

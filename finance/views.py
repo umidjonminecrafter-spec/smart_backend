@@ -1571,3 +1571,78 @@ class FinancialReportsView(APIView):
                 }
             }
         })
+
+
+
+
+from .models import Transaction
+from datetime import datetime, time
+
+
+class CashFlowReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+
+        # Faqat joriy tashkilot tranzaksiyalari
+        queryset = Transaction.objects.filter(cashbox__tenant=request.user.organization)
+
+        if from_date:
+            queryset = queryset.filter(created_at__gte=datetime.strptime(from_date, '%Y-%m-%d'))
+        if to_date:
+            queryset = queryset.filter(
+                created_at__lte=datetime.combine(datetime.strptime(to_date, '%Y-%m-%d'), time.max))
+
+        # Kirim va Chiqimlarni tavsifi (description) bo'yicha guruhlaymiz
+        incomes = queryset.filter(type='INCOME').values('description').annotate(total=Sum('amount'))
+        expenses = queryset.filter(type='EXPENSE').values('description').annotate(total=Sum('amount'))
+
+        total_income = sum(item['total'] for item in incomes) or 0
+        total_expense = sum(item['total'] for item in expenses) or 0
+
+        return Response({
+            "kirimlar": [{"kategoriya": item['description'] or "Boshqa kirim", "summa": float(item['total'])} for item
+                         in incomes],
+            "chiqimlar": [{"kategoriya": item['description'] or "Boshqa xarajat", "summa": float(item['total'])} for
+                          item in expenses],
+            "jami_kirim": float(total_income),
+            "jami_chiqim": float(total_expense),
+            "sof_pul_oqimi": float(total_income - total_expense)
+        })
+
+
+class ProfitAndLossReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+
+        queryset = Transaction.objects.filter(cashbox__tenant=request.user.organization)
+
+        if from_date:
+            queryset = queryset.filter(created_at__gte=datetime.strptime(from_date, '%Y-%m-%d'))
+        if to_date:
+            queryset = queryset.filter(
+                created_at__lte=datetime.combine(datetime.strptime(to_date, '%Y-%m-%d'), time.max))
+
+        # Mavjud tranzaksiyalardan jami daromad va jami xarajatni hisoblaymiz
+        total_revenue = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or 0
+        total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or 0
+
+        # Xarajatlarni turlari bo'yicha guruhlab ko'rsatish (Oylik, ijara va h.k. description ichidan ajratadi)
+        expense_details = queryset.filter(type='EXPENSE').values('description').annotate(total=Sum('amount'))
+
+        return Response({
+            "revenue": {
+                "jami_daromad": float(total_revenue)
+            },
+            "expenses": {
+                "batafsil": [{"kategoriya": item['description'] or "Boshqa xarajatlar", "summa": float(item['total'])}
+                             for item in expense_details],
+                "jami_xarajatlar": float(total_expense)
+            },
+            "sof_foyda": float(total_revenue - total_expense)
+        })

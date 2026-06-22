@@ -1409,3 +1409,85 @@ class FinanceActionViewSet(viewsets.ModelViewSet):
                 # Kassadan pul yechilmaydi! Shunchaki bazaga yoziladi.
                 # Bu jarima oylik hisoblanayotganda avtomatik chegirib tashlanadi.
                 pass
+
+from .filters import FinancialReportFilter
+class FinancialAnalyticsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        # 1. Kelayotgan so'rov turini aniqlaymiz (kirim, chiqim, bonus, jarima)
+        report_type = request.query_params.get('type', 'kirim').lower()
+
+        # 2. Tranzaksiyalarni filterlash
+        tx_queryset = Transaction.objects.filter(cashbox__tenant=request.user.organization)  # tenant bo'lsa
+
+        # Sana va Kassa filtrlarini qo'llaymiz
+        filtered_tx = FinancialReportFilter(request.GET, queryset=tx_queryset).qs
+
+        labels_data = {}
+        total_sum = 0
+        table_rows = []
+
+        if report_type == 'kirim':
+            # Faqat kirimlar (masalan: O'quvchi to'lovlari)
+            queryset = filtered_tx.filter(type='INCOME')
+            total_sum = queryset.aggregate(total=Sum('amount'))['total'] or 0
+
+            # Diagramma uchun tavsif bo'yicha guruhlaymiz
+            for tx in queryset:
+                desc = tx.description or "Boshqa kirimlar"
+                labels_data[desc] = labels_data.get(desc, 0) + float(tx.amount)
+                table_rows.append({"nomi": desc, "summa": float(tx.amount), "sana": tx.created_at})
+
+        elif report_type == 'chiqim':
+            # Faqat chiqimlar (Oylik, avans, ijara va h.k.)
+            queryset = filtered_tx.filter(type='EXPENSE')
+            total_sum = queryset.aggregate(total=Sum('amount'))['total'] or 0
+
+            for tx in queryset:
+                desc = tx.description or "Boshqa chiqimlar"
+                labels_data[desc] = labels_data.get(desc, 0) + float(tx.amount)
+                table_rows.append({"nomi": desc, "summa": float(tx.amount), "sana": tx.created_at})
+
+        elif report_type == 'bonus':
+            # FinanceAction ichidagi hamma BONUS'lar
+            actions = FinanceAction.objects.filter(action_type='BONUS')
+            # Sanani filterlash (agar actions'da ham xuddi shunday filter kerak bo'lsa)
+            if request.GET.get('start_date'):
+                actions = actions.filter(created_at__gte=request.GET.get('start_date'))
+            if request.GET.get('end_date'):
+                actions = actions.filter(created_at__lte=request.GET.get('end_date'))
+
+            total_sum = actions.aggregate(total=Sum('amount'))['total'] or 0
+
+            for act in actions:
+                name = f"{act.get_target_type_display()}: {act.employee or act.student}"
+                labels_data[name] = labels_data.get(name, 0) + float(act.amount)
+                table_rows.append(
+                    {"nomi": f"{name} ({act.reason or ''})", "summa": float(act.amount), "sana": act.created_at})
+
+        elif report_type == 'jarima':
+            # FinanceAction ichidagi hamma PENALTY'lar
+            actions = FinanceAction.objects.filter(action_type='PENALTY')
+            if request.GET.get('start_date'):
+                actions = actions.filter(created_at__gte=request.GET.get('start_date'))
+            if request.GET.get('end_date'):
+                actions = actions.filter(created_at__lte=request.GET.get('end_date'))
+
+            total_sum = actions.aggregate(total=Sum('amount'))['total'] or 0
+
+            for act in actions:
+                name = f"{act.get_target_type_display()}: {act.employee}"
+                labels_data[name] = labels_data.get(name, 0) + float(act.amount)
+                table_rows.append(
+                    {"nomi": f"{name} - {act.reason or ''}", "summa": float(act.amount), "sana": act.created_at})
+
+        # Frontend kutayotgan chiroyli formatda javob qaytaramiz
+        return Response({
+            "total_amount": total_sum,
+            "chart_data": {
+                "labels": list(labels_data.keys()),
+                "values": list(labels_data.values())
+            },
+            "table_data": table_rows
+        })

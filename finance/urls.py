@@ -18,6 +18,8 @@ from finance.views import CashboxListCreateAPIView, AdvancedPaymentReportAPIView
 
 from finance.views import TransactionCreateAPIView, TransactionReportAPIView
 
+from finance.views import FinancialAnalyticsView
+
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
 router.register(r'expense-categories', ExpenseCategoryViewSet, basename='expense-category')
@@ -59,7 +61,7 @@ urlpatterns = [
     # Asosiy jadval va moliya hisoboti (Filterlar bilan)
     path('transactions/report/', TransactionReportAPIView.as_view(), name='transaction-report'),
     path('all-debts/', AllDebtsView.as_view(), name='all-debts'),
-    
+    path('analytics/', FinancialAnalyticsView.as_view(), name='financial-analytics'),
     # CRM Conversion Reports
     path('conversion-reports/funnel/', ConversionReportsFunnelView.as_view(), name='conversion-reports-funnel'),
     path('conversion-reports/overview/', ConversionReportsOverviewView.as_view(), name='conversion-reports-overview'),

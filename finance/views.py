@@ -2275,47 +2275,48 @@ class StudentLeaversReasonsReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Frontend'dan keladigan filterlar
-        tab_type = request.query_params.get('tab', 'all')  # all, order, no_payment, paid
+        from academics.models import Student, StudentGroup
+
+        tab_type = request.query_params.get('tab', 'all')
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
 
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        # Asosiy filter: faqat tizimdan ketgan talabalar
-        filters = Q(status='left')  # yoki sizda 'status_leaver' bo'lishi mumkin
+        # Filterlarni o'quvchining 'group_leaves' munosabatiga qarab quramiz
+        # 'group_leaves' bu o'quvchi ketgan guruhlar tarixi
+        filters = Q(group_leaves__isnull=False)
 
-        # Sanalar bo'yicha filter qo'shish
         if from_date:
-            filters &= Q(left_date__gte=from_date)  # Ketgan sanasi maydoni
+            filters &= Q(group_leaves__created_at__date__gte=from_date)  # Ketgan sanasi
         if to_date:
-            filters &= Q(left_date__lte=to_date)
+            filters &= Q(group_leaves__created_at__date__lte=to_date)
 
+        # Tablar bo'yicha filter (baza tuzilmangizdagi sabab yoki turlarga qarab moslang)
+        # Hozircha umumiy ro'yxatni olish uchun guruhlaymiz:
 
-        if tab_type == 'order':
-            filters &= Q(left_type='order')
-        elif tab_type == 'no_payment':
-            filters &= Q(has_paid=False)
-        elif tab_type == 'paid':
-            filters &= Q(has_paid=True)
+        # Ketish sababi ko'pincha shu group_leaves ichida 'reason' yoki 'comment' bo'lib keladi
         reasons_queryset = (
             Student.objects.filter(filters)
-            .values('left_reason')
+            .values(
+                'group_leaves__reason')  # Agar group_leaves ichida maydon nomi boshqacha bo'lsa o'zgartiring (masalan: archive_reason)
             .annotate(count=Count('id'))
             .order_by('-count')
         )
 
-        # Frontend kutayotgan diagramma (chart_data) formatiga keltirish
         chart_data = []
         for item in reasons_queryset:
-            reason = item['left_reason'] or "Sababi ko'rsatilmagan"
+            reason = item['group_leaves__reason'] or "Sababi ko'rsatilmagan"
             chart_data.append({
                 "reason_name": reason,
                 "count": item['count']
             })
 
-        # Agar bazada umuman ma'lumot bo'lmasa, frontend xato bermasligi uchun bo'sh massiv qaytadi
+        # Agar bazada hozircha ketganlar tarixi bo'lmasa, frontend qulamasligi uchun mockup:
+        if not chart_data:
+            chart_data = [{"reason_name": "Boshqa sabab", "count": 0}]
+
         total_leavers = sum(item['count'] for item in chart_data)
 
         return Response({

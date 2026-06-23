@@ -1143,11 +1143,11 @@ class ConversionReportsFunnelView(TenantViewSetMixin, APIView):
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 1. Abdulmajid so'ragan barcha filtrlarni qabul qilish (Subkursdan tashqari)
+        # 1. Abdulmajid so'ragan barcha filtrlarni qabul qilish (Section'ga moslandi)
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
         marketing_id = request.query_params.get('marketing')
-        course_id = request.query_params.get('course')
+        section_id = request.query_params.get('course')  # Frontend 'course' deb yuboraveradi
         moderator_id = request.query_params.get('moderator')
         teacher_id = request.query_params.get('teacher')
         source_id = request.query_params.get('source')
@@ -1171,8 +1171,8 @@ class ConversionReportsFunnelView(TenantViewSetMixin, APIView):
             base_filter &= Q(created_at__date__lte=end_date)
         if marketing_id:
             base_filter &= Q(marketing_id=marketing_id)
-        if course_id:
-            base_filter &= Q(course_id=course_id)
+        if section_id:
+            base_filter &= Q(section_id=section_id)  # 🌟 TO'G'RILANDI: course_id -> section_id
         if moderator_id:
             base_filter &= Q(moderator_id=moderator_id)
         if teacher_id:
@@ -1191,7 +1191,6 @@ class ConversionReportsFunnelView(TenantViewSetMixin, APIView):
             })
 
         # 3. Chap tomondagi Jadval (Table) ma'lumotlari (1 dan 11 gacha bo'lgan statistikalar)
-        # Eslatma: 'status' maydonidagi qiymatlarni o'zingizning CRM liddingizga qarab moslang
         stats = Lead.objects.filter(base_filter).aggregate(
             total_orders=Count('id'),
             left_before_trial=Count('id', filter=Q(status='LEFT_BEFORE_TRIAL')),
@@ -1213,7 +1212,7 @@ class ConversionReportsFunnelView(TenantViewSetMixin, APIView):
             {"id": 5, "status_name": "Sinov darsiga kelganlar", "count": stats['trial_attended']},
             {"id": 6, "status_name": "Sinov darsiga kelib ketganlar", "count": stats['converted_to_group']},
             {"id": 7, "status_name": "Birinchi to'lovni qilganlar", "count": stats['first_payment']},
-            {"id": 8, "status_name": "Birinchi to'lovni qilib ketganlar", "count": stats['first_payment_left']},
+            {"id": 8, "status_name": "Birinchi to'lovni qibly ketganlar", "count": stats['first_payment_left']},
             {"id": 9, "status_name": "Tugatganlar", "count": stats['finished']},
             {"id": 10, "status_name": "Boshqa filialdan ko'chirilgan", "count": stats['moved_to_branch']},
         ]
@@ -1239,14 +1238,15 @@ class ConversionReportsFunnelView(TenantViewSetMixin, APIView):
         }
 
         # 5. Pastki o'ng tomondagi "Kurslar kesimida buyurtmalar taqsimoti" - Diagramma
+        # 🌟 TO'G'RILANDI: course__name -> section__name ga almashtirildi
         course_distribution = (
             Lead.objects.filter(base_filter)
-            .values('course__name')
+            .values('section__name')
             .annotate(count=Count('id'))
             .order_by('-count')[:5]
         )
         course_chart = {
-            "labels": [c['course__name'] or "Noma'lum" for c in course_distribution],
+            "labels": [c['section__name'] or "Noma'lum" for c in course_distribution],
             "values": [c['count'] for c in course_distribution]
         }
 

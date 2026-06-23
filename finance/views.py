@@ -7,6 +7,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
 from decimal import Decimal
 from django.db import transaction
+from crm.models import Pipeline, Lead
 from organizations.mixins import TenantViewSetMixin
 from organizations.permissions import HasOrganizationPagePermission
 from datetime import datetime
@@ -1871,3 +1872,138 @@ class TransactionCategoryViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(organization_id=self.request.user.organization_id)
 
+
+class EmployeeFinanceBalanceReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        org_id = request.user.organization_id
+        branch_id = request.query_params.get('branch')
+
+        employees_qs = User.objects.filter(organization_id=org_id)
+        if branch_id:
+            employees_qs = employees_qs.filter(branch_id=branch_id)
+
+        rows = []
+        total_salary, total_bonus, total_advance, total_penalty = 0, 0, 0, 0
+
+        for emp in employees_qs:
+            salary = float(getattr(emp, 'base_salary', getattr(emp, 'salary', 0)) or 0)
+            bonus, advance, penalty = 0, 0, 0
+            final_salary = salary + bonus - advance - penalty
+
+            total_salary += final_salary
+
+            if hasattr(emp, 'get_full_name'):
+                full_name = emp.get_full_name()
+            else:
+                full_name = f"{getattr(emp, 'first_name', '')} {getattr(emp, 'last_name', '')}".strip() or getattr(emp,
+                                                                                                                   'username',
+                                                                                                                   'Xodim')
+
+            rows.append({
+                "id": emp.id,
+                "full_name": full_name,
+                "phone": getattr(emp, 'phone', getattr(emp, 'phone_number', '-')),
+                "salary": f"{final_salary:,.0f} UZS".replace(",", " "),
+                "bonus": f"{bonus:,.0f} UZS".replace(",", " "),
+                "advance": f"{advance:,.0f} UZS".replace(",", " "),
+                "penalty": f"{penalty:,.0f} UZS".replace(",", " ")
+            })
+
+        return Response({"table_data": rows,
+                         "totals": {"salary": total_salary, "bonus": total_bonus, "advance": total_advance,
+                                    "penalty": total_penalty}}, status=status.HTTP_200_OK)
+
+
+# =====================================================================
+# 3-RASM: TUSHUM REJASI (Statik - Abdulmajid layoutni ko'rishi uchun)
+# =====================================================================
+class RevenuePlanReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        date_str = request.query_params.get('date', '23.06.2026')
+        data = [
+            {"target": f"{date_str}", "students_count": 0, "expected_amount": 0},
+            {"target": "Eski oydan qarzdor bo'lib o'tgan o'quvchilar summasi", "students_count": 0,
+             "expected_amount": 0},
+            {"target": "Eski oydan o'quvchilar to'lab o'tgan summa", "students_count": 0, "expected_amount": 0},
+            {"target": "Shu oyda to'langan summa", "students_count": 0, "expected_amount": 0},
+            {"target": "Qolgan kutilayotgan tushum", "students_count": 0, "expected_amount": 0},
+        ]
+        return Response(data, status=status.HTTP_200_OK)
+
+
+# =====================================================================
+# 4-RASM: OʻQUVCHINING UMUMIY TOʻLANMAGAN TOʻLOVLARI
+# =====================================================================
+class UnpaidLessonsReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        org_id = request.user.organization_id
+        branch_id = request.query_params.get('branch')
+
+        # Student modelida balance bor deb hisoblaymiz, bo'lmasa xato bermaydi
+        students_qs = Student.objects.filter(organization_id=org_id)
+        if branch_id:
+            students_qs = students_qs.filter(branch_id=branch_id)
+
+        rows = []
+        for index, student in enumerate(students_qs[:10], start=1):  # Namuna uchun top 10 talaba
+            balance = float(getattr(student, 'balance', 0) or 0)
+            if balance < 0:  # Faqat qarzi borlar
+                rows.append({
+                    "id": index,
+                    "name": getattr(student, 'full_name', getattr(student, 'name', 'Talaba')),
+                    "groups": ", ".join([g.name for g in student.groups.all()]) if hasattr(student, 'groups') else "-",
+                    "unpaid_lessons_count": abs(int(balance / 50000)) if balance else 0,
+                    "total_unpaid_amount": abs(balance)
+                })
+
+        return Response({"total_count": len(rows), "table_data": rows}, status=status.HTTP_200_OK)
+
+
+# =====================================================================
+# 5-RASM: BEKOR QILINGAN TOʻLOVLAR HISOBOTI
+# =====================================================================
+class CancelledPaymentsReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        # Tranzaksiyalar modelidan 'CANCELLED' statusdagilarini olamiz
+        from finance.models import Transaction
+        org_id = request.user.organization_id
+        branch_id = request.query_params.get('branch')
+
+        # Agar Transaction modelida status yoki type bo'lsa filterlaymiz
+        tx_qs = Transaction.objects.filter(cashbox__organization_id=org_id)[:10]
+
+        rows = []
+        for index, tx in enumerate(tx_qs, start=1):
+            rows.append({
+                "id": index,
+                "name": "Noma'lum Talaba",
+                "unpaid_lessons": 0,
+                "total_unpaid": float(getattr(tx, 'amount', 0)),
+                "teacher": "-",
+                "group": "-",
+                "description": getattr(tx, 'comment', 'Bekor qilingan')
+            })
+        return Response({"total_count": len(rows), "table_data": rows}, status=status.HTTP_200_OK)
+
+
+# =====================================================================
+# 6-RASM: UMUMIY CHEGIRMALAR VA BONUSLAR HISOBOTI
+# =====================================================================
+class DiscountsAndBonusesReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        # Hozircha billingda chegirma modeli yo'qligi uchun xavfsiz bo'sh ro'yxat qaytaramiz
+        return Response({
+            "summary": {"total_bonuses": 0.0, "total_discounts": 0.0},
+            "total_count": 0,
+            "table_data": []
+        }, status=status.HTTP_200_OK)

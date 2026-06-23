@@ -14,9 +14,10 @@ from finance.views import (
 
 from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView,FinancialReportsView,FinancialAnalyticsView,TransactionReportAPIView,TransactionCreateAPIView,AdvancedPaymentReportAPIView,CashboxListCreateAPIView
 
-from finance.views import CashFlowReportView,TransactionViewSet,TransactionTypesView
+from finance.views import CashFlowReportView,TransactionViewSet,TransactionTypesView,EmployeeFinanceBalanceReportView,DiscountsAndBonusesReportView
 
-from finance.views import TransactionCategoryViewSet,PnLReportView
+
+from finance.views import TransactionCategoryViewSet,PnLReportView,RevenuePlanReportView,UnpaidLessonsReportView,CancelledPaymentsReportView
 
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
@@ -71,7 +72,11 @@ urlpatterns = [
     path('leads-report/bar-chart/', LeadsReportBarChartView.as_view(), name='leads-report-bar-chart'),
     path('leads-report/statistics/', LeadsReportStatisticsView.as_view(), name='leads-report-statistics'),
     path('reports/cash-flow/', CashFlowReportView.as_view(), name='report-cash-flow'),
-
+    path('reports/employee-balance/', EmployeeFinanceBalanceReportView.as_view(), name='report-employee-balance'),
+    path('reports/revenue-plan/', RevenuePlanReportView.as_view(), name='report-revenue-plan'),
+    path('reports/unpaid-payments/', UnpaidLessonsReportView.as_view(), name='report-unpaid-payments'),
+    path('reports/cancelled-payments/', CancelledPaymentsReportView.as_view(), name='report-cancelled-payments'),
+    path('reports/discounts-bonuses/', DiscountsAndBonusesReportView.as_view(), name='report-discounts-bonuses'),
 
     path('transactions/types/', TransactionTypesView.as_view(), name='transaction-types'),
     path('', include(router.urls)),

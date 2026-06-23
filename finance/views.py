@@ -2091,3 +2091,241 @@ class DiscountsAndBonusesReportView(APIView):
             "total_count": len(rows),
             "table_data": rows
         }, status=status.HTTP_200_OK)
+
+
+
+class TeacherEfficiencyReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from academics.models import Teacher
+        # Frontend'dan kelayotgan filter parametrlarini olish
+        from_date_str = request.query_params.get('from_date')
+        to_date_str = request.query_params.get('to_date')
+
+        # Agar sana berilmagan bo'lsa, xatolik bermasligi uchun default qiymat yoki None
+        from_date = parse_date(from_date_str) if from_date_str else None
+        to_date = parse_date(to_date_str) if to_date_str else None
+
+        # Filter shartlarini shakllantiramiz
+        # NOTA: 'groups__students__...' qismini o'zingizning Model munosabatlariga (Related Name) qarab moslang
+
+        # 1. Davr boshidagi holat (from_date'dan oldingi holat)
+        start_filter = Q()
+        if from_date:
+            start_filter &= Q(groups__students__joined_date__lt=from_date)  # Davr boshlanishidan oldin qo'shilganlar
+
+        # 2. Davr ichidagi o'zgarishlar (from_date va to_date oralig'ida)
+        change_filter = Q()
+        if from_date:
+            change_filter &= Q(groups__students__joined_date__gte=from_date)
+        if to_date:
+            change_filter &= Q(groups__students__joined_date__lte=to_date)
+
+        # 3. Davr oxiridagi holat (to_date gacha bo'lgan jami holat)
+        end_filter = Q()
+        if to_date:
+            end_filter &= Q(groups__students__joined_date__lte=to_date)
+
+        # Haqiqiy so'rov (Queryset)
+        teachers_data = Teacher.objects.annotate(
+            # --- Davr boshidagi holat ---
+            start_active=Count('groups__students', filter=start_filter & Q(groups__students__status='active')),
+            start_left=Count('groups__students', filter=start_filter & Q(groups__students__status='left')),
+            start_finished=Count('groups__students', filter=start_filter & Q(groups__students__status='finished')),
+            start_frozen=Count('groups__students', filter=start_filter & Q(groups__students__status='frozen')),
+
+            # --- Davr ichidagi o'zgarishlar ---
+            change_active=Count('groups__students', filter=change_filter & Q(groups__students__status='active')),
+            change_left=Count('groups__students', filter=change_filter & Q(groups__students__status='left')),
+            change_finished=Count('groups__students', filter=change_filter & Q(groups__students__status='finished')),
+            change_frozen=Count('groups__students', filter=change_filter & Q(groups__students__status='frozen')),
+
+            # --- Davr oxiridagi holat ---
+            end_active=Count('groups__students', filter=end_filter & Q(groups__students__status='active')),
+            end_left=Count('groups__students', filter=end_filter & Q(groups__students__status='left')),
+            end_finished=Count('groups__students', filter=end_filter & Q(groups__students__status='finished')),
+            end_frozen=Count('groups__students', filter=end_filter & Q(groups__students__status='frozen'))
+        ).distinct()
+
+        # JSON formatga o'tkazish
+        report = []
+        for index, teacher in enumerate(teachers_data, 1):
+            # Ism familiyani olish
+            if hasattr(teacher, 'user'):
+                name = f"{teacher.user.first_name} {teacher.user.last_name}".strip() or teacher.user.username
+            else:
+                name = getattr(teacher, 'name', f"O'qituvchi #{teacher.id}")
+
+            report.append({
+                "id": index,
+                "teacher_name": name,
+                "start_status": {
+                    "active": teacher.start_active,
+                    "left": teacher.start_left,
+                    "finished": teacher.start_finished,
+                    "frozen": teacher.start_frozen
+                },
+                "changes": {
+                    "active": teacher.change_active,
+                    "left": teacher.change_left,
+                    "finished": teacher.change_finished,
+                    "frozen": teacher.change_frozen
+                },
+                "end_status": {
+                    "active": teacher.end_active,
+                    "left": teacher.end_left,
+                    "finished": teacher.end_finished,
+                    "frozen": teacher.end_frozen
+                }
+            })
+
+        return Response(report)
+
+
+# finance/views.py ichiga qo'shing
+
+class AdministratorEfficiencyReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Sanalarni frontend'dan olish
+        from_date_str = request.query_params.get('from_date')
+        to_date_str = request.query_params.get('to_date')
+
+        from_date = parse_date(from_date_str) if from_date_str else None
+        to_date = parse_date(to_date_str) if to_date_str else None
+
+        # 1. Davr boshidagi holat (from_date'dan oldingi holat)
+        start_filter = Q()
+        if from_date:
+            # 'students__created_at' yoki o'quvchi qo'shilgan sana maydoni
+            start_filter &= Q(students__created_at__lt=from_date)
+
+            # 2. Davr ichidagi o'zgarishlar (from_date va to_date oralig'ida)
+        change_filter = Q()
+        if from_date:
+            change_filter &= Q(students__created_at__gte=from_date)
+        if to_date:
+            change_filter &= Q(students__created_at__lte=to_date)
+
+        # 3. Davr oxiridagi holat (to_date gacha bo'lgan jami holat)
+        end_filter = Q()
+        if to_date:
+            end_filter &= Q(students__created_at__lte=to_date)
+
+        # Administratorlarni (masalan, guruh/roli moderator yoki admin bo'lganlarni) filterlab olish
+        # 'students' - bu User modelidan Student modeliga bo'lgan related_name
+        admins_data = User.objects.filter(
+            is_staff=True  # yoki guruhiga qarab filterlang: groups__name='boshqaruv'
+        ).annotate(
+            # --- Davr boshidagi holat ---
+            start_active=Count('students', filter=start_filter & Q(students__status='active')),
+            start_left=Count('students', filter=start_filter & Q(students__status='left')),
+            start_finished=Count('students', filter=start_filter & Q(students__status='finished')),
+            start_frozen=Count('students', filter=start_filter & Q(students__status='frozen')),
+
+            # --- Davr ichidagi o'zgarishlar ---
+            change_active=Count('students', filter=change_filter & Q(students__status='active')),
+            change_left=Count('students', filter=change_filter & Q(students__status='left')),
+            change_finished=Count('students', filter=change_filter & Q(students__status='finished')),
+            change_frozen=Count('students', filter=change_filter & Q(students__status='frozen')),
+
+            # --- Davr oxiridagi holat ---
+            end_active=Count('students', filter=end_filter & Q(students__status='active')),
+            end_left=Count('students', filter=end_filter & Q(students__status='left')),
+            end_finished=Count('students', filter=end_filter & Q(students__status='finished')),
+            end_frozen=Count('students', filter=end_filter & Q(students__status='frozen'))
+        ).distinct()
+
+        # Frontend kutayotgan JSON formatga o'tkazish
+        report = []
+        for index, admin in enumerate(admins_data, 1):
+            report.append({
+                "id": index,
+                "admin_name": f"{admin.first_name} {admin.last_name}".strip() or admin.username,
+                "start_status": {
+                    "active": admin.start_active,
+                    "left": admin.start_left,
+                    "finished": admin.start_finished,
+                    "frozen": admin.start_frozen
+                },
+                "changes": {
+                    "active": admin.change_active,
+                    "left": admin.change_left,
+                    "finished": admin.change_finished,
+                    "frozen": admin.change_frozen
+                },
+                "end_status": {
+                    "active": admin.end_active,
+                    "left": admin.end_left,
+                    "finished": admin.end_finished,
+                    "frozen": admin.end_frozen
+                }
+            })
+
+        return Response(report)
+
+
+# finance/views.py ichiga qo'shing
+from academics.models import Student
+
+
+class StudentLeaversReasonsReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Frontend'dan keladigan filterlar
+        tab_type = request.query_params.get('tab', 'all')  # all, order, no_payment, paid
+        from_date_str = request.query_params.get('from_date')
+        to_date_str = request.query_params.get('to_date')
+
+        from_date = parse_date(from_date_str) if from_date_str else None
+        to_date = parse_date(to_date_str) if to_date_str else None
+
+        # Asosiy filter: faqat tizimdan ketgan talabalar
+        filters = Q(status='left')  # yoki sizda 'status_leaver' bo'lishi mumkin
+
+        # Sanalar bo'yicha filter qo'shish
+        if from_date:
+            filters &= Q(left_date__gte=from_date)  # Ketgan sanasi maydoni
+        if to_date:
+            filters &= Q(left_date__lte=to_date)
+
+
+        if tab_type == 'order':
+            filters &= Q(left_type='order')
+        elif tab_type == 'no_payment':
+            filters &= Q(has_paid=False)
+        elif tab_type == 'paid':
+            filters &= Q(has_paid=True)
+        reasons_queryset = (
+            Student.objects.filter(filters)
+            .values('left_reason')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+
+        # Frontend kutayotgan diagramma (chart_data) formatiga keltirish
+        chart_data = []
+        for item in reasons_queryset:
+            reason = item['left_reason'] or "Sababi ko'rsatilmagan"
+            chart_data.append({
+                "reason_name": reason,
+                "count": item['count']
+            })
+
+        # Agar bazada umuman ma'lumot bo'lmasa, frontend xato bermasligi uchun bo'sh massiv qaytadi
+        total_leavers = sum(item['count'] for item in chart_data)
+
+        return Response({
+            "total_leavers": total_leavers,
+            "chart_data": chart_data,
+            "table_data": [
+                {
+                    "id": i,
+                    "reason_name": item['reason_name'],
+                    "student_count": item['count']
+                } for i, item in enumerate(chart_data, 1)
+            ]
+        })

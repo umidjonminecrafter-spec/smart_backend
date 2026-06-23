@@ -20,7 +20,7 @@ from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView, Fina
 from finance.views import CashFlowReportView, TransactionViewSet, TransactionTypesView, \
     EmployeeFinanceBalanceReportView, DiscountsAndBonusesReportView
 from finance.views import TransactionCategoryViewSet, PnLReportView, RevenuePlanReportView, UnpaidLessonsReportView, \
-    CancelledPaymentsReportView
+    CancelledPaymentsReportView,TeacherEfficiencyReportView,AdministratorEfficiencyReportView,StudentLeaversReasonsReportView
 
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
@@ -85,6 +85,10 @@ urlpatterns = [
     path('reports/cancelled-payments/', CancelledPaymentsReportView.as_view(), name='report-cancelled-payments'),
     path('reports/discounts-bonuses/', DiscountsAndBonusesReportView.as_view(), name='report-discounts-bonuses'),
 
+
+    path('analytics/teacher-efficiency/', TeacherEfficiencyReportView.as_view(), name='teacher-efficiency-report'),
+    path('analytics/admin-efficiency/', AdministratorEfficiencyReportView.as_view(), name='admin-efficiency-report'),
+    path('analytics/student-left-reasons/', StudentLeaversReasonsReportView.as_view(), name='student-left-reasons-report'),
     path('transactions/types/', TransactionTypesView.as_view(), name='transaction-types'),
     path('', include(router.urls)),
 ]

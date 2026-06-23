@@ -9,15 +9,18 @@ from finance.views import (
     TeacherDebtsView, TeacherDebtsSummaryView, AllDebtsView, CashboxViewSet, FinanceReportView,
     WithdrawalViewSet, ConversionReportsFunnelView, CRMLeadsListView,
     ConversionReportsOverviewView, ConversionReportsLostReasonsView, ConversionReportsPipelineTransitionsView,
-    LeadsReportPieChartView, LeadsReportBarChartView, LeadsReportStatisticsView, CompanyProfitChartView,FinanceActionViewSet
+    LeadsReportPieChartView, LeadsReportBarChartView, LeadsReportStatisticsView, CompanyProfitChartView,
+    FinanceActionViewSet
 )
 
-from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView,FinancialReportsView,FinancialAnalyticsView,TransactionReportAPIView,TransactionCreateAPIView,AdvancedPaymentReportAPIView,CashboxListCreateAPIView
+from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView, FinancialReportsView, \
+    FinancialAnalyticsView, TransactionReportAPIView, TransactionCreateAPIView, AdvancedPaymentReportAPIView, \
+    CashboxListCreateAPIView
 
-from finance.views import CashFlowReportView,TransactionViewSet,TransactionTypesView,EmployeeFinanceBalanceReportView,DiscountsAndBonusesReportView
-
-
-from finance.views import TransactionCategoryViewSet,PnLReportView,RevenuePlanReportView,UnpaidLessonsReportView,CancelledPaymentsReportView
+from finance.views import CashFlowReportView, TransactionViewSet, TransactionTypesView, \
+    EmployeeFinanceBalanceReportView, DiscountsAndBonusesReportView
+from finance.views import TransactionCategoryViewSet, PnLReportView, RevenuePlanReportView, UnpaidLessonsReportView, \
+    CancelledPaymentsReportView
 
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
@@ -30,7 +33,6 @@ router.register(r'monthly-income', MonthlyIncomeViewSet, basename='monthly-incom
 router.register(r'payments', PaymentViewSet, basename='payment')
 router.register(r'sales', SaleViewSet, basename='sale')
 router.register(r'bonuses', BonusViewSet, basename='bonus')
-path('reports/pnl/', PnLReportView.as_view(), name='pnl-report'),
 router.register(r'fines', FineViewSet, basename='fine')
 router.register(r'salaries', SalaryViewSet, basename='salary')
 router.register(r'teacher-salary-rules', TeacherSalaryRuleViewSet, basename='teacher-salary-rule')
@@ -46,7 +48,7 @@ urlpatterns = [
     path('report/', FinanceReportView.as_view(), name='finance-report'),
     path('profit-chart/', CompanyProfitChartView.as_view(), name='company-profit-chart'),
     path('settings/', FinanceSettingAPIView.as_view(), name='finance-settings'),
-    
+
     path('student-debts/summary/', StudentDebtsSummaryView.as_view(), name='student-debts-summary'),
     path('student-debts/', StudentDebtsView.as_view(), name='student-debts-list'),
     path('student-debts/<int:pk>/', StudentDebtDetailView.as_view(), name='student-debts-detail'),
@@ -61,16 +63,21 @@ urlpatterns = [
     path('transactions/report/', TransactionReportAPIView.as_view(), name='transaction-report'),
     path('all-debts/', AllDebtsView.as_view(), name='all-debts'),
     path('analytics/', FinancialAnalyticsView.as_view(), name='financial-analytics'),
-    path('conversion-reports/funnel/', ConversionReportsFunnelView.as_view(), name='conversion-reports-funnel'),
 
+    # 🌟 TO'G'RILANDI: PnL va barcha kerakli hisobot yo'llari urlpatterns ichida
+    path('reports/pnl/', PnLReportView.as_view(), name='pnl-report'),
+    path('conversion-reports/funnel/', ConversionReportsFunnelView.as_view(), name='conversion-reports-funnel'),
     path('conversion-reports/overview/', ConversionReportsOverviewView.as_view(), name='conversion-reports-overview'),
-    path('conversion-reports/lost-reasons/', ConversionReportsLostReasonsView.as_view(), name='conversion-reports-lost-reasons'),
-    path('conversion-reports/pipeline-transitions/', ConversionReportsPipelineTransitionsView.as_view(), name='conversion-reports-pipeline-transitions'),
+    path('conversion-reports/lost-reasons/', ConversionReportsLostReasonsView.as_view(),
+         name='conversion-reports-lost-reasons'),
+    path('conversion-reports/pipeline-transitions/', ConversionReportsPipelineTransitionsView.as_view(),
+         name='conversion-reports-pipeline-transitions'),
     path('crm-leads/', CRMLeadsListView.as_view(), name='crm-leads-list'),
-    
+
     path('leads-report/pie-chart/', LeadsReportPieChartView.as_view(), name='leads-report-pie-chart'),
     path('leads-report/bar-chart/', LeadsReportBarChartView.as_view(), name='leads-report-bar-chart'),
     path('leads-report/statistics/', LeadsReportStatisticsView.as_view(), name='leads-report-statistics'),
+
     path('reports/cash-flow/', CashFlowReportView.as_view(), name='report-cash-flow'),
     path('reports/employee-balance/', EmployeeFinanceBalanceReportView.as_view(), name='report-employee-balance'),
     path('reports/revenue-plan/', RevenuePlanReportView.as_view(), name='report-revenue-plan'),

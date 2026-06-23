@@ -2329,3 +2329,157 @@ class StudentLeaversReasonsReportView(APIView):
                 } for i, item in enumerate(chart_data, 1)
             ]
         })
+from django.utils.dateparse import parse_date
+
+class RoomAnalyticsReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from academics.models import Room  # Modelingizga qarab tekshiring
+
+        from_date_str = request.query_params.get('from_date')
+        to_date_str = request.query_params.get('to_date')
+
+        from_date = parse_date(from_date_str) if from_date_str else None
+        to_date = parse_date(to_date_str) if to_date_str else None
+
+        # Guruhlar ochilgan sanasi bo'yicha filter
+        group_filter = Q()
+        if from_date:
+            group_filter &= Q(groups__created_at__gte=from_date)
+        if to_date:
+            group_filter &= Q(groups__created_at__lte=to_date)
+
+        # Xonalar va ulardagi faol guruhlar sonini olish
+        rooms = Room.objects.annotate(
+            active_groups=Count('groups', filter=group_filter & Q(groups__status='active'))
+        )
+
+        chart_data = []
+        table_data = []
+        for index, room in enumerate(rooms, 1):
+            chart_data.append({
+                "room_name": room.name,
+                "count": room.active_groups
+            })
+            table_data.append({
+                "id": index,
+                "room_name": room.name,
+                "group_count": room.active_groups
+            })
+
+        return Response({
+            "chart_data": chart_data,
+            "table_data": table_data
+        })
+
+
+class BranchMonitoringReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from organizations.models import Branch  # Filial modelingiz
+
+        date_str = request.query_params.get('date')  # Kunlik filter uchun
+        target_date = parse_date(date_str) if date_str else None
+
+        date_filter = Q()
+        if target_date:
+            date_filter &= Q(students__created_at__date=target_date)
+
+        branches = Branch.objects.annotate(
+            # 1. Buyurtma statusidagilar
+            orders=Count('students', filter=date_filter & Q(students__status='order')),
+            # 2. Birinchi darsga keladiganlar
+            first_lesson=Count('students', filter=date_filter & Q(students__status='first_lesson')),
+            # 3. Yangi o'quvchilar
+            new_students=Count('students', filter=date_filter & Q(students__is_new=True)),
+            # 4. Aktiv o'quvchilar
+            active_students=Count('students', filter=date_filter & Q(students__status='active')),
+            # 5. Guruh o'quvchilari
+            group_students=Count('students', filter=date_filter & Q(students__groups__isnull=False)),
+            # 6. Buyurtmadan ketganlar
+            order_leavers=Count('students', filter=date_filter & Q(students__status='order_left')),
+            # 7. Qarzdorlar
+            debtors=Count('students', filter=date_filter & Q(students__balance__lt=0))
+        ).distinct()
+
+        table_data = []
+        for index, branch in enumerate(branches, 1):
+            # Qarzdorlarning aktivga nisbatan foizi
+            debt_percentage = 0
+            if branch.active_students > 0:
+                debt_percentage = round((branch.debtors / branch.active_students) * 100, 1)
+
+            table_data.append({
+                "id": index,
+                "branch_name": branch.name,
+                "buyurtma": branch.orders,
+                "birinchi_dars": branch.first_lesson,
+                "yangi_oquvchi": branch.new_students,
+                "aktiv_oquvchilar": branch.active_students,
+                "guruh_oquvchilari": branch.group_students,
+                "buyurtmadan_ketganlar": branch.order_leavers,
+                "qarzdorlar": branch.debtors,
+                "qarzdorlar_foizi": f"{debt_percentage}%"
+            })
+
+        return Response({"table_data": table_data})
+
+
+class UnsubmittedAttendanceReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from academics.models import Group, Lesson  # Guruh va darslar modellarini tekshiring
+
+        from_date_str = request.query_params.get('from_date')
+        to_date_str = request.query_params.get('to_date')
+
+        from_date = parse_date(from_date_str) if from_date_str else None
+        to_date = parse_date(to_date_str) if to_date_str else None
+
+        # Berilgan oraliqdagi darslarni filterlash
+        lesson_filter = Q()
+        if from_date:
+            lesson_filter &= Q(lessons__date__gte=from_date)
+        if to_date:
+            lesson_filter &= Q(lessons__date__lte=to_date)
+
+        # Davomati belgilanmagan (attendance_submitted=False bo'lgan) guruhlarni topish
+        unsubmitted_groups = Group.objects.filter(
+            lesson_filter & Q(lessons__attendance_submitted=False)
+        ).distinct().select_related('teacher')
+
+        table_data = []
+        total_lost_sum = 0
+
+        for index, group in enumerate(unsubmitted_groups, 1):
+            # Har bir guruhning narxi (misol uchun modelda 'price' bo'lsa)
+            group_price = getattr(group, 'price', 300000)
+            total_lost_sum += group_price
+
+            teacher_name = "O'qituvchi biriktirilmagan"
+            if group.teacher:
+                if hasattr(group.teacher, 'user'):
+                    teacher_name = f"{group.teacher.user.first_name} {group.teacher.user.last_name}".strip()
+                else:
+                    teacher_name = getattr(group.teacher, 'name', str(group.teacher))
+
+            # Oxirgi dars sanasini olish
+            last_lesson = group.lessons.filter(attendance_submitted=False).first()
+            lesson_date = last_lesson.date.strftime("%d.%m.%Y | %H:%M") if last_lesson else "-"
+
+            table_data.append({
+                "id": index,
+                "group_name": group.name,
+                "sana": lesson_date,
+                "teacher_name": teacher_name,
+                "amount": group_price
+            })
+
+        return Response({
+            "total_sum": total_lost_sum,
+            "currency": "UZS",
+            "table_data": table_data
+        })

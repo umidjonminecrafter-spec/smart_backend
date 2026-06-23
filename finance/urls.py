@@ -18,9 +18,9 @@ from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView, Fina
     CashboxListCreateAPIView
 
 from finance.views import CashFlowReportView, TransactionViewSet, TransactionTypesView, \
-    EmployeeFinanceBalanceReportView, DiscountsAndBonusesReportView
+    EmployeeFinanceBalanceReportView, DiscountsAndBonusesReportView,UnsubmittedAttendanceReportView,RoomAnalyticsReportView
 from finance.views import TransactionCategoryViewSet, PnLReportView, RevenuePlanReportView, UnpaidLessonsReportView, \
-    CancelledPaymentsReportView,TeacherEfficiencyReportView,AdministratorEfficiencyReportView,StudentLeaversReasonsReportView
+    CancelledPaymentsReportView,TeacherEfficiencyReportView,AdministratorEfficiencyReportView,StudentLeaversReasonsReportView,BranchMonitoringReportView
 
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
@@ -84,11 +84,15 @@ urlpatterns = [
     path('reports/unpaid-payments/', UnpaidLessonsReportView.as_view(), name='report-unpaid-payments'),
     path('reports/cancelled-payments/', CancelledPaymentsReportView.as_view(), name='report-cancelled-payments'),
     path('reports/discounts-bonuses/', DiscountsAndBonusesReportView.as_view(), name='report-discounts-bonuses'),
-
+    path('analytics/rooms/', RoomAnalyticsReportView.as_view(), name='room-analytics'),
+    path('analytics/branches/', BranchMonitoringReportView.as_view(), name='branch-monitoring'),
+    path('analytics/unsubmitted-attendance/', UnsubmittedAttendanceReportView.as_view(), name='unsubmitted-attendance'),
 
     path('analytics/teacher-efficiency/', TeacherEfficiencyReportView.as_view(), name='teacher-efficiency-report'),
     path('analytics/admin-efficiency/', AdministratorEfficiencyReportView.as_view(), name='admin-efficiency-report'),
     path('analytics/student-left-reasons/', StudentLeaversReasonsReportView.as_view(), name='student-left-reasons-report'),
     path('transactions/types/', TransactionTypesView.as_view(), name='transaction-types'),
     path('', include(router.urls)),
+
+
 ]

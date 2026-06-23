@@ -1132,45 +1132,130 @@ class WithdrawalViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 class ConversionReportsFunnelView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Konversiya hisoboti'
+
     """
-    Sotuv voronkasi (Funnel chart) uchun ma'lumotlar:
-    Har bir pipeline (bosqich) bo'yicha lidlar sonini qaytaradi.
+    Sotuv voronkasi, jadval va grafiklar uchun to'liq analitika endpointi.
     """
+
     def get(self, request):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        # 1. Abdulmajid so'ragan barcha filtrlarni qabul qilish (Subkursdan tashqari)
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
+        marketing_id = request.query_params.get('marketing')
+        course_id = request.query_params.get('course')
+        moderator_id = request.query_params.get('moderator')
+        teacher_id = request.query_params.get('teacher')
         source_id = request.query_params.get('source')
-        
-        from crm.models import Pipeline, Lead
+
         pipelines = Pipeline.objects.filter(organization_id=org_id).order_by('order')
-        
+
         if not pipelines.exists():
-            return Response([], status=status.HTTP_200_OK)
-            
-        data = []
+            return Response({
+                "table_data": [],
+                "funnel_chart": [],
+                "linear_chart": {"labels": [], "total_leads": [], "lost_leads": [], "sales_count": []},
+                "course_chart": {"labels": [], "values": []}
+            }, status=status.HTTP_200_OK)
+
+        # Baza filterlash uchun umumiy query yaratamiz
+        base_filter = Q(organization_id=org_id, is_archived=False)
+
+        if start_date:
+            base_filter &= Q(created_at__date__gte=start_date)
+        if end_date:
+            base_filter &= Q(created_at__date__lte=end_date)
+        if marketing_id:
+            base_filter &= Q(marketing_id=marketing_id)
+        if course_id:
+            base_filter &= Q(course_id=course_id)
+        if moderator_id:
+            base_filter &= Q(moderator_id=moderator_id)
+        if teacher_id:
+            base_filter &= Q(group__teacher_id=teacher_id)
+        if source_id:
+            base_filter &= Q(source_id=source_id)
+
+        # 2. O'ng tomondagi Voronka grafik ma'lumotlari (Pipeline'lar bo'yicha)
+        funnel_chart_data = []
         for pl in pipelines:
-            leads_qs = Lead.objects.filter(organization_id=org_id, pipeline=pl, is_archived=False)
-            
-            if start_date:
-                leads_qs = leads_qs.filter(created_at__date__gte=start_date)
-            if end_date:
-                leads_qs = leads_qs.filter(created_at__date__lte=end_date)
-            if source_id:
-                leads_qs = leads_qs.filter(source_id=source_id)
-                
-            lead_count = leads_qs.count()
-            
-            data.append({
+            lead_count = Lead.objects.filter(base_filter & Q(pipeline=pl)).count()
+            funnel_chart_data.append({
                 "pipeline_id": pl.id,
                 "pipeline_name": pl.name,
                 "total_leads": lead_count
             })
-            
-        return Response(data, status=status.HTTP_200_OK)
+
+        # 3. Chap tomondagi Jadval (Table) ma'lumotlari (1 dan 11 gacha bo'lgan statistikalar)
+        # Eslatma: 'status' maydonidagi qiymatlarni o'zingizning CRM liddingizga qarab moslang
+        stats = Lead.objects.filter(base_filter).aggregate(
+            total_orders=Count('id'),
+            left_before_trial=Count('id', filter=Q(status='LEFT_BEFORE_TRIAL')),
+            trial_registered=Count('id', filter=Q(status='TRIAL_REGISTERED')),
+            trial_missed=Count('id', filter=Q(status='TRIAL_MISSED')),
+            trial_attended=Count('id', filter=Q(status='TRIAL_ATTENDED')),
+            converted_to_group=Count('id', filter=Q(status='CONVERTED')),
+            first_payment=Count('id', filter=Q(status='PAID')),
+            first_payment_left=Count('id', filter=Q(status='PAID_BUT_LEFT')),
+            finished=Count('id', filter=Q(status='FINISHED')),
+            moved_to_branch=Count('id', filter=Q(status='MOVED_BRANCH')),
+        )
+
+        table_data = [
+            {"id": 1, "status_name": "Barcha buyurtmalar soni", "count": stats['total_orders']},
+            {"id": 2, "status_name": "Buyurtmadan ketganlar", "count": stats['left_before_trial']},
+            {"id": 3, "status_name": "Sinov darsiga yozilganlar", "count": stats['trial_registered']},
+            {"id": 4, "status_name": "Sinov darsiga kelmay ketganlar", "count": stats['trial_missed']},
+            {"id": 5, "status_name": "Sinov darsiga kelganlar", "count": stats['trial_attended']},
+            {"id": 6, "status_name": "Sinov darsiga kelib ketganlar", "count": stats['converted_to_group']},
+            {"id": 7, "status_name": "Birinchi to'lovni qilganlar", "count": stats['first_payment']},
+            {"id": 8, "status_name": "Birinchi to'lovni qilib ketganlar", "count": stats['first_payment_left']},
+            {"id": 9, "status_name": "Tugatganlar", "count": stats['finished']},
+            {"id": 10, "status_name": "Boshqa filialdan ko'chirilgan", "count": stats['moved_to_branch']},
+        ]
+
+        # 4. Pastki chap tomondagi "Lidlar tahlili (Kun)" - Chiziqli grafik
+        daily_leads = (
+            Lead.objects.filter(base_filter)
+            .annotate(date=TruncDate('created_at'))
+            .values('date')
+            .annotate(
+                total=Count('id'),
+                lost=Count('id', filter=Q(status__in=['LEFT_BEFORE_TRIAL', 'TRIAL_MISSED'])),
+                sales=Count('id', filter=Q(status='PAID'))
+            )
+            .order_by('date')
+        )
+
+        linear_chart = {
+            "labels": [item['date'].strftime('%d.%m.%Y') for item in daily_leads],
+            "total_leads": [item['total'] for item in daily_leads],
+            "lost_leads": [item['lost'] for item in daily_leads],
+            "sales_count": [item['sales'] for item in daily_leads]
+        }
+
+        # 5. Pastki o'ng tomondagi "Kurslar kesimida buyurtmalar taqsimoti" - Diagramma
+        course_distribution = (
+            Lead.objects.filter(base_filter)
+            .values('course__name')
+            .annotate(count=Count('id'))
+            .order_by('-count')[:5]
+        )
+        course_chart = {
+            "labels": [c['course__name'] or "Noma'lum" for c in course_distribution],
+            "values": [c['count'] for c in course_distribution]
+        }
+
+        # 6. Yakuniy jamlangan javobni qaytarish
+        return Response({
+            "table_data": table_data,
+            "funnel_chart": funnel_chart_data,
+            "linear_chart": linear_chart,
+            "course_chart": course_chart
+        }, status=status.HTTP_200_OK)
 
 
 class CRMLeadsListView(TenantViewSetMixin, generics.ListAPIView):

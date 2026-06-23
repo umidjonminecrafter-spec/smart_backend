@@ -41,7 +41,6 @@ class CommentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsCommentOwnerOrReadOnly]
 
     def perform_create(self, serializer):
-        # Inject logged in user as the commenter
         org_id = self.get_organization_id()
         branch_id = self.get_branch_id()
         serializer.save(organization_id=org_id, branch_id=branch_id, user=self.request.user)

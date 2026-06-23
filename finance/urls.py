@@ -14,9 +14,9 @@ from finance.views import (
 
 from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView,FinancialReportsView,FinancialAnalyticsView,TransactionReportAPIView,TransactionCreateAPIView,AdvancedPaymentReportAPIView,CashboxListCreateAPIView
 
-from finance.views import CashFlowReportView, ProfitAndLossReportView,TransactionViewSet,TransactionTypesView
+from finance.views import CashFlowReportView,TransactionViewSet,TransactionTypesView
 
-from finance.views import TransactionCategoryViewSet
+from finance.views import TransactionCategoryViewSet,PnLReportView
 
 router = DefaultRouter()
 router.register(r'salary-percents', StaffSalaryPercentViewSet, basename='salary-percent')
@@ -29,6 +29,7 @@ router.register(r'monthly-income', MonthlyIncomeViewSet, basename='monthly-incom
 router.register(r'payments', PaymentViewSet, basename='payment')
 router.register(r'sales', SaleViewSet, basename='sale')
 router.register(r'bonuses', BonusViewSet, basename='bonus')
+path('reports/pnl/', PnLReportView.as_view(), name='pnl-report'),
 router.register(r'fines', FineViewSet, basename='fine')
 router.register(r'salaries', SalaryViewSet, basename='salary')
 router.register(r'teacher-salary-rules', TeacherSalaryRuleViewSet, basename='teacher-salary-rule')
@@ -74,7 +75,6 @@ urlpatterns = [
     path('leads-report/bar-chart/', LeadsReportBarChartView.as_view(), name='leads-report-bar-chart'),
     path('leads-report/statistics/', LeadsReportStatisticsView.as_view(), name='leads-report-statistics'),
     path('reports/cash-flow/', CashFlowReportView.as_view(), name='report-cash-flow'),
-    path('reports/profit-loss/', ProfitAndLossReportView.as_view(), name='report-profit-loss'),
     path('transactions/types/', TransactionTypesView.as_view(), name='transaction-types'),
     path('', include(router.urls)),
 ]

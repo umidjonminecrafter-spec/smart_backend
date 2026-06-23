@@ -1734,39 +1734,44 @@ class CashFlowReportView(APIView):
             "sof_pul_oqimi": float(total_income - total_expense)
         }, status=status.HTTP_200_OK)
 
-class ProfitAndLossReportView(APIView):
+class PnLReportView(APIView):
+    """
+    Foyda va Zarar (PnL) hisoboti endpointi.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         from_date = request.query_params.get('from_date')
         to_date = request.query_params.get('to_date')
 
-        queryset = Transaction.objects.filter(cashbox__tenant=request.user.organization)
+        # Tashkilot bo'yicha boshlang'ich filter
+        queryset = Transaction.objects.filter(cashbox__organization_id=request.user.organization_id)
 
+        # Sanalar bo'yicha xavfsiz filterlash
         if from_date:
-            queryset = queryset.filter(created_at__gte=datetime.strptime(from_date, '%Y-%m-%d'))
+            try:
+                queryset = queryset.filter(created_at__gte=datetime.strptime(from_date, '%Y-%m-%d'))
+            except ValueError:
+                pass
         if to_date:
-            queryset = queryset.filter(
-                created_at__lte=datetime.combine(datetime.strptime(to_date, '%Y-%m-%d'), time.max))
+            try:
+                queryset = queryset.filter(created_at__lte=datetime.combine(datetime.strptime(to_date, '%Y-%m-%d'), time.max))
+            except ValueError:
+                pass
 
-        # Mavjud tranzaksiyalardan jami daromad va jami xarajatni hisoblaymiz
-        total_revenue = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or 0
+        # Kirim va chiqimlarni jamlash
+        total_income = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or 0
         total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or 0
-
-        # Xarajatlarni turlari bo'yicha guruhlab ko'rsatish (Oylik, ijara va h.k. description ichidan ajratadi)
-        expense_details = queryset.filter(type='EXPENSE').values('description').annotate(total=Sum('amount'))
+        net_profit = total_income - total_expense
 
         return Response({
-            "revenue": {
-                "jami_daromad": float(total_revenue)
-            },
-            "expenses": {
-                "batafsil": [{"kategoriya": item['description'] or "Boshqa xarajatlar", "summa": float(item['total'])}
-                             for item in expense_details],
-                "jami_xarajatlar": float(total_expense)
-            },
-            "sof_foyda": float(total_revenue - total_expense)
-        })
+            "total_income": float(total_income),
+            "total_expense": float(total_expense),
+            "net_profit": float(net_profit)
+        }, status=status.HTTP_200_OK)
+
+
+
 class TransactionCategoryViewSet(viewsets.ModelViewSet):
 
     serializer_class = TransactionCategorySerializer

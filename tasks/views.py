@@ -3,9 +3,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
 
 from organizations.mixins import TenantViewSetMixin
-from tasks.models import Board, Column, Item, Comment, TaskPermission
+from tasks.models import Board, Column, Item, Comment, TaskPermission, Label, Checklist, ChecklistItem, Attachment
 from tasks.serializers import (
-    BoardSerializer, ColumnSerializer, ItemSerializer, CommentSerializer, TaskPermissionSerializer
+    BoardSerializer, ColumnSerializer, ItemSerializer, CommentSerializer, TaskPermissionSerializer,
+    LabelSerializer, ChecklistSerializer, ChecklistItemSerializer, AttachmentSerializer
 )
 from tasks.permissions import HasBoardPermission, IsCommentOwnerOrReadOnly
 
@@ -50,3 +51,40 @@ class TaskPermissionViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     queryset = TaskPermission.objects.all()
     serializer_class = TaskPermissionSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+class LabelViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    permission_page_name = 'Tasks'
+    queryset = Label.objects.all()
+    serializer_class = LabelSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['board_id']
+    permission_classes = [permissions.IsAuthenticated, HasBoardPermission]
+
+class ChecklistViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    permission_page_name = 'Tasks'
+    queryset = Checklist.objects.all()
+    serializer_class = ChecklistSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['item_id']
+    permission_classes = [permissions.IsAuthenticated, HasBoardPermission]
+
+class ChecklistItemViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    permission_page_name = 'Tasks'
+    queryset = ChecklistItem.objects.all()
+    serializer_class = ChecklistItemSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['checklist_id']
+    permission_classes = [permissions.IsAuthenticated, HasBoardPermission]
+
+class AttachmentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    permission_page_name = 'Tasks'
+    queryset = Attachment.objects.all()
+    serializer_class = AttachmentSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['item_id']
+    permission_classes = [permissions.IsAuthenticated, HasBoardPermission]
+
+    def perform_create(self, serializer):
+        org_id = self.get_organization_id()
+        branch_id = self.get_branch_id()
+        serializer.save(organization_id=org_id, branch_id=branch_id, uploaded_by=self.request.user)

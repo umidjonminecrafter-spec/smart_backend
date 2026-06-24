@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from tasks.models import Board, Column, Item, Comment, TaskPermission
+from tasks.models import Board, Column, Item, Comment, TaskPermission, Label, Checklist, ChecklistItem, Attachment
 from accounts.serializers import UserSerializer
 
 class BoardSerializer(serializers.ModelSerializer):
@@ -55,3 +55,29 @@ class TaskPermissionSerializer(serializers.ModelSerializer):
         model = TaskPermission
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
+
+class LabelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Label
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+class ChecklistSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Checklist
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+class ChecklistItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChecklistItem
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+class AttachmentSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.CharField(source='uploaded_by.get_full_name', default='', read_only=True)
+
+    class Meta:
+        model = Attachment
+        fields = '__all__'
+        read_only_fields = ('organization', 'uploaded_by', 'created_at', 'updated_at')

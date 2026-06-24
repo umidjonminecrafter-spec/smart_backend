@@ -96,8 +96,7 @@ class NotificationScheduleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
 class NotificationView(APIView):
     """Frontend tepasidagi bildirishnomalar (Notificationlar)"""
-    permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
-    permission_page_name = 'Sozlamalar'
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         """O'qilmagan va yaqindagi bildirishnomalarni qaytaradi"""

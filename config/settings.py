@@ -95,6 +95,12 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        # 'ENGINE': 'django.db.backends.postgresql',
+        # 'NAME': os.environ.get('DB_NAME'),  # Yangi kompyuterdagi muhitdan o'qiydi
+        # 'USER': os.environ.get('DB_USER'),  # O'sha kompyuter foydalanuvchisi
+        # 'PASSWORD': os.environ.get('DB_PASSWORD'),  # O'sha kompyuter paroli
+        # 'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
+        # 'PORT': os.environ.get('DB_PORT', '5432'),
         'CONN_MAX_AGE': 600000000000000000,
     }
 }

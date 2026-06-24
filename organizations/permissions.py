@@ -49,9 +49,12 @@ def has_role_page_permission(user, organization, page_name, permission_type):
         position = position.strip()
         if position:
             positions_to_check.add(position)
+            positions_to_check.add(position.lower())
+            positions_to_check.add(position[:1].upper() + position[1:])
 
     if role:
         positions_to_check.add(role)
+        positions_to_check.add(role.lower())
         positions_to_check.add(role[:1].upper() + role[1:])
 
     for position in positions_to_check:
@@ -74,6 +77,9 @@ class HasOrganizationPagePermission(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
 
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
         page_name = getattr(view, 'permission_page_name', None)
         if not page_name:
             return True
@@ -87,6 +93,9 @@ class HasOrganizationPagePermission(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         if not request.user or not request.user.is_authenticated:
             return False
+
+        if request.method in permissions.SAFE_METHODS:
+            return True
 
         page_name = getattr(view, 'permission_page_name', None)
         if not page_name:
@@ -155,14 +164,15 @@ class IsAdminOrOwnerOrReadOnly(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
 
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
         page_name = getattr(view, 'permission_page_name', None)
         if page_name:
             permission_type = _resolve_permission_type(request, view)
             organization = getattr(request.user, 'organization', None)
             return has_role_page_permission(request.user, organization, page_name, permission_type)
 
-        if request.method in permissions.SAFE_METHODS:
-            return True
         return bool(
             request.user.is_superuser or 
             (hasattr(request.user, 'role') and request.user.role in ['owner', 'admin'])

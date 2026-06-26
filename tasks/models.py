@@ -39,6 +39,10 @@ class Item(TenantModel):
     start_date = models.DateTimeField(null=True, blank=True)
     due_date = models.DateTimeField(null=True, blank=True)
     is_completed = models.BooleanField(default=False)
+    order = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']
 
     def __str__(self):
         return self.title
@@ -84,3 +88,16 @@ class TaskPermission(TenantModel):
 
     def __str__(self):
         return f"{self.user} on {self.board.name} (Edit: {self.can_edit})"
+
+class TaskHistory(TenantModel):
+    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="history")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="task_histories")
+    action = models.CharField(max_length=255)
+    details = models.TextField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user} - {self.action} on {self.item.title} at {self.created_at}"
+

@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from tasks.views import (
     BoardViewSet, ColumnViewSet, ItemViewSet, CommentViewSet, TaskPermissionViewSet,
-    LabelViewSet, ChecklistViewSet, ChecklistItemViewSet, AttachmentViewSet
+    LabelViewSet, ChecklistViewSet, ChecklistItemViewSet, AttachmentViewSet, TaskHistoryViewSet
 )
 router = DefaultRouter()
 router.register(r'boards', BoardViewSet, basename='board')
@@ -14,6 +14,7 @@ router.register(r'labels', LabelViewSet, basename='label')
 router.register(r'checklists', ChecklistViewSet, basename='checklist')
 router.register(r'checklist-items', ChecklistItemViewSet, basename='checklistitem')
 router.register(r'attachments', AttachmentViewSet, basename='attachment')
+router.register(r'history', TaskHistoryViewSet, basename='taskhistory')
 
 urlpatterns = [
     path('', include(router.urls)),

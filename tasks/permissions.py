@@ -1,5 +1,5 @@
 from rest_framework import permissions
-from tasks.models import TaskPermission, Board, Column, Item, Label, Checklist, ChecklistItem, Attachment
+from tasks.models import TaskPermission, Board, Column, Item, Label, Checklist, ChecklistItem, Attachment, TaskHistory
 
 class HasBoardPermission(permissions.BasePermission):
     """
@@ -68,6 +68,8 @@ class HasBoardPermission(permissions.BasePermission):
         elif isinstance(obj, ChecklistItem):
             board = obj.checklist.item.board
         elif isinstance(obj, Attachment):
+            board = obj.item.board
+        elif isinstance(obj, TaskHistory):
             board = obj.item.board
 
         if not board:

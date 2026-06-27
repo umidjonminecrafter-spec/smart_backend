@@ -162,7 +162,10 @@ class ItemViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):
-        item = self.get_object()
+        # get_object() o'rniga to'g'ridan-to'g'ri Item ni olamiz
+        # chunki get_object() TenantViewSetMixin orqali organization filteri qo'llaydi
+        from django.shortcuts import get_object_or_404
+        item = get_object_or_404(Item, pk=pk)
         history = TaskHistory.objects.filter(item=item).order_by('-created_at')
         page = self.paginate_queryset(history)
         if page is not None:

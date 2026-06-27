@@ -162,15 +162,19 @@ class ItemViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):
-        # get_object() o'rniga to'g'ridan-to'g'ri Item ni olamiz
-        # chunki get_object() TenantViewSetMixin orqali organization filteri qo'llaydi
-        from django.shortcuts import get_object_or_404
-        item = get_object_or_404(Item, pk=pk)
+        # 1. get_object_or_404 o'rniga self.get_object() ishlating.
+        # Bu miksindagi barcha tashkilot filtrlarini avtomatik to'g'ri hisoblaydi.
+        item = self.get_object()
+
+        # 2. Shu vazifaga tegishli tarixni olamiz
         history = TaskHistory.objects.filter(item=item).order_by('-created_at')
+
+        # 3. Agar pagination (sahifalash) bo'lsa, uni qo'llaymiz
         page = self.paginate_queryset(history)
         if page is not None:
             serializer = TaskHistorySerializer(page, many=True)
             return self.get_paginated_response(serializer.data)
+
         serializer = TaskHistorySerializer(history, many=True)
         return Response(serializer.data)
 

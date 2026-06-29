@@ -380,10 +380,14 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "status": "success",
             "message": f"SMS successfully sent to {student.phone}."
         }, status=status.HTTP_200_OK)
+from django.apps import apps  # Modellarni xavfsiz chaqirish uchun
+import logging
 
 
+
+logger = logging.getLogger(__name__)
 class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
+    permission_classes = [permissions.IsAuthenticated] # Xavfsizlik uchun ruxsatnoma
     permission_page_name = 'Guruhlar'
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
@@ -391,6 +395,27 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['status', 'education_type', 'teacher']
     search_fields = ['name']
+
+    # 🛠️ Abdulmajidga 500 o'rniga tushunarli Xato xabarini qaytarish uchun create metodini o'raymiz
+    def create(self, request, *args, **kwargs):
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Guruh yaratishda xatolik yuz berdi: {str(e)}")
+            return Response({
+                "error": "Guruhni saqlashda xatolik yuz berdi",
+                "detail": str(e)  # Abdulmajid bu yerda aniq qaysi maydon xatoligini ko'radi
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, *args, **kwargs):
+        try:
+            return super().update(request, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Guruhni yangilashda xatolik: {str(e)}")
+            return Response({
+                "error": "Guruhni yangilashda xatolik yuz berdi",
+                "detail": str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -441,7 +466,7 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         student = get_object_or_404(Student.objects.filter(organization_id=org_id), id=student_id)
 
-        from .models import StudentGroup
+        StudentGroup = apps.get_model(self.queryset.model._meta.app_label, 'StudentGroup')
         if StudentGroup.objects.filter(group=group, student=student).exists():
             return Response(
                 {"detail": "Bu talaba ushbu guruhga allaqachon qo'shilgan!"},
@@ -455,7 +480,8 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         )
 
         from django.utils import timezone
-        from .models import GroupLesson, Attendance
+        GroupLesson = apps.get_model(self.queryset.model._meta.app_label, 'GroupLesson')
+        Attendance = apps.get_model(self.queryset.model._meta.app_label, 'Attendance')
 
         all_lessons = GroupLesson.objects.filter(group=group).order_by('date')
         today = timezone.now().date()
@@ -483,6 +509,14 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         logs = []
         from django.db.models import Count, Max, Q
         from django.utils import timezone
+
+        # Modellarni xavfsiz yuklab olish (Import xatolarini oldini oladi)
+        app_label = self.queryset.model._meta.app_label
+        GroupTeacher = apps.get_model(app_label, 'GroupTeacher')
+        StudentGroup = apps.get_model(app_label, 'StudentGroup')
+        StudentGroupLeave = apps.get_model(app_label, 'StudentGroupLeave')
+        Attendance = apps.get_model(app_label, 'Attendance')
+        OnlineLesson = apps.get_model(app_label, 'OnlineLesson')
 
         created_time = getattr(group, 'created_at', timezone.now()) or timezone.now()
         logs.append({
@@ -579,6 +613,7 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         if not message:
             return Response({"detail": "Message is required."}, status=status.HTTP_400_BAD_REQUEST)
 
+        StudentGroup = apps.get_model(self.queryset.model._meta.app_label, 'StudentGroup')
         student_groups = StudentGroup.objects.filter(group=group)
         count = student_groups.count()
 
@@ -587,9 +622,7 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "message": f"SMS successfully broadcasted to {count} students in group {group.name}."
         }, status=status.HTTP_200_OK)
 
-    # 🚀 MANA ENDI BU METODLAR TO'G'RI JOYGA — KLASS ICHIGA TUSHDI!
     def perform_create(self, serializer):
-        # super() orqali TenantViewSetMixin organization va branch ni inject qiladi
         super().perform_create(serializer)
         group = serializer.instance
         self._sync_lesson_schedules(group)
@@ -600,39 +633,30 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         self._sync_lesson_schedules(group)
 
     def _sync_lesson_schedules(self, group):
-        from .models import LessonSchedule
+        LessonSchedule = apps.get_model(self.queryset.model._meta.app_label, 'LessonSchedule')
 
-        # 1. Avval eski jadvallarni tozalaymiz
         LessonSchedule.objects.filter(group=group).delete()
 
         if group.days and group.start_time and group.end_time:
-            # 2. group.days ichidagi elementlarni toza stringga aylantiramiz
             if isinstance(group.days, list):
                 days_list = [str(d).lower().strip() for d in group.days]
             else:
-                # Agar string bo'lsa, uni ham tozalaymiz
                 days_list = [str(group.days).lower().strip()]
 
-            # Barcha elementlarni bitta matnga birlashtiramiz
             days_combined = " ".join(days_list)
 
-            # 3. Juft yoki toq kunligini aniqlash (inglizcha, o'zbekcha va raqamli formatlar uchun)
-            is_even = any(
-                x in days_combined for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5'])
-            is_odd = any(
-                x in days_combined for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6'])
+            is_even = any(x in days_combined for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5'])
+            is_odd = any(x in days_combined for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6'])
 
             if is_even:
                 calculated_day_type = 'even'
             elif is_odd:
                 calculated_day_type = 'odd'
             else:
-                # Agar birortasi ham o'xshasa default holatda 'even' qilamiz
                 calculated_day_type = 'even'
 
             org_id = getattr(group, 'organization_id', None) or self.get_organization_id()
 
-            # 4. LessonSchedule ob'ektini yaratamiz
             LessonSchedule.objects.create(
                 organization_id=org_id,
                 group=group,

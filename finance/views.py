@@ -2113,19 +2113,19 @@ class TeacherEfficiencyReportView(APIView):
         # 1. Davr boshidagi holat (from_date'dan oldingi holat)
         start_filter = Q()
         if from_date:
-            start_filter &= Q(groups__students__joined_date__lt=from_date)  # Davr boshlanishidan oldin qo'shilganlar
+            start_filter &= Q(groups__students__joined_at__lt=from_date)  # Davr boshlanishidan oldin qo'shilganlar
 
         # 2. Davr ichidagi o'zgarishlar (from_date va to_date oralig'ida)
         change_filter = Q()
         if from_date:
-            change_filter &= Q(groups__students__joined_date__gte=from_date)
+            change_filter &= Q(groups__students__joined_at__gte=from_date)
         if to_date:
-            change_filter &= Q(groups__students__joined_date__lte=to_date)
+            change_filter &= Q(groups__students__joined_at__lte=to_date)
 
         # 3. Davr oxiridagi holat (to_date gacha bo'lgan jami holat)
         end_filter = Q()
         if to_date:
-            end_filter &= Q(groups__students__joined_date__lte=to_date)
+            end_filter &= Q(groups__students__joined_at__lte=to_date)
 
         # Haqiqiy so'rov (Queryset)
         teachers_data = Teacher.objects.annotate(

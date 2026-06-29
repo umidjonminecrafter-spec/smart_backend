@@ -381,19 +381,21 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "message": f"SMS successfully sent to {student.phone}."
         }, status=status.HTTP_200_OK)
 from django.apps import apps  # Modellarni xavfsiz chaqirish uchun
+from academics.filters import GroupFilter
 import logging
 
 
-
 logger = logging.getLogger(__name__)
+
+
 class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated] # Xavfsizlik uchun ruxsatnoma
+    permission_classes = [permissions.IsAuthenticated]
     permission_page_name = 'Guruhlar'
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
 
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['status', 'education_type', 'teacher']
+    filterset_class = GroupFilter  # teacher='' bo'sh string → ValueError → 500 ni oldini oladi
     search_fields = ['name']
 
     # 🛠️ Abdulmajidga 500 o'rniga tushunarli Xato xabarini qaytarish uchun create metodini o'raymiz

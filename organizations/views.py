@@ -598,20 +598,13 @@ class GlobalSearchAPIView(APIView):
         # =========================================================================
         groups = Group.objects.filter(organization=user_org).filter(
             Q(name__icontains=query) |
-            Q(room__name__icontains=query) |
-            Q(direction__name__icontains=query)
+            Q(room__name__icontains=query)
         )[:15]
 
         for g in groups:
-            direction = getattr(g.direction, 'name', '') if getattr(g, 'direction', None) else ''
             room = getattr(g.room, 'name', '') if getattr(g, 'room', None) else ''
 
-            info_list = []
-            if direction:
-                info_list.append(f"Yo'nalish: {direction}")
-            else:
-                info_list.append(f"Kun turi: {getattr(g, 'day_type', '')}")
-
+            info_list = [f"Kun turi: {getattr(g, 'day_type', '')}"]
             if room:
                 info_list.append(f"Xona: {room}")
 

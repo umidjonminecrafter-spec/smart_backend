@@ -1,7 +1,3 @@
-"""
-Custom DRF exception handler.
-Barcha xatolar JSON formatda qaytadi — frontendga ANIQ xato xabari bilan.
-"""
 import logging
 import re
 from rest_framework.views import exception_handler
@@ -48,17 +44,11 @@ FIELD_TRANSLATIONS = {
     'balance': 'Balans',
 }
 
-
 def _get_field_name(field):
     """Maydon nomini o'zbek tiliga tarjima qiladi."""
     return FIELD_TRANSLATIONS.get(field, field)
 
-
 def _parse_integrity_error(error_str):
-    """
-    IntegrityError xabaridan qaysi maydon xato ekanini aniqlab,
-    aniq xabar qaytaradi.
-    """
     error_lower = error_str.lower()
 
     # NOT NULL constraint failed: academics_group.course_id
@@ -76,84 +66,64 @@ def _parse_integrity_error(error_str):
         fields_str = ", ".join(fields)
         return f"Bunday {fields_str} kombinatsiyasi allaqachon mavjud. Takroriy yozuv yaratish mumkin emas."
 
-    # FOREIGN KEY constraint — noto'g'ri ID yuborilgan
     if 'foreign key' in error_lower:
         return "Tanlangan qiymat bazada topilmadi. Iltimos, to'g'ri qiymat tanlang."
 
-    # CHECK constraint
     if 'check constraint' in error_lower:
         return "Kiritilgan qiymat ruxsat etilgan chegaradan tashqarida."
 
     return f"Ma'lumotlar bazasida xatolik: {error_str}"
 
-
 def custom_exception_handler(exc, context):
     """
-    DRF ning standart exception_handler'ini kengaytiradi.
-    Barcha xatolar JSON formatda, ANIQ xabar bilan qaytadi.
+    Kengaytirilgan global xatolik tekshiruvchisi.
     """
-    # 1. DRF standart handlerini chaqiramiz
     response = exception_handler(exc, context)
-
-    if response is not None:
-        # DRF o'zi handle qildi — response ni qaytaramiz
-        return response
-
-    # 2. DRF handle qilmagan xatolar — 500 HTML sahifa o'rniga JSON qaytaramiz
-
     view = context.get('view', None)
     view_name = view.__class__.__name__ if view else 'Unknown'
 
-    # IntegrityError — database constraint xatolari
+    # 1. Agar DRF standart xatolikni aniqlagan bo'lsa (400 Bad Request, 403 Forbidden va h.k.)
+    if response is not None:
+        # Agar xatolik obyekt (dict) ko'rinishida bo'lsa, maydonlarni o'zbekcha qilamiz
+        if isinstance(response.data, dict):
+            translated_data = {}
+            for field, value in response.data.items():
+                translated_field = _get_field_name(field)
+                translated_data[translated_field] = value
+            response.data = translated_data
+        return response
+
+    # 2. Agar response None bo'lsa, demak bu tizimni sindirgan kutilmagan 500 xatolikdir
+
+    # Ma'lumotlar bazasi (IntegrityError) xatolari
     if isinstance(exc, IntegrityError):
         logger.error(f"IntegrityError in {view_name}: {str(exc)}", exc_info=True)
         detail = _parse_integrity_error(str(exc))
-        return Response(
-            {"detail": detail},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
 
     # Django ValidationError
     if isinstance(exc, DjangoValidationError):
         logger.error(f"Django ValidationError in {view_name}: {str(exc)}", exc_info=True)
-
         if hasattr(exc, 'message_dict'):
-            # Maydon nomlarini tarjima qilamiz
             translated = {}
             for field, messages in exc.message_dict.items():
                 translated_field = _get_field_name(field)
                 translated[translated_field] = messages
             return Response(translated, status=status.HTTP_400_BAD_REQUEST)
-        elif hasattr(exc, 'messages'):
-            return Response(
-                {"detail": exc.messages},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        else:
-            return Response(
-                {"detail": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        return Response({"detail": getattr(exc, 'messages', str(exc))}, status=status.HTTP_400_BAD_REQUEST)
 
-    # ValueError — noto'g'ri qiymat yuborilganda
-    if isinstance(exc, ValueError):
-        logger.error(f"ValueError in {view_name}: {str(exc)}", exc_info=True)
-        return Response(
-            {"detail": f"Noto'g'ri qiymat yuborildi: {str(exc)}"},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    # Qiymat yoki Tip xatoliklari (ValueError, TypeError, AttributeError)
+    if isinstance(exc, (ValueError, TypeError, AttributeError)):
+        logger.error(f"{type(exc).__name__} in {view_name}: {str(exc)}", exc_info=True)
+        return Response({
+            "error": "Yuborilgan ma'lumotlar mantiqiy xato.",
+            "detail": f"Xatolik turi ({type(exc).__name__}): {str(exc)}"
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    # TypeError — noto'g'ri tip yuborilganda
-    if isinstance(exc, TypeError):
-        logger.error(f"TypeError in {view_name}: {str(exc)}", exc_info=True)
-        return Response(
-            {"detail": f"Noto'g'ri ma'lumot turi yuborildi: {str(exc)}"},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # Boshqa barcha kutilmagan xatolar
+    # Boshqa har qanday kutilmagan dasturiy xatolar (Oq sahifani butunlay yo'qotadi)
     logger.error(f"Unhandled exception in {view_name}: {type(exc).__name__}: {str(exc)}", exc_info=True)
-    return Response(
-        {"detail": f"Serverda xatolik yuz berdi: {str(exc)}"},
-        status=status.HTTP_500_INTERNAL_SERVER_ERROR
-    )
+    return Response({
+        "error": "Serverda ichki xatolik yuz berdi.",
+        "detail": str(exc),
+        "exception_type": type(exc).__name__
+    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

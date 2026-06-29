@@ -589,11 +589,14 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     # 🚀 MANA ENDI BU METODLAR TO'G'RI JOYGA — KLASS ICHIGA TUSHDI!
     def perform_create(self, serializer):
-        group = serializer.save()
+        # super() orqali TenantViewSetMixin organization va branch ni inject qiladi
+        super().perform_create(serializer)
+        group = serializer.instance
         self._sync_lesson_schedules(group)
 
     def perform_update(self, serializer):
-        group = serializer.save()
+        super().perform_update(serializer)
+        group = serializer.instance
         self._sync_lesson_schedules(group)
 
     def _sync_lesson_schedules(self, group):

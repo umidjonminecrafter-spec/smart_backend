@@ -374,9 +374,25 @@ class GroupSerializer(serializers.ModelSerializer):
             if self.instance:
                 existing_groups = existing_groups.exclude(pk=self.instance.pk)
 
+            # So'rov kunlarini normallashtiramiz
+            if isinstance(days, (list, set, tuple)):
+                req_days_normalized = [str(d).lower().strip() for d in days if d]
+            else:
+                req_days_normalized = [str(days).lower().strip()] if days else []
+
             for g in existing_groups:
+                # Agar birortasining vaqti kiritilmagan bo'lsa, solishtirmaymiz
+                if not (g.start_time and g.end_time and start_time and end_time):
+                    continue
+
+                # Guruh kunlarini normallashtiramiz
+                if isinstance(g.days, (list, set, tuple)):
+                    g_days_normalized = [str(d).lower().strip() for d in g.days if d]
+                else:
+                    g_days_normalized = [str(g.days).lower().strip()] if g.days else []
+
                 # Kunlar kesishishini tekshiramiz (kamida bitta kun bir xil bo'lsa)
-                common_days = set([str(d).lower() for d in days]) & set([str(d).lower() for d in g.days])
+                common_days = set(req_days_normalized) & set(g_days_normalized)
                 if common_days:
                     # Vaqtlar ustma-ust tushishini tekshiramiz:
                     # (StartA < EndB) AND (EndA > StartB) mantiqi kesishishni aniqlaydi

@@ -3,7 +3,6 @@ import sys
 import threading
 from django.core.wsgi import get_wsgi_application
 
-# 🛠️ Loyihangiz sozlamasi (config papkasida)
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
 # Asosiy Django ilovasi ishga tushadi
@@ -17,11 +16,11 @@ try:
 
     if not User.objects.filter(username='admin').exists():
         User.objects.create_superuser('admin', 'admin@example.com', 'parol12345')
-        print("🚀 Superuser muvaffaqiyatli yaratildi!")
+        print("[OK] Superuser muvaffaqiyatli yaratildi!")
     else:
-        print("✅ Superuser allaqachon bazada bor, qayta yaratilmadi.")
+        print("[OK] Superuser allaqachon bazada bor, qayta yaratilmadi.")
 except Exception as e:
-    print(f"⚠️ Superuser yaratishda xatolik yuz berdi: {e}")
+    print(f"[XATO] Superuser yaratishda xatolik yuz berdi: {e}")
 
 
 # ================= 2. BOT VA SCHEDULERNI GLOBAL FONDA ISHGA TUSHIRISH =================
@@ -35,18 +34,18 @@ def start_bot_and_scheduler():
         # Har 1 daqiqada darslarni tekshirib eslatma yuboradi
         scheduler.add_job(check_and_send_lesson_reminders, 'interval', minutes=1)
         scheduler.start()
-        print("🚀 Telegram Bot scheduler-i muvaffaqiyatli yurib ketdi!")
+        print("[OK] Telegram Bot scheduler-i muvaffaqiyatli yurib ketdi!")
     except Exception as e:
-        print(f"⚠️ Scheduler ishga tushishda xatolik: {str(e)}")
+        print(f"[XATO] Scheduler ishga tushishda xatolik: {str(e)}")
 
     # B) Telegram botning o'zini (Eshitish rejimini) fonda global yoqish
     try:
         # academics/bot.py ichidagi main funksiyani chaqiramiz
         from academics.bot import main as start_telegram_bot
-        print("🤖 Telegram bot global rejimda (polling) ishga tushmoqda...")
+        print("[BOT] Telegram bot global rejimda (polling) ishga tushmoqda...")
         start_telegram_bot()
     except Exception as e:
-        print(f"❌ Botni global yoqishda xatolik: {e}")
+        print(f"[XATO] Botni global yoqishda xatolik: {e}")
 
 
 # Faqat asosiy protsessda ishga tushishini ta'minlash (Render va lokal muhit takrorlanish xavfsizligi)

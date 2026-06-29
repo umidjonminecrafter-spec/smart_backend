@@ -3,8 +3,6 @@ from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Expense, MonthlyIncome,
     Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox
 )
-from academics.serializers import StudentSerializer
-from accounts.serializers import UserSerializer
 from .models import FinanceSetting, StaffSalaryPercent,CashTransaction,TransactionCategory
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:

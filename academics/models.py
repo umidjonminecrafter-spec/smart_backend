@@ -772,38 +772,47 @@ def generate_group_lessons(group_instance):
 @receiver(post_save, sender=Group)
 def trigger_lesson_generation(sender, instance, created, **kwargs):
     """Guruh saqlanganda LessonSchedule va GroupLessonni avtomat yaratadi (Admin panel uchun ham)"""
-    # 1. Taqvim kunlarini yaratish
-    generate_group_lessons(instance)
+    # Agar view orqali _sync_lesson_schedules allaqachon ishlagan bo'lsa, qayta yaratmaymiz
+    if getattr(instance, '_skip_signal_sync', False):
+        return
 
-    # 2. Dars jadvalini yaratish mantiqi
-    LessonSchedule.objects.filter(group=instance).delete()
+    try:
+        # 1. Taqvim kunlarini yaratish
+        generate_group_lessons(instance)
 
-    if instance.start_time and instance.end_time:
-        days_combined = ""
-        if isinstance(instance.days, list):
-            days_combined = " ".join([str(d).lower().strip() for d in instance.days])
-        elif instance.days:
-            days_combined = str(instance.days).lower().strip()
+        # 2. Dars jadvalini yaratish mantiqi
+        LessonSchedule.objects.filter(group=instance).delete()
 
-        if not days_combined and instance.day_type:
-            days_combined = str(instance.day_type).lower().strip()
+        if instance.start_time and instance.end_time:
+            days_combined = ""
+            if isinstance(instance.days, list):
+                days_combined = " ".join([str(d).lower().strip() for d in instance.days])
+            elif instance.days:
+                days_combined = str(instance.days).lower().strip()
 
-        # Toq yoki Juft kunligini aniqlash (Strict checking)
-        is_even = any(
-            x in days_combined for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6'])
-        is_odd = any(x in days_combined for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5'])
+            if not days_combined and instance.day_type:
+                days_combined = str(instance.day_type).lower().strip()
 
-        if is_even and not is_odd:
-            calculated_day_type = 'odd'  # Model tanlovi bo'yicha: Juft kunlar -> odd (Toq kunlar)
-        else:
-            calculated_day_type = 'even'  # Dushanba-Chorshanba-Juma -> even (Juft kunlar)
+            # Toq yoki Juft kunligini aniqlash (Strict checking)
+            is_even = any(
+                x in days_combined for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6'])
+            is_odd = any(x in days_combined for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5'])
 
-        LessonSchedule.objects.create(
-            organization=instance.organization,
-            group=instance,
-            room_name=instance.room.name if instance.room else "Xona biriktirilmagan",
-            teacher=instance.teacher,
-            start_time=instance.start_time,
-            end_time=instance.end_time,
-            day_type=calculated_day_type
-        )
+            if is_even and not is_odd:
+                calculated_day_type = 'odd'  # Model tanlovi bo'yicha: Juft kunlar -> odd (Toq kunlar)
+            else:
+                calculated_day_type = 'even'  # Dushanba-Chorshanba-Juma -> even (Juft kunlar)
+
+            LessonSchedule.objects.create(
+                organization=instance.organization,
+                group=instance,
+                room_name=instance.room.name if instance.room else "Xona biriktirilmagan",
+                teacher=instance.teacher,
+                start_time=instance.start_time,
+                end_time=instance.end_time,
+                day_type=calculated_day_type
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"trigger_lesson_generation signalida xatolik: {e}")
+

@@ -476,6 +476,7 @@ from .utils import send_sms, generate_verification_code  # utils.py dan yuklab o
 
 
 @api_view(['POST'])
+@decorators.permission_classes([permissions.AllowAny])
 def send_register_code(request):
     """Foydalanuvchiga 6 xonali kod yuborish (Keshda saqlash)"""
     phone_number = request.data.get('phone_number')
@@ -496,6 +497,7 @@ def send_register_code(request):
 
 
 @api_view(['POST'])
+@decorators.permission_classes([permissions.AllowAny])
 def verify_register_code(request):
     """Foydalanuvchi kiritgan kodni tekshirish"""
     phone_number = request.data.get('phone_number')

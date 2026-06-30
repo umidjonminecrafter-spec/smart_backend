@@ -21,7 +21,7 @@ def add_months(start_date, months):
 
 class BillingPlansView(APIView):
     """Barcha tariflarni ko'rsatadi"""
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.AllowAny,)
 
     def get(self, request):
         tariffs = Tariff.objects.all()

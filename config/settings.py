@@ -22,12 +22,14 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     "smart-backend-dtub.onrender.com",
+    "musojon1995.pythonanywhere.com",
     "localhost",
     "127.0.0.1",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://smart-backend-dtub.onrender.com',
+    'https://musojon1995.pythonanywhere.com',
 ]
 
 # Application definition

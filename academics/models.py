@@ -86,6 +86,11 @@ class Student(TenantModel):
     student_login = models.CharField(null=True, blank=True,)
     parent_login = models.CharField(null=True, blank=True,)
 
+    def __str__(self):
+        if self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        return self.first_name
+
 class StudentFieldSetting(TenantModel):
 
     FIELD_CHOICES = [

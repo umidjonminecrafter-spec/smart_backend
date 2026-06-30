@@ -814,3 +814,268 @@ def trigger_lesson_generation(sender, instance, created, **kwargs):
         import logging
         logging.getLogger(__name__).error(f"trigger_lesson_generation signalida xatolik: {e}")
 
+
+# ================= TALABA DAVOMATIGA QARAB BALANSDAN PUL YECHISH VA KASSA INTEGRATSIYASI =================
+from django.db.models.signals import pre_save, post_save, post_delete
+from django.dispatch import receiver
+
+def get_lessons_in_month(group, year, month):
+    # 1. First, try to count from GroupLesson table
+    count = GroupLesson.objects.filter(
+        group=group,
+        date__year=year,
+        date__month=month
+    ).count()
+    if count > 0:
+        return count
+    
+    # 2. If 0, compute based on group days schedule
+    import calendar
+    _, num_days = calendar.monthrange(year, month)
+    
+    # Normalize group days
+    day_type = ""
+    if isinstance(group.days, list):
+        day_type = " ".join([str(d).lower().strip() for d in group.days])
+    elif group.days:
+        day_type = str(group.days).lower().strip()
+
+    if not day_type and group.day_type:
+        day_type = str(group.day_type).lower().strip()
+        
+    count = 0
+    for d in range(1, num_days + 1):
+        curr_date = datetime.date(year, month, d)
+        weekday = curr_date.weekday()
+        
+        should_count = False
+        # Juft kunlar: Seshanba, Payshanba, Shanba (Tue, Thu, Sat)
+        if any(x in day_type for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6']):
+            if weekday in [1, 3, 5]:
+                should_count = True
+        # Toq kunlar: Dushanba, Chorshanba, Juma (Mon, Wed, Fri)
+        elif any(x in day_type for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5']):
+            if weekday in [0, 2, 4]:
+                should_count = True
+        else:
+            if weekday != 6: # Yakshanbadan tashqari
+                should_count = True
+                
+        if should_count:
+            count += 1
+            
+    if count > 0:
+        return count
+    return 12  # default fallback if no schedule is found
+
+
+def charge_attendance(student, group, date, attendance_id, organization):
+    from decimal import Decimal
+    from finance.models import Cashbox, Transaction
+    
+    # Calculate monthly price
+    monthly_price = Decimal('0.00')
+    sg = StudentGroup.objects.filter(student=student, group=group).first()
+    if sg and sg.price is not None:
+        monthly_price = sg.price
+    elif group.course:
+        monthly_price = group.course.price
+        
+    # Get lessons count in month
+    lessons_in_month = get_lessons_in_month(group, date.year, date.month)
+    lesson_cost = monthly_price / Decimal(lessons_in_month)
+    lesson_cost = round(lesson_cost, 2)
+    
+    # Get or create Cashbox
+    cashbox = Cashbox.objects.filter(organization=organization, is_archived=False).first()
+    if not cashbox:
+        cashbox = Cashbox.objects.filter(organization=organization).first()
+    if not cashbox:
+        cashbox = Cashbox.objects.create(organization=organization, name="Asosiy kassa")
+        
+    # Check if transaction already exists
+    desc_prefix = f"Davomat #{attendance_id}:"
+    tx = Transaction.objects.filter(description__startswith=desc_prefix).first()
+    
+    if tx:
+        old_amount = tx.amount
+        old_cashbox = tx.cashbox
+        
+        # Update transaction
+        tx.amount = lesson_cost
+        tx.cashbox = cashbox
+        tx.student = student
+        tx.description = f"{desc_prefix} {student} - {group.name} ({date})"
+        tx.save()
+        
+        # Adjust student's balance
+        student.balance = Decimal(str(student.balance)) - (lesson_cost - old_amount)
+        student.save(update_fields=['balance'])
+        
+        # Adjust cashbox balance
+        if old_cashbox == cashbox:
+            cashbox.balance = Decimal(str(cashbox.balance)) + (lesson_cost - old_amount)
+            cashbox.save(update_fields=['balance'])
+        else:
+            old_cashbox.balance = Decimal(str(old_cashbox.balance)) - old_amount
+            old_cashbox.save(update_fields=['balance'])
+            cashbox.balance = Decimal(str(cashbox.balance)) + lesson_cost
+            cashbox.save(update_fields=['balance'])
+    else:
+        # Create new transaction
+        Transaction.objects.create(
+            organization=organization,
+            cashbox=cashbox,
+            amount=lesson_cost,
+            type='INCOME',
+            category='DIRECT',
+            student=student,
+            description=f"{desc_prefix} {student} - {group.name} ({date})"
+        )
+        
+        # Deduct from student's balance
+        student.balance = Decimal(str(student.balance)) - lesson_cost
+        student.save(update_fields=['balance'])
+        
+        # Add to cashbox balance
+        cashbox.balance = Decimal(str(cashbox.balance)) + lesson_cost
+        cashbox.save(update_fields=['balance'])
+
+
+def refund_attendance(student, group, date, attendance_id, organization):
+    from decimal import Decimal
+    from finance.models import Cashbox, Transaction
+    
+    desc_prefix = f"Davomat #{attendance_id}:"
+    tx = Transaction.objects.filter(description__startswith=desc_prefix).first()
+    
+    if tx:
+        amount_to_refund = tx.amount
+        cashbox = tx.cashbox
+        
+        # Delete transaction first
+        tx.delete()
+        
+        # Refund student's balance
+        student.balance = Decimal(str(student.balance)) + amount_to_refund
+        student.save(update_fields=['balance'])
+        
+        # Deduct from cashbox balance
+        if cashbox:
+            cashbox.balance = Decimal(str(cashbox.balance)) - amount_to_refund
+            cashbox.save(update_fields=['balance'])
+
+
+@receiver(pre_save, sender=Attendance)
+def attendance_pre_save(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old = Attendance.objects.get(pk=instance.pk)
+            instance._old_status = old.status
+            instance._old_student = old.student
+            instance._old_group = old.group
+            instance._old_date = old.date
+        except Attendance.DoesNotExist:
+            instance._old_status = None
+            instance._old_student = None
+            instance._old_group = None
+            instance._old_date = None
+    else:
+        instance._old_status = None
+        instance._old_student = None
+        instance._old_group = None
+        instance._old_date = None
+
+
+@receiver(post_save, sender=Attendance)
+def attendance_post_save(sender, instance, created, **kwargs):
+    # We only charge/refund if organization and student are valid
+    if not instance.student or not instance.group or not instance.organization:
+        return
+    
+    # Check if the new state is billable
+    new_is_billable = instance.status in ['present', 'late']
+    
+    # Determine the old state
+    if created:
+        old_is_billable = False
+        old_student = None
+        old_group = None
+        old_date = None
+    else:
+        old_status = getattr(instance, '_old_status', None)
+        old_is_billable = old_status in ['present', 'late'] if old_status else False
+        old_student = getattr(instance, '_old_student', None)
+        old_group = getattr(instance, '_old_group', None)
+        old_date = getattr(instance, '_old_date', None)
+
+    # If student/group/date changed on update, we reverse the old billable state (if it was billable)
+    # and apply the new billable state.
+    student_changed = old_student and old_student != instance.student
+    group_changed = old_group and old_group != instance.group
+    date_changed = old_date and old_date != instance.date
+    
+    if not created and (student_changed or group_changed or date_changed):
+        # Reverse old billable state for the old student/group/date
+        if old_is_billable and old_student:
+            # Refund the old student
+            refund_attendance(
+                student=old_student,
+                group=old_group or instance.group,
+                date=old_date or instance.date,
+                attendance_id=instance.id,
+                organization=instance.organization
+            )
+        # Apply new billable state for the new student/group/date
+        if new_is_billable:
+            charge_attendance(
+                student=instance.student,
+                group=instance.group,
+                date=instance.date,
+                attendance_id=instance.id,
+                organization=instance.organization
+            )
+    else:
+        # Normal transition for same student/group/date
+        if old_is_billable and not new_is_billable:
+            # Refund
+            refund_attendance(
+                student=instance.student,
+                group=instance.group,
+                date=instance.date,
+                attendance_id=instance.id,
+                organization=instance.organization
+            )
+        elif not old_is_billable and new_is_billable:
+            # Charge
+            charge_attendance(
+                student=instance.student,
+                group=instance.group,
+                date=instance.date,
+                attendance_id=instance.id,
+                organization=instance.organization
+            )
+        elif old_is_billable and new_is_billable:
+            # Re-charge / update transaction
+            charge_attendance(
+                student=instance.student,
+                group=instance.group,
+                date=instance.date,
+                attendance_id=instance.id,
+                organization=instance.organization
+            )
+
+
+@receiver(post_delete, sender=Attendance)
+def attendance_post_delete(sender, instance, **kwargs):
+    if instance.student and instance.group and instance.organization:
+        was_billable = instance.status in ['present', 'late']
+        if was_billable:
+            refund_attendance(
+                student=instance.student,
+                group=instance.group,
+                date=instance.date,
+                attendance_id=instance.id,
+                organization=instance.organization
+            )
+

@@ -290,6 +290,7 @@ class StudentSerializer(serializers.ModelSerializer):
                     phone = "****"
                 email = "****"
 
+        rep['phone'] = phone
         rep['phone_number'] = phone
         rep['email'] = email
         rep['groups'] = [{'id': sg.group.id, 'name': sg.group.name} for sg in
@@ -495,6 +496,39 @@ class StudentGroupSerializer(serializers.ModelSerializer):
             full_name = " ".join([p for p in parts if p]).strip()
             return full_name if full_name else t.username
         return None
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        
+        phone = None
+        balance = 0.00
+        
+        if instance.student:
+            phone = instance.student.phone
+            balance = instance.student.balance
+            
+            # Check hide_student_data setting for teachers
+            request = self.context.get('request')
+            if request and getattr(request.user, 'role', None) == 'teacher':
+                from organizations.models import Subscription
+                subscription = Subscription.objects.filter(
+                    organization_id=instance.organization_id,
+                    is_active=True
+                ).first()
+                if subscription and subscription.hide_student_data:
+                    if phone and len(phone) >= 4:
+                        phone = phone[:-4] + "****"
+                    else:
+                        phone = "****"
+                        
+        rep['phone'] = phone
+        rep['phone_number'] = phone
+        rep['student_phone'] = phone
+        rep['student_phone_number'] = phone
+        rep['balance'] = balance
+        rep['student_balance'] = balance
+        
+        return rep
 
 
 class GroupTeacherSerializer(serializers.ModelSerializer):

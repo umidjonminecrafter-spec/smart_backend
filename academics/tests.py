@@ -215,3 +215,88 @@ class AcademicsAPITests(APITestCase):
         # Verify User is recreated
         self.assertTrue(User.objects.filter(username=self.student1.phone, role="student").exists())
 
+    def test_attendance_billing_logic(self):
+        """
+        Verify that marking a student as present/late deducts money from their balance,
+        creates a Transaction in the Cashbox, and changing status or deleting refunds it.
+        """
+        import datetime
+        from decimal import Decimal
+        from academics.models import StudentGroup, Attendance, GroupLesson
+        from finance.models import Cashbox, Transaction
+
+        # 1. Update course price to a larger amount
+        self.course1.price = Decimal("120000.00")
+        self.course1.save()
+
+        # 2. Create Group
+        group = Group.objects.create(
+            organization=self.org1,
+            course=self.course1,
+            name="Group 1",
+            status="active",
+            days=["mon", "wed", "fri"]
+        )
+
+        # 3. Link Student to Group
+        StudentGroup.objects.create(
+            organization=self.org1,
+            student=self.student1,
+            group=group,
+            price=Decimal("120000.00")
+        )
+
+        # 4. Generate 12 GroupLessons in June 2026
+        lessons = []
+        for i in range(1, 13):
+            lessons.append(
+                GroupLesson(
+                    organization=self.org1,
+                    group=group,
+                    date=datetime.date(2026, 6, i)
+                )
+            )
+        GroupLesson.objects.bulk_create(lessons)
+
+        # 5. Verify initial balance
+        self.assertEqual(self.student1.balance, Decimal("0.00"))
+
+        # 6. Create attendance on 2026-06-01 as 'present'
+        att = Attendance.objects.create(
+            organization=self.org1,
+            student=self.student1,
+            group=group,
+            date=datetime.date(2026, 6, 1),
+            status="present"
+        )
+
+        # Check student balance (should be -10,000.00)
+        self.student1.refresh_from_db()
+        self.assertEqual(self.student1.balance, Decimal("-10000.00"))
+
+        # Check Cashbox balance (should be 10,000.00)
+        cashbox = Cashbox.objects.filter(organization=self.org1).first()
+        self.assertIsNotNone(cashbox)
+        self.assertEqual(cashbox.balance, Decimal("10000.00"))
+
+        # Check Transaction was created
+        tx = Transaction.objects.filter(description__startswith=f"Davomat #{att.id}:").first()
+        self.assertIsNotNone(tx)
+        self.assertEqual(tx.amount, Decimal("10000.00"))
+        self.assertEqual(tx.type, "INCOME")
+
+        # 7. Update attendance status to 'absent'
+        att.status = "absent"
+        att.save()
+
+        # Check student balance restored to 0
+        self.student1.refresh_from_db()
+        self.assertEqual(self.student1.balance, Decimal("0.00"))
+
+        # Check Cashbox balance goes back to 0
+        cashbox.refresh_from_db()
+        self.assertEqual(cashbox.balance, Decimal("0.00"))
+
+        # Check Transaction was deleted
+        self.assertFalse(Transaction.objects.filter(description__startswith=f"Davomat #{att.id}:").exists())
+

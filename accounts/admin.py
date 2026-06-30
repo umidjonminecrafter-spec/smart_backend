@@ -12,3 +12,4 @@ class CustomUserAdmin(UserAdmin):
     add_fieldsets = UserAdmin.add_fieldsets + (
         ('Custom Fields', {'fields': ('role', 'organization', 'phone')}),
     )
+# salom

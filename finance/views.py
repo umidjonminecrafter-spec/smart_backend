@@ -112,7 +112,7 @@ class ExpenseSubcategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     filterset_fields = ['category']
 from django.db import transaction as db_transaction
 
-class ExpenseViewSet(viewsets.ModelViewSet):  # Agar TenantViewSetMixin kerak bo'lsa, merosxo'rlikka qaytarib qo'ying
+class ExpenseViewSet(TenantViewSetMixin, viewsets.ModelViewSet):  # Agar TenantViewSetMixin kerak bo'lsa, merosxo'rlikka qaytarib qo'ying
     permission_page_name = 'Xarajatlar'
     queryset = Expense.objects.all().select_related('category', 'subcategory', 'cashbox')
     serializer_class = ExpenseSerializer
@@ -153,8 +153,27 @@ class ExpenseViewSet(viewsets.ModelViewSet):  # Agar TenantViewSetMixin kerak bo
     # 🌟 Real vaqtda kassa balansi va tranzaksiyani boshqarish
     def perform_create(self, serializer):
         with db_transaction.atomic():
+            org_id = self.get_organization_id()
+            if not org_id:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({"detail": "Organization context is required."})
+            from organizations.models import Organization, Branch
+            try:
+                org = Organization.objects.get(id=org_id)
+            except Organization.DoesNotExist:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({"detail": "Organization not found."})
+
+            save_kwargs = {'organization': org}
+            branch_id = self.get_branch_id()
+            if branch_id:
+                try:
+                    save_kwargs['branch'] = Branch.objects.get(id=branch_id)
+                except Branch.DoesNotExist:
+                    pass
+
             # Xarajatni saqlaymiz
-            expense = serializer.save()
+            expense = serializer.save(**save_kwargs)
 
             # Agar kassa tanlangan bo'lsa, pul ayiramiz va tranzaksiya yozamiz
             if expense.cashbox:

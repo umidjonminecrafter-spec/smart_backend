@@ -711,13 +711,6 @@ def generate_group_lessons(group_instance):
         GroupLesson.objects.bulk_create(lessons_to_create)
 
 
-# Guruh saqlanganda dars kunlarini generatsiya qilish signali
-@receiver(post_save, sender=Group)
-def trigger_lesson_generation(sender, instance, created, **kwargs):
-    # Tracker xatoligini oldini olish uchun to'g'ridan-to'g'ri funksiyani chaqiramiz
-    generate_group_lessons(instance)
-
-
 def generate_group_lessons(group_instance):
     """Guruhning boshlanish va tugash sanasi oralig'idagi dars kunlarini yaratadi"""
     if not group_instance.start_date or not group_instance.end_date:

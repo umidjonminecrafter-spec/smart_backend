@@ -18,7 +18,7 @@ load_dotenv(BASE_DIR / '.env')
 # helljsdzfhgbjszdfbgdgfjnhvcfgd
 # Quick-start development settings - unsuitable for production
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key')
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = [
     "smart-backend-dtub.onrender.com",

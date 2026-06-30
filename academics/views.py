@@ -625,7 +625,25 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         }, status=status.HTTP_200_OK)
 
     def perform_create(self, serializer):
-        super().perform_create(serializer)
+        # Organization ni aniq (explicit) o'rnatamiz — mixin zanjiriga ishonmasdan
+        org_id = self.get_organization_id()
+        if not org_id:
+            raise ValidationError({"detail": "Organization context is required."})
+        from organizations.models import Organization, Branch
+        try:
+            org = Organization.objects.get(id=org_id)
+        except Organization.DoesNotExist:
+            raise ValidationError({"detail": f"Organization with ID {org_id} not found."})
+
+        save_kwargs = {'organization': org}
+        branch_id = self.get_branch_id()
+        if branch_id:
+            try:
+                save_kwargs['branch'] = Branch.objects.get(id=branch_id)
+            except Branch.DoesNotExist:
+                pass
+
+        serializer.save(**save_kwargs)
         group = serializer.instance
         self._sync_lesson_schedules(group)
 

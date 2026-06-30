@@ -269,6 +269,21 @@ class CashTransactionSerializer(serializers.ModelSerializer):
             'payment_method', 'amount', 'date', 'student',
             'student_name', 'description'
         ]
+
+    def validate(self, attrs):
+        transaction_type = attrs.get('transaction_type')
+        description = attrs.get('description') or ''
+        student = attrs.get('student')
+
+        # O'quvchi to'ladi (yoki o'quvchi/talaba/student) deb yozilsa, o'quvchini tanlash majburiy bo'lishi kerak
+        if transaction_type == 'kirim':
+            desc_lower = str(description).lower().strip()
+            if any(x in desc_lower for x in ['o\'quvchi', 'oquvchi', 'talaba', 'student']):
+                if not student:
+                    raise serializers.ValidationError({
+                        "student": "Ushbu tranzaksiya turi uchun o'quvchini tanlash majburiy!"
+                    })
+        return attrs
 class FinanceSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = FinanceSetting
@@ -306,6 +321,21 @@ class TransactionSerializer(serializers.ModelSerializer):
             'category', 'student', 'student_name', 'employee',
             'employee_name', 'description', 'created_at'
         ]
+
+    def validate(self, attrs):
+        tx_type = attrs.get('type')
+        description = attrs.get('description') or ''
+        student = attrs.get('student')
+
+        # O'quvchi to'ladi (yoki o'quvchi/talaba/student) deb yozilsa, o'quvchini tanlash majburiy bo'lishi kerak
+        if tx_type == 'INCOME':
+            desc_lower = str(description).lower().strip()
+            if any(x in desc_lower for x in ['o\'quvchi', 'oquvchi', 'talaba', 'student']):
+                if not student:
+                    raise serializers.ValidationError({
+                        "student": "Ushbu tranzaksiya turi uchun o'quvchini tanlash majburiy!"
+                    })
+        return attrs
 
 class FinanceActionSerializer(serializers.ModelSerializer):
     # Bu maydon frontend'da kassani tanlash uchun kerak bo'ladi, lekin modelning o'zida yo'q

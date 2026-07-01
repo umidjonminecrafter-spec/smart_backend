@@ -2,7 +2,7 @@ from rest_framework import serializers
 from academics.models import (
     Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing,
-    StudentArchive, Holiday, Homework,StudentEvaluationLevel
+    StudentArchive, Holiday, Homework, StudentEvaluationLevel, CourseMaterial
 )
 from accounts.serializers import UserSerializer
 from .models import StudentFieldSetting, GroupLesson
@@ -831,3 +831,40 @@ class StudentEvaluationLevelSerializer(serializers.ModelSerializer):
         model = StudentEvaluationLevel
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
+
+
+class CourseMaterialSerializer(serializers.ModelSerializer):
+    course_name = serializers.CharField(source='course.name', read_only=True)
+    file_url = serializers.SerializerMethodField(read_only=True)
+    material_type_display = serializers.CharField(source='get_material_type_display', read_only=True)
+
+    class Meta:
+        model = CourseMaterial
+        fields = '__all__'
+        read_only_fields = ('organization',)
+
+    def validate_course(self, value):
+        if value is None:
+            raise serializers.ValidationError("Kurs maydoni majburiy. Iltimos, kursni tanlang.")
+        return value
+
+    def get_file_url(self, obj):
+        if obj.file:
+            request = self.context.get('request')
+            url = obj.file.url
+            return request.build_absolute_uri(url) if request else url
+        return None
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep['course_name'] = instance.course.name if instance.course else None
+        rep['material_type_display'] = instance.get_material_type_display()
+        if instance.file:
+            request = self.context.get('request')
+            url = instance.file.url
+            rep['file_url'] = request.build_absolute_uri(url) if request else url
+            rep['file_name'] = instance.file.name.split('/')[-1]
+        else:
+            rep['file_url'] = None
+            rep['file_name'] = None
+        return rep

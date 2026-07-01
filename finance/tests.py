@@ -19,6 +19,12 @@ class HolidayImpactTests(APITestCase):
             role="teacher",
             organization=self.org
         )
+        self.admin_user = User.objects.create_user(
+            username="testadmin",
+            password="securepassword",
+            role="admin",
+            organization=self.org
+        )
         self.client.force_authenticate(user=self.teacher)
 
         self.course = Course.objects.create(
@@ -73,6 +79,7 @@ class HolidayImpactTests(APITestCase):
             "org_id": self.org.id
         }
         
+        self.client.force_authenticate(user=self.admin_user)
         response = self.client.post(f"{url}?org_id={self.org.id}", data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         

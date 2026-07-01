@@ -300,3 +300,151 @@ class AcademicsAPITests(APITestCase):
         # Check Transaction was deleted
         self.assertFalse(Transaction.objects.filter(description__startswith=f"Davomat #{att.id}:").exists())
 
+
+class CourseMaterialAndOnlineLessonTests(APITestCase):
+    def setUp(self):
+        # Create two distinct organizations to test multi-tenancy
+        self.org1 = Organization.objects.create(name="Tenant 1")
+        self.org2 = Organization.objects.create(name="Tenant 2")
+
+        # Create active subscription for Org 1 and Org 2
+        from organizations.models import Subscription, Tariff
+        import datetime
+        from decimal import Decimal
+        today = datetime.date.today()
+        default_tariff = Tariff.objects.create(name="Premium", price=Decimal("100.00"), student_limit=0)
+        Subscription.objects.create(
+            organization=self.org1,
+            tariff=default_tariff,
+            start_date=today,
+            end_date=today + datetime.timedelta(days=365),
+            is_active=True
+        )
+        Subscription.objects.create(
+            organization=self.org2,
+            tariff=default_tariff,
+            start_date=today,
+            end_date=today + datetime.timedelta(days=365),
+            is_active=True
+        )
+
+        self.admin1 = User.objects.create_user(
+            username="admin1",
+            password="password123",
+            role="admin",
+            organization=self.org1
+        )
+        self.student1 = Student.objects.create(
+            organization=self.org1,
+            first_name="Alice",
+            last_name="Green",
+            phone="+998909998877",
+            balance=0.00
+        )
+        self.student1_user = User.objects.create_user(
+            username="+998909998877",
+            phone="+998909998877",
+            password="password123",
+            role="student",
+            organization=self.org1
+        )
+        self.course1 = Course.objects.create(
+            organization=self.org1,
+            name="Math",
+            price=150.00,
+            duration_weeks=12
+        )
+        self.course2 = Course.objects.create(
+            organization=self.org1,
+            name="Physics",
+            price=150.00,
+            duration_weeks=12
+        )
+        self.group1 = Group.objects.create(
+            organization=self.org1,
+            name="Math Group 1",
+            course=self.course1
+        )
+        
+        from academics.models import StudentGroup
+        StudentGroup.objects.create(
+            organization=self.org1,
+            student=self.student1,
+            group=self.group1
+        )
+
+    def test_online_lesson_nullable_group(self):
+        """
+        Verify that OnlineLesson can be created with group=None (optional group).
+        """
+        self.client.force_authenticate(user=self.admin1)
+        url = reverse('online-lesson-list')
+
+        # Test creating OnlineLesson without group (None)
+        data = {
+            "title": "Online Intro Lesson",
+            "group": None,
+            "video_url": "https://youtube.com/watch?v=123",
+            "description": "Introduction to online learning",
+            "is_published": True
+        }
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data=data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data['group'])
+
+    def test_course_material_crud_and_isolation(self):
+        """
+        Verify CourseMaterial CRUD and student role isolation.
+        """
+        from academics.models import CourseMaterial
+        # 1. Create Course Materials
+        mat1 = CourseMaterial.objects.create(
+            organization=self.org1,
+            course=self.course1,
+            title="Math Syllabus",
+            material_type="file",
+            is_published=True
+        )
+        mat2 = CourseMaterial.objects.create(
+            organization=self.org1,
+            course=self.course2,
+            title="Physics Notes",
+            material_type="file",
+            is_published=True
+        )
+        mat3 = CourseMaterial.objects.create(
+            organization=self.org1,
+            course=self.course1,
+            title="Math Draft Notes",
+            material_type="text",
+            is_published=False
+        )
+
+        url = reverse('course-material-list')
+
+        # 2. Admin should see all materials
+        self.client.force_authenticate(user=self.admin1)
+        response = self.client.get(f"{url}?org_id={self.org1.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 3)
+
+        # 3. Student should only see published materials for enrolled courses (Math)
+        self.client.force_authenticate(user=self.student1_user)
+        response = self.client.get(f"{url}?org_id={self.org1.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Student enrolled in Math (mat1, mat3 but mat3 is not published)
+        # So student should only see mat1 (Math Syllabus)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['title'], "Math Syllabus")
+
+        # 4. Student should not be able to create course materials (Read Only)
+        create_data = {
+            "course": self.course1.id,
+            "title": "Cheat Sheet",
+            "material_type": "text",
+            "is_published": True
+        }
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data=create_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+

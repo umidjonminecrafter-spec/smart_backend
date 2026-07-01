@@ -10,7 +10,7 @@ from .views import (
     VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView, ParentStudentsAPIView, ParentStudentDetailsAPIView,
     StaffProfileAPIView, StaffScheduleAPIView, BotMessageTemplateViewSet, TelegramWebhookView, SetLessonTopicAPIView,
     CancelOrRestoreLessonAPIView, RescheduleLessonAPIView, GroupLessonListAPIView, BirthdayCalendarAPIView,
-    StudentEvaluationLevelViewSet
+    StudentEvaluationLevelViewSet, CourseMaterialViewSet
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -57,6 +57,7 @@ router.register(r'teachers/salary-calculations', TeacherSalaryCalculationViewSet
 router.register(r'teachers/salary-payments', TeacherSalaryPaymentViewSet, basename='academic-teacher-salary-payment')
 router.register(r'teachers/salary-rules', TeacherSalaryRuleViewSet, basename='academic-teacher-salary-rule')
 router.register(r'evaluation-levels', StudentEvaluationLevelViewSet, basename='evaluation-levels')
+router.register(r'course-materials', CourseMaterialViewSet, basename='course-material')
 
 urlpatterns = [
     path('student-transactions/', StudentTransactionsView.as_view(), name='student-transactions'),

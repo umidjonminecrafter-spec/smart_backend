@@ -14,7 +14,7 @@ from academics.models import (
     Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, LessonSchedule,
     BalanceHistory, Exam, ExamResult, LeaveReason, LessonTime, OnlineLesson, StudentGroupLeave, StudentPricing,
     StudentArchive, Holiday, Homework,
-    BotMessageTemplate
+    BotMessageTemplate, CourseMaterial
 )
 from organizations.mixins import TenantViewSetMixin
 from organizations.permissions import (
@@ -26,7 +26,7 @@ from academics.serializers import (
     LessonScheduleSerializer, StudentBalanceSerializer, BalanceHistorySerializer, ExamSerializer,
     ExamResultSerializer, LeaveReasonSerializer, LessonTimeSerializer, OnlineLessonSerializer,
     StudentGroupLeaveSerializer, StudentPricingSerializer, StudentArchiveSerializer, HolidaySerializer,
-    HomeworkSerializer, BotMessageTemplateSerializer
+    HomeworkSerializer, BotMessageTemplateSerializer, CourseMaterialSerializer
 )
 
 from .models import TelegramVerification, Student
@@ -1824,3 +1824,59 @@ class StudentEvaluationLevelViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(organization=self.request.user.organization)
+
+
+class CourseMaterialViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    """
+    Kurs materiallari: fayl, video, havola va boshqa materiallarni
+    kursga bog'lash uchun CRUD endpoint.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
+    permission_page_name = 'Darslar hisoboti'
+    queryset = CourseMaterial.objects.all().select_related('course')
+    serializer_class = CourseMaterialSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ['course', 'material_type', 'is_published']
+    search_fields = ['title', 'description']
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+
+        current_user = getattr(self.request, 'user', None)
+        if current_user and getattr(current_user, 'role', None) == 'student':
+            phone = getattr(current_user, 'phone', None) or getattr(current_user, 'username', None)
+            if phone:
+                qs = qs.filter(
+                    course__groups__group_students__student__phone=phone,
+                    is_published=True
+                ).distinct()
+            else:
+                return qs.none()
+
+        course_id = (
+            self.request.query_params.get('course') or
+            self.request.query_params.get('course_id')
+        )
+        if course_id:
+            qs = qs.filter(course_id=course_id)
+
+        material_type = self.request.query_params.get('material_type')
+        if material_type:
+            qs = qs.filter(material_type=material_type)
+
+        is_published = self.request.query_params.get('is_published')
+        if is_published is not None:
+            if str(is_published).lower() in ['true', '1']:
+                qs = qs.filter(is_published=True)
+            elif str(is_published).lower() in ['false', '0']:
+                if current_user and getattr(current_user, 'role', None) == 'student':
+                    return qs.none()
+                qs = qs.filter(is_published=False)
+
+        return qs.order_by('order', 'id')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context

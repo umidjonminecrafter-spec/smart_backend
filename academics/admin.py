@@ -1,5 +1,5 @@
 from django.contrib import admin
-from academics.models import Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, Homework,StudentFieldSetting
+from academics.models import Course, Room, Student, Group, StudentGroup, GroupTeacher, TeacherSalaryPayment, Attendance, Homework,StudentFieldSetting, CourseMaterial
 from .models import BotMessageTemplate, LessonSchedule
 
 # khsrfbksazgfnhakrsgnvksdrzjvnds
@@ -64,3 +64,11 @@ class HomeworkAdmin(admin.ModelAdmin):
 class LessonScheduleAdmin(admin.ModelAdmin):
     list_display = ('id','group', 'teacher')
     list_filter = ('start_time', 'end_time')
+
+
+@admin.register(CourseMaterial)
+class CourseMaterialAdmin(admin.ModelAdmin):
+    list_display = ('id', 'course', 'title', 'material_type', 'is_published', 'order', 'organization')
+    list_filter = ('material_type', 'is_published', 'organization')
+    search_fields = ('title', 'description', 'course__name')
+

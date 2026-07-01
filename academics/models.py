@@ -324,7 +324,7 @@ class LessonTime(TenantModel):
 
 class OnlineLesson(TenantModel):
     title = models.CharField(max_length=255)
-    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="online_lessons")
+    group = models.ForeignKey(Group, on_delete=models.SET_NULL, null=True, blank=True, related_name="online_lessons")
 
     # 🛠️ TO'G'RILANDI: Bo'sh dars ochilishi uchun video_url ixtiyoriy qilindi
     video_url = models.URLField(null=True, blank=True)
@@ -336,6 +336,42 @@ class OnlineLesson(TenantModel):
 
     def __str__(self):
         return self.title
+
+class CourseMaterial(TenantModel):
+    """Kurs materiallari: video, fayl, havola, rasm va boshqalar"""
+    MATERIAL_TYPE_CHOICES = (
+        ('video', 'Video'),
+        ('file', 'Fayl (PDF, Word va b.)'),
+        ('link', 'Havola (Link)'),
+        ('image', 'Rasm'),
+        ('text', 'Matn'),
+    )
+
+    course = models.ForeignKey(
+        Course, on_delete=models.CASCADE, related_name='materials',
+        verbose_name="Kurs"
+    )
+    title = models.CharField(max_length=255, verbose_name="Material nomi")
+    description = models.TextField(null=True, blank=True, verbose_name="Tavsif")
+    material_type = models.CharField(
+        max_length=20, choices=MATERIAL_TYPE_CHOICES, default='file',
+        verbose_name="Material turi"
+    )
+    file = models.FileField(
+        upload_to='course_materials/', null=True, blank=True,
+        verbose_name="Fayl"
+    )
+    video_url = models.URLField(null=True, blank=True, verbose_name="Video havolasi")
+    external_link = models.URLField(null=True, blank=True, verbose_name="Tashqi havola")
+    order = models.PositiveIntegerField(default=0, verbose_name="Tartib raqami")
+    is_published = models.BooleanField(default=True, verbose_name="Nashr qilinganmi?")
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f"{self.course.name} - {self.title}"
+
 
 class StudentGroupLeave(TenantModel):
     # TO'G'RILANDI: on_delete=models.SET_NULL qilindi.

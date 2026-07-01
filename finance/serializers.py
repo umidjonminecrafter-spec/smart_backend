@@ -259,10 +259,9 @@ class CashboxSerializer(serializers.ModelSerializer):
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
 class CashTransactionSerializer(serializers.ModelSerializer):
-    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    student_name = serializers.CharField(source='student.first_name', read_only=True)  # Agar modelda full_name propertiesi bo'lsa shunday qoladi
     employee_name = serializers.SerializerMethodField(read_only=True)
     cashbox_name = serializers.CharField(source='cashbox.name', read_only=True)
-    description = serializers.CharField(source='comment', required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = CashTransaction
@@ -270,7 +269,7 @@ class CashTransactionSerializer(serializers.ModelSerializer):
             'id', 'cashbox', 'cashbox_name', 'transaction_type',
             'payment_method', 'amount', 'date', 'student',
             'student_name', 'employee', 'employee_name',
-            'category_name', 'description'
+            'category', 'description'  # Modeldagi maydon nomlari (category va description)
         ]
 
     def get_employee_name(self, obj):
@@ -281,11 +280,12 @@ class CashTransactionSerializer(serializers.ModelSerializer):
         return None
 
     def validate(self, attrs):
-        tx_type = attrs.get('type')
+        # 🔥 TUZATILDI: 'type' emas, 'transaction_type' olinishi kerak!
+        tx_type = attrs.get('transaction_type')
         student = attrs.get('student')
         employee = attrs.get('employee')
 
-        # 1. Agarda KIRIM bo'lsa, o'quvchi (student) tanlanishi shart!
+        # 1. Agarda KIRIM (INCOME) bo'lsa, o'quvchi (student) tanlanishi shart!
         if tx_type == 'INCOME':
             if not student:
                 raise serializers.ValidationError({
@@ -296,15 +296,15 @@ class CashTransactionSerializer(serializers.ModelSerializer):
                     "employee": "Kirim amaliyotida xodimni tanlash mumkin emas, faqat o'quvchi tanlanishi kerak!"
                 })
 
-        # 2. Agarda CHIQIM bo'lsa, yo xodim yoki o'quvchidan biri albatta tanlanishi shart!
+        # 2. Agarda CHIQIM (EXPENSE) bo'lsa, yo xodim yoki o'quvchidan biri albatta tanlanishi shart!
         elif tx_type == 'EXPENSE':
             if not student and not employee:
                 raise serializers.ValidationError({
-                    "non_field_errors": "Kassadan chiqim qilinganda kimga (qaysi xodimga yoki o'quvchiga) chiqim bo'layotganini tanlash majburiy! ⚠️"
+                    "student": "Kassadan chiqim qilinganda kimga (xodim yoki o'quvchiga) chiqim bo'layotganini tanlash majburiy! ⚠️"
                 })
             if student and employee:
                 raise serializers.ValidationError({
-                    "non_field_errors": "Chiqim amaliyotida bir vaqtning o'zida ham xodimni, ham o'quvchini tanlab bo'lmaydi. Bittasini tanlang!"
+                    "student": "Chiqim amaliyotida bir vaqtning o'zida ham xodimni, ham o'quvchini tanlab bo'lmaydi. Bittasini tanlang!"
                 })
 
         return attrs

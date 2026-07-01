@@ -259,9 +259,9 @@ class CashboxSerializer(serializers.ModelSerializer):
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
 class CashTransactionSerializer(serializers.ModelSerializer):
-    student_name = serializers.CharField(source='student.first_name', read_only=True)  # Agar modelda full_name propertiesi bo'lsa shunday qoladi
+    student_name = serializers.CharField(source='student.full_name', read_only=True, default=None)
     employee_name = serializers.SerializerMethodField(read_only=True)
-    cashbox_name = serializers.CharField(source='cashbox.name', read_only=True)
+    cashbox_name = serializers.CharField(source='cashbox.name', read_only=True, default=None)
 
     class Meta:
         model = CashTransaction
@@ -269,7 +269,7 @@ class CashTransactionSerializer(serializers.ModelSerializer):
             'id', 'cashbox', 'cashbox_name', 'transaction_type',
             'payment_method', 'amount', 'date', 'student',
             'student_name', 'employee', 'employee_name',
-            'category', 'description'  # Modeldagi maydon nomlari (category va description)
+            'category_name', 'comment'  # Modeldagi maydon nomi 'comment' ekan
         ]
 
     def get_employee_name(self, obj):
@@ -279,14 +279,22 @@ class CashTransactionSerializer(serializers.ModelSerializer):
             return full_name if full_name else obj.employee.username
         return None
 
+    def to_representation(self, instance):
+        """Frontend 'cashbox' kalitini o'qiganda ID o'rniga kassa nomini ko'rishi uchun"""
+        ret = super().to_representation(instance)
+        # Frontend jadvali 'cashbox' ustunidan kassa nomini qidirsa, unga matn beramiz:
+        if instance.cashbox:
+            ret['cashbox'] = instance.cashbox.name
+        return ret
+
     def validate(self, attrs):
-        # 🔥 TUZATILDI: 'type' emas, 'transaction_type' olinishi kerak!
+        # Modelda maydon nomi 'transaction_type' deb yozilgan
         tx_type = attrs.get('transaction_type')
         student = attrs.get('student')
         employee = attrs.get('employee')
 
-        # 1. Agarda KIRIM (INCOME) bo'lsa, o'quvchi (student) tanlanishi shart!
-        if tx_type == 'INCOME':
+        # 1. Agarda KIRIM (kirim) bo'lsa, o'quvchi (student) tanlanishi shart!
+        if tx_type == 'kirim':
             if not student:
                 raise serializers.ValidationError({
                     "student": "Kassaga kirim qilinganda qaysi o'quvchidan pul kelayotganini tanlash majburiy! ⚠️"
@@ -296,15 +304,15 @@ class CashTransactionSerializer(serializers.ModelSerializer):
                     "employee": "Kirim amaliyotida xodimni tanlash mumkin emas, faqat o'quvchi tanlanishi kerak!"
                 })
 
-        # 2. Agarda CHIQIM (EXPENSE) bo'lsa, yo xodim yoki o'quvchidan biri albatta tanlanishi shart!
-        elif tx_type == 'EXPENSE':
+        # 2. Agarda CHIQIM (chiqim) bo'lsa, yo xodim yoki o'quvchidan biri albatta tanlanishi shart!
+        elif tx_type == 'chiqim':
             if not student and not employee:
                 raise serializers.ValidationError({
-                    "student": "Kassadan chiqim qilinganda kimga (xodim yoki o'quvchiga) chiqim bo'layotganini tanlash majburiy! ⚠️"
+                    "non_field_errors": "Kassadan chiqim qilinganda kimga (xodim yoki o'quvchiga) chiqim bo'layotganini tanlash majburiy! ⚠️"
                 })
             if student and employee:
                 raise serializers.ValidationError({
-                    "student": "Chiqim amaliyotida bir vaqtning o'zida ham xodimni, ham o'quvchini tanlab bo'lmaydi. Bittasini tanlang!"
+                    "non_field_errors": "Chiqim amaliyotida bir vaqtning o'zida ham xodimni, ham o'quvchini tanlab bo'lmaydi!"
                 })
 
         return attrs

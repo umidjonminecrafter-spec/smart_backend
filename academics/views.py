@@ -824,7 +824,7 @@ class GroupAttendanceView(TenantViewSetMixin, APIView):
         # Check if group_id is actually the attendance ID (due to frontend calling updateAttendance(recordId, payload))
         attendance_obj = None
         real_group_id = group_id
-        if Attendance.objects.filter(id=group_id, organization_id=org_id).exists():
+        if request.method in ('PATCH', 'PUT') and Attendance.objects.filter(id=group_id, organization_id=org_id).exists():
             attendance_obj = Attendance.objects.get(id=group_id, organization_id=org_id)
             real_group_id = attendance_obj.group_id
 
@@ -845,6 +845,12 @@ class GroupAttendanceView(TenantViewSetMixin, APIView):
                 return Response({"detail": "Student ID is required."}, status=status.HTTP_400_BAD_REQUEST)
 
             date = item.get('date') or item.get('lesson_date')
+            if isinstance(date, str):
+                import datetime
+                try:
+                    date = datetime.date.fromisoformat(date)
+                except ValueError:
+                    pass
             if not date:
                 if attendance_obj:
                     date = attendance_obj.date

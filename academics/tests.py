@@ -447,4 +447,50 @@ class CourseMaterialAndOnlineLessonTests(APITestCase):
         response = self.client.post(f"{url}?org_id={self.org1.id}", data=create_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_group_attendance_id_collision_and_date_parsing(self):
+        """
+        Verify that POSTing to group attendance endpoint does not treat group_id as an Attendance ID
+        even if an Attendance record with that ID exists. Also verify that string date is successfully parsed.
+        """
+        from academics.models import Attendance
+        import datetime
+        group_id_to_collide = self.group1.id
+
+        # Ensure there is an Attendance record with ID = group_id_to_collide
+        if not Attendance.objects.filter(id=group_id_to_collide).exists():
+            Attendance.objects.create(
+                id=group_id_to_collide,
+                organization=self.org1,
+                group=self.group1,
+                student=self.student1,
+                date=datetime.date(2026, 6, 1),
+                status="present"
+            )
+
+        self.client.force_authenticate(user=self.admin1)
+        url = reverse('group-attendance', kwargs={'group_id': group_id_to_collide})
+
+        # Post request to create a new attendance for group_id_to_collide on "2026-06-29"
+        data = {
+            "student": self.student1.id,
+            "date": "2026-06-29",
+            "status": "absent"
+        }
+
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data=data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Ensure that it created a NEW record on date "2026-06-29"
+        created_attendance = Attendance.objects.filter(
+            group_id=group_id_to_collide,
+            student_id=self.student1.id,
+            date=datetime.date(2026, 6, 29)
+        ).first()
+
+        self.assertIsNotNone(created_attendance)
+        self.assertEqual(created_attendance.status, "absent")
+        # Ensure the date is a datetime.date object (not string)
+        self.assertIsInstance(created_attendance.date, datetime.date)
+
+
 

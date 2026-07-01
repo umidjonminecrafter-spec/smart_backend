@@ -1539,6 +1539,27 @@ class TransactionCreateAPIView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def perform_create(self, serializer):
+        # Tranzaksiyani xavfsiz (atomic) bajarish uchun db transaction ishlatamiz
+        with transaction.atomic():
+            # Avval kassa amaliyotini saqlaymiz (organization mixin orqali)
+            instance = serializer.save()
+
+            # Agar tranzaksiyada student (o'quvchi) ishtirok etayotgan bo'lsa:
+            if instance.student:
+                student = instance.student
+                amount = instance.amount
+
+                if instance.type == 'INCOME':
+                    # Kassaga kirim bo'ldi -> O'quvchi balansi ko'payadi
+                    student.balance += amount
+                    student.save(update_fields=['balance'])
+
+                elif instance.type == 'EXPENSE':
+                    # Kassadan o'quvchiga chiqim bo'ldi (Refund) -> O'quvchi balansi kamayadi
+                    student.balance -= amount
+                    student.save(update_fields=['balance'])
+
 
 class TransactionReportAPIView(APIView):
     permission_classes = [IsAuthenticated]

@@ -281,34 +281,31 @@ class CashTransactionSerializer(serializers.ModelSerializer):
         return None
 
     def validate(self, attrs):
-        transaction_type = attrs.get('transaction_type')
-        category_name = attrs.get('category_name') or ''
-        comment = attrs.get('comment') or ''
+        tx_type = attrs.get('type')
         student = attrs.get('student')
         employee = attrs.get('employee')
 
-        combined_text = f"{category_name} {comment}".lower().strip()
+        # 1. Agarda KIRIM bo'lsa, o'quvchi (student) tanlanishi shart!
+        if tx_type == 'INCOME':
+            if not student:
+                raise serializers.ValidationError({
+                    "student": "Kassaga kirim qilinganda qaysi o'quvchidan pul kelayotganini tanlash majburiy! ⚠️"
+                })
+            if employee:
+                raise serializers.ValidationError({
+                    "employee": "Kirim amaliyotida xodimni tanlash mumkin emas, faqat o'quvchi tanlanishi kerak!"
+                })
 
-        # Kirimda o'quvchi tanlash majburiyligi
-        if transaction_type == 'kirim':
-            if any(x in combined_text for x in ['o\'quvchi', 'oquvchi', 'talaba', 'student', 'to\'lov', 'tolov']):
-                if not student:
-                    raise serializers.ValidationError({
-                        "student": "Ushbu tranzaksiya turi uchun o'quvchini tanlash majburiy!"
-                    })
-
-        # Chiqimda xodim yoki o'quvchi tanlash majburiyligi
-        elif transaction_type == 'chiqim':
-            if any(x in combined_text for x in ['xodim', 'hodim', 'ish haqi', 'ish_haqi', 'oylik', 'avans', 'salary']):
-                if not employee:
-                    raise serializers.ValidationError({
-                        "employee": "Ushbu xarajat turi uchun xodimni tanlash majburiy!"
-                    })
-            elif any(x in combined_text for x in ['o\'quvchi', 'oquvchi', 'talaba', 'student', 'qaytarish', 'refund', 'qaytarildi']):
-                if not student:
-                    raise serializers.ValidationError({
-                        "student": "Ushbu xarajat turi uchun o'quvchini tanlash majburiy!"
-                    })
+        # 2. Agarda CHIQIM bo'lsa, yo xodim yoki o'quvchidan biri albatta tanlanishi shart!
+        elif tx_type == 'EXPENSE':
+            if not student and not employee:
+                raise serializers.ValidationError({
+                    "non_field_errors": "Kassadan chiqim qilinganda kimga (qaysi xodimga yoki o'quvchiga) chiqim bo'layotganini tanlash majburiy! ⚠️"
+                })
+            if student and employee:
+                raise serializers.ValidationError({
+                    "non_field_errors": "Chiqim amaliyotida bir vaqtning o'zida ham xodimni, ham o'quvchini tanlab bo'lmaydi. Bittasini tanlang!"
+                })
 
         return attrs
 class FinanceSettingSerializer(serializers.ModelSerializer):

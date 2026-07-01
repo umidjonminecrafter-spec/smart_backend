@@ -683,10 +683,25 @@ class LessonTimeSerializer(serializers.ModelSerializer):
 
 
 class OnlineLessonSerializer(serializers.ModelSerializer):
+    group_name = serializers.CharField(source='group.name', read_only=True)
+    course_name = serializers.CharField(source='group.course.name', read_only=True, default='')
+    has_video = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = OnlineLesson
         fields = '__all__'
         read_only_fields = ('organization',)
+
+    def get_has_video(self, obj):
+        return bool(obj.video_url)
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep['group_name'] = instance.group.name if instance.group else None
+        rep['course_name'] = instance.group.course.name if instance.group and instance.group.course else None
+        rep['has_video'] = bool(instance.video_url)
+        return rep
+
 
 
 class StudentGroupLeaveSerializer(serializers.ModelSerializer):

@@ -1058,8 +1058,52 @@ class LessonTimeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 class OnlineLessonViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdminOrOwnerOrReadOnly]
     permission_page_name = 'Darslar hisoboti'
-    queryset = OnlineLesson.objects.all()
+    queryset = OnlineLesson.objects.all().select_related('group', 'group__course')
     serializer_class = OnlineLessonSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ['group', 'is_published']
+    search_fields = ['title']
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+
+        # Student faqat o'zining guruhlaridagi published darslarni ko'radi
+        current_user = getattr(self.request, 'user', None)
+        if current_user and getattr(current_user, 'role', None) == 'student':
+            phone = getattr(current_user, 'phone', None) or getattr(current_user, 'username', None)
+            if phone:
+                qs = qs.filter(
+                    group__group_students__student__phone=phone,
+                    is_published=True
+                ).distinct()
+            else:
+                return qs.none()
+
+        # Group bo'yicha filter
+        group_id = self.request.query_params.get('group') or self.request.query_params.get('group_id')
+        if group_id:
+            qs = qs.filter(group_id=group_id)
+
+        # attendance_date bo'yicha filter
+        attendance_date = self.request.query_params.get('attendance_date') or self.request.query_params.get('date')
+        if attendance_date:
+            qs = qs.filter(attendance_date=attendance_date)
+
+        # is_published filter (string -> bool)
+        is_published = self.request.query_params.get('is_published')
+        if is_published is not None:
+            if str(is_published).lower() in ['true', '1']:
+                qs = qs.filter(is_published=True)
+            elif str(is_published).lower() in ['false', '0']:
+                qs = qs.filter(is_published=False)
+
+        return qs
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
 
     @decorators.action(detail=True, methods=['post'], url_path='publish')
     def publish(self, request, pk=None):
@@ -1067,6 +1111,14 @@ class OnlineLessonViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         lesson.is_published = True
         lesson.save()
         return Response({"status": "success", "detail": "Lesson published."}, status=status.HTTP_200_OK)
+
+    @decorators.action(detail=True, methods=['post'], url_path='unpublish')
+    def unpublish(self, request, pk=None):
+        lesson = self.get_object()
+        lesson.is_published = False
+        lesson.save()
+        return Response({"status": "success", "detail": "Lesson unpublished."}, status=status.HTTP_200_OK)
+
 
 
 class StudentGroupLeaveViewSet(TenantViewSetMixin, viewsets.ModelViewSet):

@@ -260,29 +260,56 @@ class CashboxSerializer(serializers.ModelSerializer):
 
 class CashTransactionSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.full_name', read_only=True)
+    employee_name = serializers.SerializerMethodField(read_only=True)
     cashbox_name = serializers.CharField(source='cashbox.name', read_only=True)
+    description = serializers.CharField(source='comment', required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = CashTransaction
         fields = [
             'id', 'cashbox', 'cashbox_name', 'transaction_type',
             'payment_method', 'amount', 'date', 'student',
-            'student_name', 'description'
+            'student_name', 'employee', 'employee_name',
+            'category_name', 'description'
         ]
+
+    def get_employee_name(self, obj):
+        if obj.employee:
+            parts = [obj.employee.first_name, obj.employee.last_name]
+            full_name = " ".join([p for p in parts if p]).strip()
+            return full_name if full_name else obj.employee.username
+        return None
 
     def validate(self, attrs):
         transaction_type = attrs.get('transaction_type')
-        description = attrs.get('description') or ''
+        category_name = attrs.get('category_name') or ''
+        comment = attrs.get('comment') or ''
         student = attrs.get('student')
+        employee = attrs.get('employee')
 
-        # O'quvchi to'ladi (yoki o'quvchi/talaba/student) deb yozilsa, o'quvchini tanlash majburiy bo'lishi kerak
+        combined_text = f"{category_name} {comment}".lower().strip()
+
+        # Kirimda o'quvchi tanlash majburiyligi
         if transaction_type == 'kirim':
-            desc_lower = str(description).lower().strip()
-            if any(x in desc_lower for x in ['o\'quvchi', 'oquvchi', 'talaba', 'student']):
+            if any(x in combined_text for x in ['o\'quvchi', 'oquvchi', 'talaba', 'student', 'to\'lov', 'tolov']):
                 if not student:
                     raise serializers.ValidationError({
                         "student": "Ushbu tranzaksiya turi uchun o'quvchini tanlash majburiy!"
                     })
+
+        # Chiqimda xodim yoki o'quvchi tanlash majburiyligi
+        elif transaction_type == 'chiqim':
+            if any(x in combined_text for x in ['xodim', 'hodim', 'ish haqi', 'ish_haqi', 'oylik', 'avans', 'salary']):
+                if not employee:
+                    raise serializers.ValidationError({
+                        "employee": "Ushbu xarajat turi uchun xodimni tanlash majburiy!"
+                    })
+            elif any(x in combined_text for x in ['o\'quvchi', 'oquvchi', 'talaba', 'student', 'qaytarish', 'refund', 'qaytarildi']):
+                if not student:
+                    raise serializers.ValidationError({
+                        "student": "Ushbu xarajat turi uchun o'quvchini tanlash majburiy!"
+                    })
+
         return attrs
 class FinanceSettingSerializer(serializers.ModelSerializer):
     class Meta:

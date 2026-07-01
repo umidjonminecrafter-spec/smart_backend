@@ -1545,9 +1545,9 @@ class TransactionReportAPIView(APIView):
 
     def get(self, request):
         """Moliya jadvali va filterlar (Sana, Kassa, O'qituvchi bo'yicha)"""
-        queryset = Transaction.objects.filter(
+        queryset = CashTransaction.objects.filter(
             organization=request.user.organization
-        ).select_related('student', 'cashbox').order_by('-date', '-id')
+        ).select_related('student', 'cashbox', 'employee').order_by('-date', '-id')
 
         # Filter: Kassa bo'yicha
         cashbox_id = request.query_params.get('cashbox_id')

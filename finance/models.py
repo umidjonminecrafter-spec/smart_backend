@@ -191,6 +191,7 @@ class CashTransaction(models.Model):
 
     # Kim xarajat qilgani yoki qaysi o'quvchi to'lov qilgani
     student = models.ForeignKey('academics.Student', on_delete=models.SET_NULL, null=True, blank=True)
+    employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     category_name = models.CharField(max_length=255, null=True, blank=True)  # Marker, Hodimga oylik va h.k.
     comment = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -216,12 +217,15 @@ def update_specific_cashbox(cashbox_obj):
 
     org = cashbox_obj.organization
 
-    # Ushbu kassaga tegishli jami kirimlar
-    incomes = Payment.objects.filter(organization=org, cashbox=cashbox_obj).aggregate(total=Sum('amount'))[
-                  'total'] or Decimal('0.00')
-    # Ushbu kassaga tegishli jami chiqimlar
-    expenses = Expense.objects.filter(organization=org, cashbox=cashbox_obj).aggregate(total=Sum('amount'))[
-                   'total'] or Decimal('0.00')
+    # Ushbu kassaga tegishli jami kirimlar (Payment va CashTransaction 'kirim')
+    payment_incomes = Payment.objects.filter(organization=org, cashbox=cashbox_obj).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    cashtx_incomes = CashTransaction.objects.filter(organization=org, cashbox=cashbox_obj, transaction_type='kirim').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    incomes = payment_incomes + cashtx_incomes
+
+    # Ushbu kassaga tegishli jami chiqimlar (Expense va CashTransaction 'chiqim')
+    expense_outcomes = Expense.objects.filter(organization=org, cashbox=cashbox_obj).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    cashtx_outcomes = CashTransaction.objects.filter(organization=org, cashbox=cashbox_obj, transaction_type='chiqim').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    expenses = expense_outcomes + cashtx_outcomes
 
     cashbox_obj.balance = incomes - expenses
     cashbox_obj.save()
@@ -237,6 +241,13 @@ def payment_cashbox_update(sender, instance, **kwargs):
 @receiver(post_save, sender=Expense)
 @receiver(post_delete, sender=Expense)
 def expense_cashbox_update(sender, instance, **kwargs):
+    if instance.cashbox:
+        update_specific_cashbox(instance.cashbox)
+
+
+@receiver(post_save, sender=CashTransaction)
+@receiver(post_delete, sender=CashTransaction)
+def cashtransaction_cashbox_update(sender, instance, **kwargs):
     if instance.cashbox:
         update_specific_cashbox(instance.cashbox)
 

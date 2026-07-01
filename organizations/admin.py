@@ -32,52 +32,36 @@ class SendNotificationForm(forms.Form):
     )
 
 
+# organizations/admin.py faylining pastki qismini shunday o'zgartiring:
+
 def send_notification_to_organizations(modeladmin, request, queryset):
-    """Tanlangan tashkilotlarga bildirishnoma yuborish (Bulk Action)"""
+    """Tanlangan barcha tashkilotlarga bir vaqtda xabar yuborish."""
     if 'apply' in request.POST:
         form = SendNotificationForm(request.POST)
         if form.is_valid():
             title = form.cleaned_data['title']
             message = form.cleaned_data['message']
             notification_type = form.cleaned_data['notification_type']
-            
-            selected_ids = request.POST.getlist('_selected_action')
-            organizations = queryset.filter(id__in=selected_ids)
-            
-            from django.contrib.auth import get_user_model
-            User = get_user_model()
-            
+
             count = 0
-            for org in organizations:
-                ceos = User.objects.filter(organization=org, role='owner')
-                if ceos.exists():
-                    for ceo in ceos:
-                        Notification.objects.create(
-                            organization=org,
-                            user=ceo,
-                            title=title,
-                            message=message,
-                            type=notification_type,
-                            is_read=False
-                        )
-                        count += 1
-                else:
-                    # Fallback: Agar birorta ham CEO (owner) bo'lmasa, barcha ko'rishi uchun user=None qilinadi
-                    Notification.objects.create(
-                        organization=org,
-                        title=title,
-                        message=message,
-                        type=notification_type,
-                        is_read=False
-                    )
-                    count += 1
-                
+            for org in queryset:
+                Notification.objects.create(
+                    organization=org,
+                    title=title,
+                    message=message,
+                    notification_type=notification_type
+                )
+                count += 1
+
             modeladmin.message_user(
                 request, 
-                f"{count} ta bildirishnoma muvaffaqiyatli yuborildi.", 
+                f"{count} ta tashkilotga bildirishnoma muvaffaqiyatli yuborildi! ✅", 
                 messages.SUCCESS
             )
-            return HttpResponseRedirect(request.get_full_path())
+            
+            # 🔥 TUZATILGAN JOYI: Cheksiz redirect bo'lmasligi uchun changelist sahifasiga qaytaramiz
+            return HttpResponseRedirect(request.path)
+            
     else:
         form = SendNotificationForm()
 
@@ -91,7 +75,6 @@ def send_notification_to_organizations(modeladmin, request, queryset):
             'action_checkbox_name': ACTION_CHECKBOX_NAME,
         }
     )
-
 
 send_notification_to_organizations.short_description = "Tanlangan tashkilotlarga bildirishnoma yuborish"
 

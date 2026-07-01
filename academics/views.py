@@ -871,9 +871,14 @@ class GroupAttendanceView(TenantViewSetMixin, APIView):
                 else:
                     status_val = 'present'
 
+            grade = item.get('grade') or item.get('score') or item.get('points')
+            reason_val = item.get('reason') or ""
+
             if attendance_obj:
                 attendance_obj.date = date
                 attendance_obj.status = status_val
+                attendance_obj.grade = grade
+                attendance_obj.reason = reason_val
                 attendance_obj.save()
                 attendance = attendance_obj
             else:
@@ -882,7 +887,11 @@ class GroupAttendanceView(TenantViewSetMixin, APIView):
                     group_id=real_group_id,
                     student_id=student_id,
                     date=date,
-                    defaults={'status': status_val}
+                    defaults={
+                        'status': status_val,
+                        'grade': grade,
+                        'reason': reason_val
+                    }
                 )
             created_records.append(attendance)
 

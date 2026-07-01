@@ -218,6 +218,8 @@ class Attendance(TenantModel):
     student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="attendances")
     date = models.DateField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='present')
+    grade = models.IntegerField(null=True, blank=True)
+    reason = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
         # unique_together cheklovi olib tashlandi, chunki student NULL bo'lsa baza konflikt beradi.

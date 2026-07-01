@@ -492,5 +492,34 @@ class CourseMaterialAndOnlineLessonTests(APITestCase):
         # Ensure the date is a datetime.date object (not string)
         self.assertIsInstance(created_attendance.date, datetime.date)
 
+    def test_group_attendance_grade_and_reason(self):
+        """
+        Verify that POSTing to group attendance endpoint saves and returns grade and reason.
+        """
+        self.client.force_authenticate(user=self.admin1)
+        url = reverse('group-attendance', kwargs={'group_id': self.group1.id})
+
+        # Post request to create a new attendance with grade and reason
+        data = {
+            "student": self.student1.id,
+            "date": "2026-06-30",
+            "status": "excused",
+            "grade": 5,
+            "reason": "Kasal bo'lib qoldi"
+        }
+
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data=data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['grade'], 5)
+        self.assertEqual(response.data['reason'], "Kasal bo'lib qoldi")
+
+        # Verify database record
+        from academics.models import Attendance
+        import datetime
+        att = Attendance.objects.get(group=self.group1, student=self.student1, date=datetime.date(2026, 6, 30))
+        self.assertEqual(att.grade, 5)
+        self.assertEqual(att.reason, "Kasal bo'lib qoldi")
+
+
 
 

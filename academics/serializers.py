@@ -590,7 +590,8 @@ class AttendanceSerializer(serializers.ModelSerializer):
             rep['lesson_date'] = None
         rep['is_present'] = instance.status == 'present'
         rep['is_excused'] = instance.status == 'excused'
-        rep['reason'] = "sababli" if instance.status == 'excused' else ""
+        rep['grade'] = instance.grade
+        rep['reason'] = instance.reason or ("sababli" if instance.status == 'excused' else "")
         return rep
 
 

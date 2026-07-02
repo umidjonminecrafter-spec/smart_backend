@@ -120,8 +120,8 @@ class MonthlyIncomeSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
+
 class PaymentSerializer(serializers.ModelSerializer):
-    # TO'G'RILANDI: SerializerMethodField qilinib, pastda metod yozildi
     student_name = serializers.SerializerMethodField(read_only=True)
     employee = serializers.SerializerMethodField(read_only=True)
     cashbox_name = serializers.CharField(source='cashbox.name', read_only=True, default="Noma'lum kassa")
@@ -132,13 +132,11 @@ class PaymentSerializer(serializers.ModelSerializer):
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
     def get_student_name(self, obj):
-        # Agar talaba o'chirilmagan bo'lsa, ismi va familiyasini qaytaramiz
         if obj.student:
             first = getattr(obj.student, 'first_name', '')
             last = getattr(obj.student, 'last_name', '')
-            full = f"{first} {last or ''}".strip()
-            return full if full else "Ismsiz Talaba"
-        return "O'chirilgan Talaba"
+            return f"{first} {last or ''}".strip()
+        return "Talaba tanlanmadi"
 
     def get_employee(self, obj):
         if obj.employee:
@@ -146,6 +144,23 @@ class PaymentSerializer(serializers.ModelSerializer):
             full_name = " ".join([p for p in parts if p]).strip()
             return full_name if full_name else obj.employee.username
         return "Tizim"
+
+    def validate(self, attrs):
+        """🔥 TALABANI MAJBURIY QILISH: Kirim amaliyotida talaba tanlanishi shart"""
+        student = attrs.get('student')
+        amount = attrs.get('amount')
+
+        if not student:
+            raise serializers.ValidationError({
+                "student": "Kirim qilish uchun talabani tanlash majburiy! ⚠️"
+            })
+
+        if amount and amount <= 0:
+            raise serializers.ValidationError({
+                "amount": "Kirim summasi 0 dan katta bo'lishi kerak!"
+            })
+
+        return attrs
 
     def to_representation(self, instance):
         rep = super().to_representation(instance)

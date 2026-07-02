@@ -145,22 +145,6 @@ class PaymentSerializer(serializers.ModelSerializer):
             return full_name if full_name else obj.employee.username
         return "Tizim"
 
-    def validate(self, attrs):
-        """🔥 TALABANI MAJBURIY QILISH: Kirim amaliyotida talaba tanlanishi shart"""
-        student = attrs.get('student')
-        amount = attrs.get('amount')
-
-        if not student:
-            raise serializers.ValidationError({
-                "student": "Kirim qilish uchun talabani tanlash majburiy! ⚠️"
-            })
-
-        if amount and amount <= 0:
-            raise serializers.ValidationError({
-                "amount": "Kirim summasi 0 dan katta bo'lishi kerak!"
-            })
-
-        return attrs
 
     def to_representation(self, instance):
         rep = super().to_representation(instance)

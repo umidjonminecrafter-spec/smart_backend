@@ -1535,30 +1535,28 @@ class TransactionCreateAPIView(APIView):
         """Kirim yoki Chiqim yaratish (Rasmdagi Saqlash tugmasi uchun)"""
         serializer = CashTransactionSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(organization=request.user.organization)
+            # Tranzaksiyani xavfsiz (atomic) bajarish
+            with transaction.atomic():
+                # Avval kassa amaliyotini saqlaymiz
+                instance = serializer.save(organization=request.user.organization)
+
+                # TO'G'RILANDI: Modelda maydon 'transaction_type' va qiymatlar kichik harfda ('kirim'/'chiqim')
+                if instance.student:
+                    student = instance.student
+                    amount = instance.amount
+
+                    if instance.transaction_type == 'kirim':
+                        # Kassaga kirim bo'ldi -> O'quvchi balansi ko'payadi
+                        student.balance += amount
+                        student.save(update_fields=['balance'])
+
+                    elif instance.transaction_type == 'chiqim':
+                        # Kassadan o'quvchiga chiqim bo'ldi (Refund) -> O'quvchi balansi kamayadi
+                        student.balance -= amount
+                        student.save(update_fields=['balance'])
+
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def perform_create(self, serializer):
-        # Tranzaksiyani xavfsiz (atomic) bajarish uchun db transaction ishlatamiz
-        with transaction.atomic():
-            # Avval kassa amaliyotini saqlaymiz (organization mixin orqali)
-            instance = serializer.save()
-
-            # Agar tranzaksiyada student (o'quvchi) ishtirok etayotgan bo'lsa:
-            if instance.student:
-                student = instance.student
-                amount = instance.amount
-
-                if instance.type == 'INCOME':
-                    # Kassaga kirim bo'ldi -> O'quvchi balansi ko'payadi
-                    student.balance += amount
-                    student.save(update_fields=['balance'])
-
-                elif instance.type == 'EXPENSE':
-                    # Kassadan o'quvchiga chiqim bo'ldi (Refund) -> O'quvchi balansi kamayadi
-                    student.balance -= amount
-                    student.save(update_fields=['balance'])
 
 
 class TransactionReportAPIView(APIView):
@@ -1575,10 +1573,10 @@ class TransactionReportAPIView(APIView):
         if cashbox_id:
             queryset = queryset.filter(cashbox_id=cashbox_id)
 
-        # Filter: To'lov turi (Naqd, Plastik, Terminal)
+        # Filter: To'lov turi (naqd, plastik, terminal) - kichik harfda tekshiriladi
         payment_method = request.query_params.get('payment_method')
         if payment_method:
-            queryset = queryset.filter(payment_method=payment_method)
+            queryset = queryset.filter(payment_method=payment_method.lower())
 
         # Filter: Sana oralig'i
         start_date = request.query_params.get('start_date')
@@ -1593,7 +1591,8 @@ class TransactionReportAPIView(APIView):
                 student__student_groups__group__teacher_id=teacher_id
             ).distinct()
 
-        serializer = CashTransactionSerializer(queryset, many=True)
+        # Serializer'ga context orqali request'ni uzatamiz (bu student_name to'g'ri ishlashi uchun kerak bo'lishi mumkin)
+        serializer = CashTransactionSerializer(queryset, many=True, context={'request': request})
         return Response(serializer.data)
 
 

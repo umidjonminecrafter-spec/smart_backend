@@ -389,3 +389,32 @@ class FinanceActionSerializer(serializers.ModelSerializer):
             'id', 'action_type', 'target_type', 'student',
             'employee', 'amount', 'reason', 'cashbox', 'created_at'
         ]
+
+class CashTransferSerializer(serializers.ModelSerializer):
+    # O'tkazmalarda ikkinchi kassani qabul qilish uchun qo'shimcha maydon
+    to_cashbox = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    cashbox_name = serializers.CharField(source='cashbox.name', read_only=True)
+    student_name = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Payment  # Baribir Payment modeliga saqlaydi
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+    def get_student_name(self, obj):
+        if obj.student:
+            return f"{getattr(obj.student, 'first_name', '')} {getattr(obj.student, 'last_name', '')}".strip()
+        return None
+
+    def validate(self, attrs):
+        amount = attrs.get('amount', 0)
+        to_cashbox = attrs.get('to_cashbox')
+        cashbox = attrs.get('cashbox')
+
+        # Agar kassalararo o'tkazma bo'lsa
+        if to_cashbox:
+            if cashbox and int(cashbox.id) == int(to_cashbox):
+                raise serializers.ValidationError({"to_cashbox": "Bir xil kassaga pul o'tkazib bo'lmaydi! ⚠️"})
+            if amount <= 0:
+                raise serializers.ValidationError({"amount": "O'tkazma summasi 0 dan katta bo'lishi kerak!"})
+        return attrs

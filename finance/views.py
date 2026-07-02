@@ -28,8 +28,8 @@ from django.contrib.auth import get_user_model
 from finance.serializers import CashTransactionSerializer
 from organizations.models import TenantModel
 
-from .serializers import FinanceActionSerializer, TransactionSerializer, TransactionCategorySerializer
-
+from .serializers import FinanceActionSerializer, TransactionSerializer, TransactionCategorySerializer,CashTransferSerializer
+from rest_framework.exceptions import ValidationError
 User = get_user_model()
 
 class ExpenseCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
@@ -150,10 +150,8 @@ class ExpenseViewSet(TenantViewSetMixin, viewsets.ModelViewSet):  # Agar TenantV
 
         return queryset
 
-    # 🌟 Real vaqtda kassa balansi va tranzaksiyani boshqarish
     def perform_create(self, serializer):
         with db_transaction.atomic():
-            # Request yuborgan foydalanuvchidan tashkilotni aniq olamiz
             user = self.request.user
             org = getattr(user, 'organization', None)
 
@@ -1111,7 +1109,7 @@ class CompanyProfitChartView(TenantViewSetMixin, APIView):
 
 class WithdrawalViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Yechib olish'
-    serializer_class = PaymentSerializer
+    serializer_class = CashTransferSerializer  # 🔥 To'g'rilandi: Yangi serializerga o'zgartirildi
     pagination_class = None
 
     def get_queryset(self):
@@ -1126,21 +1124,81 @@ class WithdrawalViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        # Ensure the amount is saved as negative when creating a withdrawal
-        amount = serializer.validated_data.get('amount')
-        if amount and amount > 0:
+        # Frontenddan kelgan xom ma'lumotlarni o'qiymiz
+        request_data = self.request.data
+        amount_raw = request_data.get('amount', 0)
+        amount = Decimal(str(amount_raw)) if amount_raw else Decimal('0')
+
+        from_cashbox_id = request_data.get('cashbox')
+        to_cashbox_id = request_data.get('to_cashbox')
+
+        # 🌟 1-HOLAT: ODDY TALABAGA PUL QAYTARISH (Refund/Withdrawal)
+        if not to_cashbox_id:
+            if amount > 0:
+                serializer.validated_data['amount'] = -amount
+
+            student = serializer.validated_data.get('student')
+            if student:
+                student.balance += serializer.validated_data['amount']
+                student.save()
+
+            instance = serializer.save(organization_id=self.get_organization_id(), branch_id=self.get_branch_id())
+
+            # Kassadan pul ayiramiz
+            if instance.cashbox:
+                instance.cashbox.balance += instance.amount  # amount manfiy bo'lgani uchun balans kamayadi
+                instance.cashbox.save()
+            return
+
+        # 🌟 2-HOLAT: KASSALARARO PUL O'TKAZISH (Transfer)
+        with db_transaction.atomic():
+            # Kassalarni bazadan qulflab (select_for_update) olamiz
+            try:
+                from_box = Cashbox.objects.select_for_update().get(id=from_cashbox_id)
+                to_box = Cashbox.objects.select_for_update().get(id=to_cashbox_id)
+            except Cashbox.DoesNotExist:
+                raise ValidationError({"detail": "Tanlangan kassalardan biri tizimda topilmadi!"})
+
+            if from_box.balance < amount:
+                raise ValidationError({
+                                          "detail": f"'{from_box.name}' kassasida yetarli mablag' mavjud emas (Balans: {from_box.balance})! ⚠️"})
+
+            # Balanslarni o'zgartiramiz
+            from_box.balance -= amount
+            from_box.save()
+
+            to_box.balance += amount
+            to_box.save()
+
+            # Chiquvchi kassa logi
+            CashTransaction.objects.create(
+                organization_id=self.get_organization_id(),
+                cashbox=from_box,
+                transaction_type='chiqim',
+                payment_method='naqd',
+                amount=amount,
+                date=timezone.now().date(),
+                comment=f"Kassalararo o'tkazma: {to_box.name} kassasiga jo'natildi."
+            )
+
+            # Kiruvchi kassa logi
+            CashTransaction.objects.create(
+                organization_id=self.get_organization_id(),
+                cashbox=to_box,
+                transaction_type='kirim',
+                payment_method='naqd',
+                amount=amount,
+                date=timezone.now().date(),
+                comment=f"Kassalararo o'tkazma: {from_box.name} kassasidan qabul qilindi."
+            )
+
+            # Frontend xato bermasligi va Payment jadvalida chiroyli minus log qolishi uchun:
             serializer.validated_data['amount'] = -amount
-        
-        # Procedurally update student balance when a withdrawal is added
-        student = serializer.validated_data.get('student')
-        if student:
-            student.balance += serializer.validated_data['amount']
-            student.save()
-            
-        serializer.save(organization_id=self.get_organization_id(), branch_id=self.get_branch_id())
+            serializer.validated_data.pop('to_cashbox', None)  # to_cashbox maydoni modelda yo'qligi uchun o'chiramiz
+            serializer.save(organization_id=self.get_organization_id(), branch_id=self.get_branch_id())
 
     def perform_destroy(self, instance):
-        # Procedurally update student balance when a withdrawal is deleted (refund the withdrawal amount)
+        # Tranzaksiyani o'chirganda o'quvchi balansini tiklash
         student = instance.student
         if student:
             student.balance -= instance.amount

@@ -153,35 +153,34 @@ class ExpenseViewSet(TenantViewSetMixin, viewsets.ModelViewSet):  # Agar TenantV
     # 🌟 Real vaqtda kassa balansi va tranzaksiyani boshqarish
     def perform_create(self, serializer):
         with db_transaction.atomic():
-            org_id = self.get_organization_id()
-            if not org_id:
+            # Request yuborgan foydalanuvchidan tashkilotni aniq olamiz
+            user = self.request.user
+            org = getattr(user, 'organization', None)
+
+            if not org:
                 from rest_framework.exceptions import ValidationError
-                raise ValidationError({"detail": "Organization context is required."})
-            from organizations.models import Organization, Branch
-            try:
-                org = Organization.objects.get(id=org_id)
-            except Organization.DoesNotExist:
-                from rest_framework.exceptions import ValidationError
-                raise ValidationError({"detail": "Organization not found."})
+                raise ValidationError({"detail": "Sizda hech qanday tashkilot biriktirilmagan! Tizimga qayta kiring."})
 
             save_kwargs = {'organization': org}
+
+            # Agar filial (branch) ham bo'lsa biriktiramiz
             branch_id = self.get_branch_id()
             if branch_id:
+                from organizations.models import Branch
                 try:
                     save_kwargs['branch'] = Branch.objects.get(id=branch_id)
                 except Branch.DoesNotExist:
                     pass
 
-            # Xarajatni saqlaymiz
+            # Xarajatni saqlaymiz (Tashkilot majburiy holda yetkaziladi)
             expense = serializer.save(**save_kwargs)
 
-            # Agar kassa tanlangan bo'lsa, pul ayiramiz va tranzaksiya yozamiz
+            # Kassa balansini yangilash qismi...
             if expense.cashbox:
                 cashbox = expense.cashbox
                 cashbox.balance -= expense.amount
                 cashbox.save()
 
-                # Sarlavhani description JSON ichidan o'qib olishga harakat qilamiz
                 try:
                     import json
                     unpacked = json.loads(expense.description)

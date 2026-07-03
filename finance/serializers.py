@@ -401,13 +401,14 @@ class FinanceActionSerializer(serializers.ModelSerializer):
 
     # 🌟 Talabaning ism va familiyasini xavfsiz birlashtirib qaytarish uchun MethodField ishlatamiz
     student_name = serializers.SerializerMethodField()
+    employee_name = serializers.SerializerMethodField()
 
     class Meta:
         model = FinanceAction
         fields = [
             'id', 'action_type', 'target_type', 'student',
             'student_name',  # 🔥 XATOLIK SHU YERDA EDI: Ro'yxatga qo'shib qo'yildi!
-            'employee', 'amount', 'reason', 'cashbox', 'created_at'
+            'employee', 'amount', 'reason', 'cashbox', 'created_at','employee_name'
         ]
 
     def get_student_name(self, obj):

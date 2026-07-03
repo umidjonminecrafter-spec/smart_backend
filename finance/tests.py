@@ -235,3 +235,75 @@ class CashTransactionAPITests(APITestCase):
         self.assertEqual(response.data[0]["student_name"], self.student.full_name)
         self.assertEqual(response.data[0]["description"], "Izoh matni")
 
+    def test_cashbox_transfer_success(self):
+        """
+        Verify that transferring money from one cashbox to another updates balances and creates CashTransactions.
+        """
+        from finance.models import Cashbox, CashTransaction
+        import datetime
+
+        # Give initial balance to self.cashbox
+        CashTransaction.objects.create(
+            organization=self.org,
+            cashbox=self.cashbox,
+            transaction_type="kirim",
+            payment_method="naqd",
+            amount=Decimal("1000000.00"),
+            date=datetime.date(2026, 7, 1),
+            student=self.student,
+            category_name="o'quvchi to'lov",
+            comment="Initial balance"
+        )
+
+        # Create second cashbox
+        target_cashbox = Cashbox.objects.create(
+            organization=self.org,
+            name="Plastik karta",
+            balance=Decimal("0.00")
+        )
+        CashTransaction.objects.create(
+            organization=self.org,
+            cashbox=target_cashbox,
+            transaction_type="kirim",
+            payment_method="naqd",
+            amount=Decimal("200000.00"),
+            date=datetime.date(2026, 7, 1),
+            student=self.student,
+            category_name="o'quvchi to'lov",
+            comment="Initial target balance"
+        )
+
+        url = reverse('transaction-transfer')
+        data = {
+            "from_cashbox": self.cashbox.id,
+            "to_cashbox": target_cashbox.id,
+            "amount": "300000.00",
+            "izoh": "Plastikka o'tkazma"
+        }
+
+        response = self.client.post(url, data=data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("kassalararo muvaffaqiyatli o'tkazildi", response.data["detail"])
+
+        # Verify balances
+        self.cashbox.refresh_from_db()
+        target_cashbox.refresh_from_db()
+
+        # self.cashbox: 1000000 - 300000 = 700000
+        # target_cashbox: 200000 + 300000 = 500000
+        self.assertEqual(self.cashbox.balance, Decimal("700000.00"))
+        self.assertEqual(target_cashbox.balance, Decimal("500000.00"))
+
+        # Verify CashTransactions created
+        txs = CashTransaction.objects.filter(category_name="Kassalararo o'tkazma").order_by('id')
+        self.assertEqual(txs.count(), 2)
+
+        self.assertEqual(txs[0].cashbox, self.cashbox)
+        self.assertEqual(txs[0].transaction_type, "chiqim")
+        self.assertEqual(txs[0].amount, Decimal("300000.00"))
+
+        self.assertEqual(txs[1].cashbox, target_cashbox)
+        self.assertEqual(txs[1].transaction_type, "kirim")
+        self.assertEqual(txs[1].amount, Decimal("300000.00"))
+
+

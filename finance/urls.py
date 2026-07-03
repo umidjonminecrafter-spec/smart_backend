@@ -15,7 +15,7 @@ from finance.views import (
 
 from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView, FinancialReportsView, \
     FinancialAnalyticsView, TransactionReportAPIView, TransactionCreateAPIView, AdvancedPaymentReportAPIView, \
-    CashboxListCreateAPIView
+    CashboxListCreateAPIView, CashTransferAPIView
 
 from finance.views import CashFlowReportView, TransactionViewSet, TransactionTypesView, \
     EmployeeFinanceBalanceReportView, DiscountsAndBonusesReportView,UnsubmittedAttendanceReportView,RoomAnalyticsReportView
@@ -59,6 +59,7 @@ urlpatterns = [
     path('teacher-debts/summary/', TeacherDebtsSummaryView.as_view(), name='teacher-debts-summary'),
     path('teacher-debts/', TeacherDebtsView.as_view(), name='teacher-debts-list'),
     path('transactions/create/', TransactionCreateAPIView.as_view(), name='transaction-create'),
+    path('transactions/transfer/', CashTransferAPIView.as_view(), name='transaction-transfer'),
 
     path('transactions/report/', TransactionReportAPIView.as_view(), name='transaction-report'),
     path('all-debts/', AllDebtsView.as_view(), name='all-debts'),

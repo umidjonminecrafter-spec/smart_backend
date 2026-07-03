@@ -25,11 +25,11 @@ from academics.models import Student, Group, StudentGroup, TeacherSalaryPayment
 from academics.serializers import StudentSerializer, TeacherSalaryPaymentSerializer
 from django.contrib.auth import get_user_model
 
-from finance.serializers import CashTransactionSerializer
+from finance.serializers import CashTransactionSerializer, CashTransferSerializer
 from organizations.models import TenantModel
 
-from .serializers import FinanceActionSerializer, TransactionSerializer, TransactionCategorySerializer,CashTransferSerializer
-from rest_framework.exceptions import ValidationError
+from .serializers import FinanceActionSerializer, TransactionSerializer, TransactionCategorySerializer
+
 User = get_user_model()
 
 class ExpenseCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
@@ -1109,7 +1109,7 @@ class CompanyProfitChartView(TenantViewSetMixin, APIView):
 
 class WithdrawalViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Yechib olish'
-    serializer_class = CashTransferSerializer  # 🔥 To'g'rilandi: Yangi serializerga o'zgartirildi
+    serializer_class = PaymentSerializer
     pagination_class = None
 
     def get_queryset(self):
@@ -1124,81 +1124,21 @@ class WithdrawalViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        # Frontenddan kelgan xom ma'lumotlarni o'qiymiz
-        request_data = self.request.data
-        amount_raw = request_data.get('amount', 0)
-        amount = Decimal(str(amount_raw)) if amount_raw else Decimal('0')
-
-        from_cashbox_id = request_data.get('cashbox')
-        to_cashbox_id = request_data.get('to_cashbox')
-
-        # 🌟 1-HOLAT: ODDY TALABAGA PUL QAYTARISH (Refund/Withdrawal)
-        if not to_cashbox_id:
-            if amount > 0:
-                serializer.validated_data['amount'] = -amount
-
-            student = serializer.validated_data.get('student')
-            if student:
-                student.balance += serializer.validated_data['amount']
-                student.save()
-
-            instance = serializer.save(organization_id=self.get_organization_id(), branch_id=self.get_branch_id())
-
-            # Kassadan pul ayiramiz
-            if instance.cashbox:
-                instance.cashbox.balance += instance.amount  # amount manfiy bo'lgani uchun balans kamayadi
-                instance.cashbox.save()
-            return
-
-        # 🌟 2-HOLAT: KASSALARARO PUL O'TKAZISH (Transfer)
-        with db_transaction.atomic():
-            # Kassalarni bazadan qulflab (select_for_update) olamiz
-            try:
-                from_box = Cashbox.objects.select_for_update().get(id=from_cashbox_id)
-                to_box = Cashbox.objects.select_for_update().get(id=to_cashbox_id)
-            except Cashbox.DoesNotExist:
-                raise ValidationError({"detail": "Tanlangan kassalardan biri tizimda topilmadi!"})
-
-            if from_box.balance < amount:
-                raise ValidationError({
-                                          "detail": f"'{from_box.name}' kassasida yetarli mablag' mavjud emas (Balans: {from_box.balance})! ⚠️"})
-
-            # Balanslarni o'zgartiramiz
-            from_box.balance -= amount
-            from_box.save()
-
-            to_box.balance += amount
-            to_box.save()
-
-            # Chiquvchi kassa logi
-            CashTransaction.objects.create(
-                organization_id=self.get_organization_id(),
-                cashbox=from_box,
-                transaction_type='chiqim',
-                payment_method='naqd',
-                amount=amount,
-                date=timezone.now().date(),
-                comment=f"Kassalararo o'tkazma: {to_box.name} kassasiga jo'natildi."
-            )
-
-            # Kiruvchi kassa logi
-            CashTransaction.objects.create(
-                organization_id=self.get_organization_id(),
-                cashbox=to_box,
-                transaction_type='kirim',
-                payment_method='naqd',
-                amount=amount,
-                date=timezone.now().date(),
-                comment=f"Kassalararo o'tkazma: {from_box.name} kassasidan qabul qilindi."
-            )
-
-            # Frontend xato bermasligi va Payment jadvalida chiroyli minus log qolishi uchun:
+        # Ensure the amount is saved as negative when creating a withdrawal
+        amount = serializer.validated_data.get('amount')
+        if amount and amount > 0:
             serializer.validated_data['amount'] = -amount
-            serializer.validated_data.pop('to_cashbox', None)  # to_cashbox maydoni modelda yo'qligi uchun o'chiramiz
-            serializer.save(organization_id=self.get_organization_id(), branch_id=self.get_branch_id())
+
+        # Procedurally update student balance when a withdrawal is added
+        student = serializer.validated_data.get('student')
+        if student:
+            student.balance += serializer.validated_data['amount']
+            student.save()
+
+        serializer.save(organization_id=self.get_organization_id(), branch_id=self.get_branch_id())
 
     def perform_destroy(self, instance):
-        # Tranzaksiyani o'chirganda o'quvchi balansini tiklash
+        # Procedurally update student balance when a withdrawal is deleted (refund the withdrawal amount)
         student = instance.student
         if student:
             student.balance -= instance.amount
@@ -1613,6 +1553,73 @@ class TransactionCreateAPIView(APIView):
                         student.save(update_fields=['balance'])
 
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CashTransferAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        """Kassadan kassaga pul o'tkazish API"""
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+
+        # Naming normalizations
+        if 'from_cashbox' not in data:
+            if 'cashbox' in data:
+                data['from_cashbox'] = data['cashbox']
+            elif 'from_cashbox_id' in data:
+                data['from_cashbox'] = data['from_cashbox_id']
+
+        if 'to_cashbox' not in data and 'to_cashbox_id' in data:
+            data['to_cashbox'] = data['to_cashbox_id']
+
+        if 'comment' not in data:
+            if 'description' in data:
+                data['comment'] = data['description']
+            elif 'izoh' in data:
+                data['comment'] = data['izoh']
+
+        serializer = CashTransferSerializer(data=data, context={'request': request})
+        if serializer.is_valid():
+            from_cashbox = serializer.validated_data['from_cashbox']
+            to_cashbox = serializer.validated_data['to_cashbox']
+            amount = serializer.validated_data['amount']
+            comment = serializer.validated_data.get('comment') or "Kassalararo o'tkazma"
+            date = data.get('date') or timezone.now().date()
+
+            with transaction.atomic():
+                # 1. Outgoing CashTransaction (Chiqim) from source cashbox
+                CashTransaction.objects.create(
+                    organization=request.user.organization,
+                    cashbox=from_cashbox,
+                    transaction_type='chiqim',
+                    payment_method='naqd',
+                    amount=amount,
+                    date=date,
+                    category_name="Kassalararo o'tkazma",
+                    comment=f"O'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
+                )
+
+                # 2. Incoming CashTransaction (Kirim) to destination cashbox
+                CashTransaction.objects.create(
+                    organization=request.user.organization,
+                    cashbox=to_cashbox,
+                    transaction_type='kirim',
+                    payment_method='naqd',
+                    amount=amount,
+                    date=date,
+                    category_name="Kassalararo o'tkazma",
+                    comment=f"O'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
+                )
+
+            # Return success response
+            return Response({
+                "detail": f"{amount} UZS kassalararo muvaffaqiyatli o'tkazildi!",
+                "from_cashbox": from_cashbox.id,
+                "to_cashbox": to_cashbox.id,
+                "amount": float(amount)
+            }, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 

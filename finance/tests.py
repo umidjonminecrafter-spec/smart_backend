@@ -301,9 +301,26 @@ class CashTransactionAPITests(APITestCase):
         self.assertEqual(txs[0].cashbox, self.cashbox)
         self.assertEqual(txs[0].transaction_type, "chiqim")
         self.assertEqual(txs[0].amount, Decimal("300000.00"))
+        self.assertEqual(txs[0].employee, self.admin)
 
         self.assertEqual(txs[1].cashbox, target_cashbox)
         self.assertEqual(txs[1].transaction_type, "kirim")
         self.assertEqual(txs[1].amount, Decimal("300000.00"))
+        self.assertEqual(txs[1].employee, self.admin)
+
+        # Verify general Transactions created
+        from finance.models import Transaction
+        gen_txs = Transaction.objects.filter(description__icontains="Kassalararo o'tkazma").order_by('id')
+        self.assertEqual(gen_txs.count(), 2)
+
+        self.assertEqual(gen_txs[0].cashbox, self.cashbox)
+        self.assertEqual(gen_txs[0].type, "EXPENSE")
+        self.assertEqual(gen_txs[0].amount, Decimal("300000.00"))
+        self.assertEqual(gen_txs[0].employee, self.admin)
+
+        self.assertEqual(gen_txs[1].cashbox, target_cashbox)
+        self.assertEqual(gen_txs[1].type, "INCOME")
+        self.assertEqual(gen_txs[1].amount, Decimal("300000.00"))
+        self.assertEqual(gen_txs[1].employee, self.admin)
 
 

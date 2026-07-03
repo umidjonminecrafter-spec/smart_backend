@@ -1597,6 +1597,7 @@ class CashTransferAPIView(APIView):
                     amount=amount,
                     date=date,
                     category_name="Kassalararo o'tkazma",
+                    employee=request.user,
                     comment=f"O'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
                 )
 
@@ -1609,7 +1610,30 @@ class CashTransferAPIView(APIView):
                     amount=amount,
                     date=date,
                     category_name="Kassalararo o'tkazma",
+                    employee=request.user,
                     comment=f"O'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
+                )
+
+                # 3. General Transaction (EXPENSE) from source cashbox
+                Transaction.objects.create(
+                    organization=request.user.organization,
+                    cashbox=from_cashbox,
+                    amount=amount,
+                    type='EXPENSE',
+                    category='DIRECT',
+                    employee=request.user,
+                    description=f"Kassalararo o'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
+                )
+
+                # 4. General Transaction (INCOME) to target cashbox
+                Transaction.objects.create(
+                    organization=request.user.organization,
+                    cashbox=to_cashbox,
+                    amount=amount,
+                    type='INCOME',
+                    category='DIRECT',
+                    employee=request.user,
+                    description=f"Kassalararo o'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
                 )
 
             # Return success response

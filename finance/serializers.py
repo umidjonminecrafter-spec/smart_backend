@@ -394,7 +394,7 @@ class TransactionSerializer(serializers.ModelSerializer):
         return attrs
 
 class FinanceActionSerializer(serializers.ModelSerializer):
-    # Bu maydon frontend'da kassani tanlash uchun kerak bo'ladi, lekin modelning o'zida yo'q
+    # Frontend'dan cashbox kelishini qabul qilamiz, lekin modelda yo'qligi uchun write_only qilamiz
     cashbox = serializers.IntegerField(write_only=True, required=False)
 
     class Meta:
@@ -403,6 +403,11 @@ class FinanceActionSerializer(serializers.ModelSerializer):
             'id', 'action_type', 'target_type', 'student',
             'employee', 'amount', 'reason', 'cashbox', 'created_at'
         ]
+
+    # 🔥 ENG MUHIM JOYI: Modelga yuborishdan oldin kassa IDsini validated_data ichidan olib tashlaymiz
+    def create(self, validated_data):
+        validated_data.pop('cashbox', None) # cashbox'ni o'chirib tashlaydi
+        return super().create(validated_data)
 
 class CashTransferSerializer(serializers.Serializer):
     from_cashbox = serializers.PrimaryKeyRelatedField(queryset=Cashbox.objects.all())

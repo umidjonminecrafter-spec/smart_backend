@@ -11,20 +11,23 @@ application = get_wsgi_application()
 # ================= 1. SUPERUSER YARATISH QISMI =================
 try:
     from django.contrib.auth import get_user_model
+    from django.contrib.auth.hashers import make_password
 
     User = get_user_model()
 
     if not User.objects.filter(username='admin').exists():
+        # Yangi superuser yaratamiz
         User.objects.create_superuser('admin', 'admin@example.com', 'admin12345')
         print("[OK] Superuser muvaffaqiyatli yaratildi!")
     else:
-        # Parolni yangilash (har safar yangilanadi)
-        admin_user = User.objects.get(username='admin')
-        admin_user.set_password('admin12345')
-        admin_user.is_staff = True
-        admin_user.is_superuser = True
-        admin_user.save()
-        print("[OK] Superuser paroli yangilandi.")
+        # update() ishlatamiz - signallar va validatsiyani chetlab o'tadi
+        User.objects.filter(username='admin').update(
+            password=make_password('admin12345'),
+            is_staff=True,
+            is_superuser=True,
+            is_active=True,
+        )
+        print("[OK] Superuser paroli va flaglari yangilandi.")
 except Exception as e:
     print(f"[XATO] Superuser yaratishda xatolik yuz berdi: {e}")
 

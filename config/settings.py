@@ -33,10 +33,13 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # PythonAnywhere va Render kabi HTTPS proxy'larda redirect loop oldini olish uchun
-USE_X_FORWARDED_HOST = True
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SESSION_COOKIE_SECURE = False  # PythonAnywhere'da admin ishlashi uchun
-CSRF_COOKIE_SECURE = False     # PythonAnywhere'da admin ishlashi uchun
+# ESLATMA: SECURE_PROXY_SSL_HEADER qo'shilmaydi - PythonAnywhere'da session cookie muammo keltirib chiqaradi
+SESSION_COOKIE_SECURE = False      # HTTP orqali ham session cookie ishlashi uchun
+CSRF_COOKIE_SECURE = False         # HTTP orqali ham CSRF cookie ishlashi uchun
+SESSION_COOKIE_SAMESITE = 'Lax'   # Cross-site muammolaridan himoya
+CSRF_COOKIE_SAMESITE = 'Lax'      # Cross-site muammolaridan himoya
+SESSION_COOKIE_HTTPONLY = True     # JS orqali o'qilmasin
+SESSION_SAVE_EVERY_REQUEST = True  # Har so'rovda session saqlanadi
 
 # Application definition
 INSTALLED_APPS = [

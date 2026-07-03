@@ -1587,60 +1587,82 @@ class CashTransferAPIView(APIView):
             comment = serializer.validated_data.get('comment') or "Kassalararo o'tkazma"
             date = data.get('date') or timezone.now().date()
 
-            with transaction.atomic():
-                # 1. Outgoing CashTransaction (Chiqim) from source cashbox
-                CashTransaction.objects.create(
+            # 🛠️ TRANZAKSIYANI XAVFSIZ (ATOMIC) BAJARISH
+            with db_transaction.atomic():
+
+                # 🌟 KASSALAR BALANSINI TEKSHIRISH VA YANGILASH
+                # select_for_update() bir vaqtda ikkita so'rov kelib balans minusga kirib ketishini oldini oladi
+                from_box = Cashbox.objects.select_for_update().get(id=from_cashbox.id)
+                to_box = Cashbox.objects.select_for_update().get(id=to_cashbox.id)
+
+                if from_box.balance < amount:
+                    return Response(
+                        {"detail": f"'{from_box.name}' kassasida yetarli mablag' yo'q (Balans: {from_box.balance})!"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Balanslarni o'zgartiramiz
+                from_box.balance -= amount
+                from_box.save(update_fields=['balance'])
+
+                to_box.balance += amount
+                to_box.save(update_fields=['balance'])
+
+                # 🌟 1. Chiqim tarixi (FinanceAction orqali)
+                # Modelda 'cashbox' maydoni bo'lmasa, serializer modelini ishlatsa xavfsiz bo'ladi:
+                serializer.save(
                     organization=request.user.organization,
-                    cashbox=from_cashbox,
+                    cashbox=from_box,
                     transaction_type='chiqim',
                     payment_method='naqd',
                     amount=amount,
                     date=date,
-                    category_name="Kassalararo o'tkazma",
                     employee=request.user,
-                    comment=f"O'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
+                    comment=f"O'tkazma: {from_box.name} -> {to_box.name}. Izoh: {comment}"
                 )
 
-                # 2. Incoming CashTransaction (Kirim) to destination cashbox
-                CashTransaction.objects.create(
-                    organization=request.user.organization,
-                    cashbox=to_cashbox,
-                    transaction_type='kirim',
-                    payment_method='naqd',
-                    amount=amount,
-                    date=date,
-                    category_name="Kassalararo o'tkazma",
-                    employee=request.user,
-                    comment=f"O'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
-                )
+                # 🌟 2. Kirim tarixi (Kassaga pul kirib kelishi)
+                # Ikkinchi kassa uchun serializer yordamida yangi obyekt saqlaymiz:
+                incoming_serializer = CashTransferSerializer(data=data, context={'request': request})
+                if incoming_serializer.is_valid():
+                    incoming_serializer.save(
+                        organization=request.user.organization,
+                        cashbox=to_box,
+                        transaction_type='kirim',
+                        payment_method='naqd',
+                        amount=amount,
+                        date=date,
+                        employee=request.user,
+                        comment=f"O'tkazma: {from_box.name} -> {to_box.name}. Izoh: {comment}"
+                    )
 
-                # 3. General Transaction (EXPENSE) from source cashbox
+                # 🌟 3. General Transaction (EXPENSE - Chiquvchi umumiy balans uchun)
                 Transaction.objects.create(
                     organization=request.user.organization,
-                    cashbox=from_cashbox,
+                    cashbox=from_box,
                     amount=amount,
                     type='EXPENSE',
                     category='DIRECT',
                     employee=request.user,
-                    description=f"Kassalararo o'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
+                    description=f"Kassalararo o'tkazma: {from_box.name} -> {to_box.name}. Izoh: {comment}"
                 )
 
-                # 4. General Transaction (INCOME) to target cashbox
+                # 🌟 4. General Transaction (INCOME - Kiruvchi umumiy balans uchun)
                 Transaction.objects.create(
                     organization=request.user.organization,
-                    cashbox=to_cashbox,
+                    cashbox=to_box,
                     amount=amount,
                     type='INCOME',
                     category='DIRECT',
                     employee=request.user,
-                    description=f"Kassalararo o'tkazma: {from_cashbox.name} -> {to_cashbox.name}. Izoh: {comment}"
+                    description=f"Kassalararo o'tkazma: {from_box.name} -> {to_box.name}. Izoh: {comment}"
                 )
 
-            # Return success response
+            # Muvaffaqiyatli javob qaytarish
             return Response({
                 "detail": f"{amount} UZS kassalararo muvaffaqiyatli o'tkazildi!",
-                "from_cashbox": from_cashbox.id,
-                "to_cashbox": to_cashbox.id,
+                "from_cashbox": from_box.id,
+                "to_cashbox": to_box.id,
                 "amount": float(amount)
             }, status=status.HTTP_201_CREATED)
 

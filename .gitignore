@@ -14,3 +14,5 @@ media/
 .env
 .venv/
 venv/
+echo "__pycache__/" >> .gitignore
+echo "*.pyc" >> .gitignore

@@ -1827,6 +1827,37 @@ class FinancialAnalyticsView(APIView):
             "table_data": table_rows
         })
 
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            # ✨ 1-XOLAT YECHIMI: Tashkilotni request.user'dan avtomatik olib saqlaymiz
+            instance = serializer.save(organization=self.request.user.organization)
+
+            # 1. AGAR BONUS BO'LSA (Kassadan pul chiqadi)
+            if instance.action_type == 'BONUS':
+                cashbox_id = self.request.data.get('cashbox')
+                if cashbox_id:
+                    cashbox = Cashbox.objects.get(id=cashbox_id)
+
+                    # Bu yerga ham organization qo'shildi!
+                    t = Transaction.objects.create(
+                        organization=self.request.user.organization,
+                        cashbox=cashbox,
+                        amount=instance.amount,
+                        type='EXPENSE',
+                        description=f"{instance.get_target_type_display()} uchun bonus: {instance.reason}"
+                    )
+                    cashbox.balance -= instance.amount
+                    cashbox.save()
+
+                    instance.transaction = t
+                    instance.save()
+
+            # 2. ✨ 2-XOLAT: AGAR JARIMA BO'LSA
+            elif instance.action_type == 'PENALTY':
+                # Kassadan pul yechilmaydi, shuning uchun cashbox tekshirilmaydi ham.
+                # Shunchaki o'tib ketadi.
+                pass
+
 
 class FinancialReportsView(APIView):
     permission_classes = [permissions.IsAuthenticated]

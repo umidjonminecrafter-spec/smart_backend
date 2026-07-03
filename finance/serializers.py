@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
+
 from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Expense, MonthlyIncome,
     Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox
@@ -394,8 +396,8 @@ class TransactionSerializer(serializers.ModelSerializer):
         return attrs
 
 class FinanceActionSerializer(serializers.ModelSerializer):
-    # Frontend'dan cashbox kelishini qabul qilamiz, lekin modelda yo'qligi uchun write_only qilamiz
-    cashbox = serializers.IntegerField(write_only=True, required=False)
+    # required=False qilinadi, chunki Jarimada bu maydon front-end'dan kelmasligi ham mumkin
+    cashbox = serializers.IntegerField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = FinanceAction
@@ -404,9 +406,26 @@ class FinanceActionSerializer(serializers.ModelSerializer):
             'employee', 'amount', 'reason', 'cashbox', 'created_at'
         ]
 
-    # 🔥 ENG MUHIM JOYI: Modelga yuborishdan oldin kassa IDsini validated_data ichidan olib tashlaymiz
+    def validate(self, attrs):
+        """🌟 Front-end yuborgan ma'lumotlarni mantiqiy tekshirish"""
+        action_type = attrs.get('action_type')
+        cashbox = attrs.get('cashbox')
+
+        # 1. Agar amaliyot BONUS bo'lsa, kassa majburiy bo'lishi shart!
+        if action_type == 'BONUS' and not cashbox:
+            raise ValidationError({"cashbox": "Bonus yozish uchun kassa (cashbox) tanlanishi shart!"})
+
+        # 2. Agar amaliyot JARIMA (PENALTY) bo'lsa, kassa umuman kerak emas.
+        # Front-end'dan null yoki bo'sh qiymat kelsa ham uni tozalab tashlaymiz.
+        if action_type == 'PENALTY':
+            if 'cashbox' in attrs:
+                attrs.pop('cashbox') # Backend bu maydonni umuman so'ramaydi va ko'rmaydi
+
+        return attrs
+
     def create(self, validated_data):
-        validated_data.pop('cashbox', None) # cashbox'ni o'chirib tashlaydi
+        # Har ihtimolga qarshi validated_data ichida cashbox qolib ketgan bo'lsa, o'chiramiz
+        validated_data.pop('cashbox', None)
         return super().create(validated_data)
 
 class CashTransferSerializer(serializers.Serializer):

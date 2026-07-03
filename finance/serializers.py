@@ -430,20 +430,36 @@ class FinanceActionSerializer(serializers.ModelSerializer):
         return None
 
     def get_cashbox_name(self, obj):
-        """🌟 Kassaning nomini xuddi talabanikidek olib keladi"""
-        # Agar bu obyektga transaction (Tranzaksiya) bog'langan bo'lsa, o'sha yerdan kassani olamiz
-        if obj.transaction and obj.transaction.cashbox:
-            return obj.transaction.cashbox.name
+        """Kassaning nomini ham GET ro'yxatida, ham POSTda aniq olib keladi"""
+        # 1. Agar obyekt turi JARIMA (PENALTY) bo'lsa, kassa nomi bo'lmaydi
+        if obj.action_type == 'PENALTY':
+            return None
 
-        # Agar yangi yaratilayotgan paytda request'dan kassa kelgan bo'lsa, o'shani nomini topamiz
+        # 2. Agar obyekt turi BONUS bo'lsa, Transaction modelidan unga tegishli chiqimni qidiramiz
+        from finance.models import Transaction  # Xatolik bermasligi uchun import ichkarida
+
+        # Siz views.py da descriptionni mana bunday saqlagansiz: f"{...} uchun bonus: {instance.reason}"
+        # Shuning uchun shu tavsif (reason) orqali bog'langan tranzaksiyani topamiz
+        t = Transaction.objects.filter(
+            amount=obj.amount,
+            type='EXPENSE',
+            organization=obj.organization
+        ).filter(description__icontains=obj.reason).first()
+
+        if t and t.cashbox:
+            return t.cashbox.name
+
+        # 3. Agar ro'yxatda chiqmayotgan bo'lsa (yangi yaratilayotgan POST paytida):
         request = self.context.get('request')
         if request and request.data:
             cashbox_id = request.data.get('cashbox')
             if cashbox_id:
                 try:
+                    from finance.models import Cashbox
                     return Cashbox.objects.get(id=cashbox_id).name
                 except Cashbox.DoesNotExist:
                     return None
+
         return None
 
     def validate(self, attrs):

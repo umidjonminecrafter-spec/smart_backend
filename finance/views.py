@@ -170,7 +170,7 @@ class ExpenseViewSet(TenantViewSetMixin, viewsets.ModelViewSet):  # Agar TenantV
                 except Branch.DoesNotExist:
                     pass
 
-            # Xarajatni saqlaymiz (Tashkilot majburiy holda yetkaziladi)
+            # Xarajatni saqlaymiz
             expense = serializer.save(**save_kwargs)
 
             # Kassa balansini yangilash qismi...
@@ -186,7 +186,9 @@ class ExpenseViewSet(TenantViewSetMixin, viewsets.ModelViewSet):  # Agar TenantV
                 except:
                     title = expense.category.name if expense.category else "Xarajat"
 
+                # 🌟 Bu yerga ham xavfsizlik uchun organization qo'shildi
                 Transaction.objects.create(
+                    organization=org,  # <-- Qo'shildi
                     cashbox=cashbox,
                     amount=expense.amount,
                     type='EXPENSE',

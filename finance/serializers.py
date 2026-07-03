@@ -63,10 +63,15 @@ class ExpenseSerializer(serializers.ModelSerializer):
         if user and user.is_authenticated:
             full_name = user.get_full_name().strip()
             created_by = full_name if full_name else user.username
+
+            # 🔥 MANA SHU YERDA TASHKILOTNI REQUEST.USER'DAN OVALAMIZ:
+            # Serializer 'Tashkilot bo'sh bo'lishi mumkin emas' deb portlamasligi uchun data'ga qo'shamiz
+            if hasattr(user, 'organization') and user.organization:
+                data['organization'] = user.organization.id
         else:
             created_by = "Tizim"
 
-        # 🌟 Eng muhim joyi: Frontend yuborgan payment_type (Kassa ID) ni cashbox maydoniga o'giramiz
+        # Frontend yuborgan payment_type (Kassa ID) ni cashbox maydoniga o'giramiz
         payment_type = data.get('payment_type')
         if payment_type:
             data['cashbox'] = payment_type  # Modelga cashbox_id bo'lib boradi

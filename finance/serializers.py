@@ -430,26 +430,29 @@ class FinanceActionSerializer(serializers.ModelSerializer):
         return None
 
     def get_cashbox_name(self, obj):
-        """Kassaning nomini ham GET ro'yxatida, ham POSTda aniq olib keladi"""
-        # 1. Agar obyekt turi JARIMA (PENALTY) bo'lsa, kassa nomi bo'lmaydi
+        """Kassaning nomini OneToOne aloqadan yoki to'g'ridan-to'g'ri qidirib topadi"""
+        # 1. Agar jarima bo'lsa, kassa nomi chiziqcha bo'lib turaveradi
         if obj.action_type == 'PENALTY':
             return None
 
-        # 2. Agar obyekt turi BONUS bo'lsa, Transaction modelidan unga tegishli chiqimni qidiramiz
-        from finance.models import Transaction  # Xatolik bermasligi uchun import ichkarida
+        # 2. Agar bazada to'g'ridan-to'g'ri aloqa bog'langan bo'lsa (GET so'rovi uchun eng ishonchli yo'l)
+        if obj.transaction and obj.transaction.cashbox:
+            return obj.transaction.cashbox.name
 
-        # Siz views.py da descriptionni mana bunday saqlagansiz: f"{...} uchun bonus: {instance.reason}"
-        # Shuning uchun shu tavsif (reason) orqali bog'langan tranzaksiyani topamiz
+        # 3. Agar yangi yaratilayotgan (POST) paytida bazadagi OneToOne hali kechikayotgan bo'lsa:
+        from finance.models import Transaction
+
+        # Obyektning o'ziga tegishli Transactionni ORM orqali topamiz
         t = Transaction.objects.filter(
+            organization=obj.organization,
             amount=obj.amount,
-            type='EXPENSE',
-            organization=obj.organization
-        ).filter(description__icontains=obj.reason).first()
+            type='EXPENSE'
+        ).filter(description__icontains=str(obj.reason or '')).first()
 
         if t and t.cashbox:
             return t.cashbox.name
 
-        # 3. Agar ro'yxatda chiqmayotgan bo'lsa (yangi yaratilayotgan POST paytida):
+        # 4. Agar yuqoridagilardan ham topilmasa, demak hali so'rov tugallanmagan (yaratilish jarayoni)
         request = self.context.get('request')
         if request and request.data:
             cashbox_id = request.data.get('cashbox')
@@ -461,7 +464,6 @@ class FinanceActionSerializer(serializers.ModelSerializer):
                     return None
 
         return None
-
     def validate(self, attrs):
         """Front-end yuborgan ma'lumotlarni mantiqiy tekshirish"""
         action_type = attrs.get('action_type')

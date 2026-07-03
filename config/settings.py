@@ -32,6 +32,12 @@ CSRF_TRUSTED_ORIGINS = [
     'https://musojon1995.pythonanywhere.com',
 ]
 
+# PythonAnywhere va Render kabi HTTPS proxy'larda redirect loop oldini olish uchun
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SESSION_COOKIE_SECURE = False  # PythonAnywhere'da admin ishlashi uchun
+CSRF_COOKIE_SECURE = False     # PythonAnywhere'da admin ishlashi uchun
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',

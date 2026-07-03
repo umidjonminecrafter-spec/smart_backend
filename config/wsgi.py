@@ -15,10 +15,16 @@ try:
     User = get_user_model()
 
     if not User.objects.filter(username='admin').exists():
-        User.objects.create_superuser('admin', 'admin@example.com', 'parol12345')
+        User.objects.create_superuser('admin', 'admin@example.com', 'admin12345')
         print("[OK] Superuser muvaffaqiyatli yaratildi!")
     else:
-        print("[OK] Superuser allaqachon bazada bor, qayta yaratilmadi.")
+        # Parolni yangilash (har safar yangilanadi)
+        admin_user = User.objects.get(username='admin')
+        admin_user.set_password('admin12345')
+        admin_user.is_staff = True
+        admin_user.is_superuser = True
+        admin_user.save()
+        print("[OK] Superuser paroli yangilandi.")
 except Exception as e:
     print(f"[XATO] Superuser yaratishda xatolik yuz berdi: {e}")
 

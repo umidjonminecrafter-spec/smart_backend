@@ -397,27 +397,53 @@ class TransactionSerializer(serializers.ModelSerializer):
 
 
 class FinanceActionSerializer(serializers.ModelSerializer):
+    # Front-end'dan keladigan kassa ID-si
     cashbox = serializers.IntegerField(write_only=True, required=False, allow_null=True)
 
-    # 🌟 Talabaning ism va familiyasini xavfsiz birlashtirib qaytarish uchun MethodField ishlatamiz
+    # 🌟 Talaba, Xodim va Kassa nomlarini olib keluvchi maydonlar
     student_name = serializers.SerializerMethodField()
     employee_name = serializers.SerializerMethodField()
+    cashbox_name = serializers.SerializerMethodField()
 
     class Meta:
         model = FinanceAction
         fields = [
-            'id', 'action_type', 'target_type', 'student',
-            'student_name',  # 🔥 XATOLIK SHU YERDA EDI: Ro'yxatga qo'shib qo'yildi!
-            'employee', 'amount', 'reason', 'cashbox', 'created_at','employee_name'
+            'id', 'action_type', 'target_type', 'student', 'student_name',
+            'employee', 'employee_name', 'cashbox', 'cashbox_name',
+            'amount', 'reason', 'created_at'
         ]
 
     def get_student_name(self, obj):
-        """Talaba mavjud bo'lsa uning ismi va familiyasini qaytaradi"""
+        """Talaba ism va familiyasini olib keladi"""
         if obj.student:
             first_name = getattr(obj.student, 'first_name', '')
             last_name = getattr(obj.student, 'last_name', '')
-            # Agar last_name None bo'lsa yoki bo'sh bo'lsa, chiroyli formatda qaytaramiz
             return f"{first_name} {last_name or ''}".strip()
+        return None
+
+    def get_employee_name(self, obj):
+        """Xodim ism va familiyasini olib keladi"""
+        if obj.employee:
+            first_name = getattr(obj.employee, 'first_name', '')
+            last_name = getattr(obj.employee, 'last_name', '')
+            return f"{first_name} {last_name or ''}".strip()
+        return None
+
+    def get_cashbox_name(self, obj):
+        """🌟 Kassaning nomini xuddi talabanikidek olib keladi"""
+        # Agar bu obyektga transaction (Tranzaksiya) bog'langan bo'lsa, o'sha yerdan kassani olamiz
+        if obj.transaction and obj.transaction.cashbox:
+            return obj.transaction.cashbox.name
+
+        # Agar yangi yaratilayotgan paytda request'dan kassa kelgan bo'lsa, o'shani nomini topamiz
+        request = self.context.get('request')
+        if request and request.data:
+            cashbox_id = request.data.get('cashbox')
+            if cashbox_id:
+                try:
+                    return Cashbox.objects.get(id=cashbox_id).name
+                except Cashbox.DoesNotExist:
+                    return None
         return None
 
     def validate(self, attrs):
@@ -427,7 +453,7 @@ class FinanceActionSerializer(serializers.ModelSerializer):
 
         # 1. Agar amaliyot BONUS bo'lsa, kassa majburiy bo'lishi shart!
         if action_type == 'BONUS' and not cashbox:
-            raise ValidationError({"cashbox": "Bonus yozish uchun kassa (cashbox) tanlanishima shart!"})
+            raise ValidationError({"cashbox": "Bonus yozish uchun kassa (cashbox) tanlanishi shart!"})
 
         # 2. Agar amaliyot JARIMA (PENALTY) bo'lsa, kassa umuman kerak emas.
         if action_type == 'PENALTY':

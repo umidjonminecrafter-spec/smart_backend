@@ -1587,13 +1587,11 @@ class CashTransferAPIView(APIView):
             to_cashbox = serializer.validated_data['to_cashbox']
             amount = serializer.validated_data['amount']
             comment = serializer.validated_data.get('comment') or "Kassalararo o'tkazma"
-            date = data.get('date') or timezone.now().date()
 
             # 🛠️ TRANZAKSIYANI XAVFSIZ (ATOMIC) BAJARISH
             with db_transaction.atomic():
 
                 # 🌟 KASSALAR BALANSINI TEKSHIRISH VA YANGILASH
-                # select_for_update() bir vaqtda ikkita so'rov kelib balans minusga kirib ketishini oldini oladi
                 from_box = Cashbox.objects.select_for_update().get(id=from_cashbox.id)
                 to_box = Cashbox.objects.select_for_update().get(id=to_cashbox.id)
 
@@ -1610,35 +1608,10 @@ class CashTransferAPIView(APIView):
                 to_box.balance += amount
                 to_box.save(update_fields=['balance'])
 
-                # 🌟 1. Chiqim tarixi (FinanceAction orqali)
-                # Modelda 'cashbox' maydoni bo'lmasa, serializer modelini ishlatsa xavfsiz bo'ladi:
-                serializer.save(
-                    organization=request.user.organization,
-                    cashbox=from_box,
-                    transaction_type='chiqim',
-                    payment_method='naqd',
-                    amount=amount,
-                    date=date,
-                    employee=request.user,
-                    comment=f"O'tkazma: {from_box.name} -> {to_box.name}. Izoh: {comment}"
-                )
+                # 🔥 BU YERDAGI SERIAlIZER.SAVE() LAR OLIB TASHLANDI!
+                # Chunki pastdagi Transaction.objects.create allaqachon hamma narsani bazaga yozmoqda.
 
-                # 🌟 2. Kirim tarixi (Kassaga pul kirib kelishi)
-                # Ikkinchi kassa uchun serializer yordamida yangi obyekt saqlaymiz:
-                incoming_serializer = CashTransferSerializer(data=data, context={'request': request})
-                if incoming_serializer.is_valid():
-                    incoming_serializer.save(
-                        organization=request.user.organization,
-                        cashbox=to_box,
-                        transaction_type='kirim',
-                        payment_method='naqd',
-                        amount=amount,
-                        date=date,
-                        employee=request.user,
-                        comment=f"O'tkazma: {from_box.name} -> {to_box.name}. Izoh: {comment}"
-                    )
-
-                # 🌟 3. General Transaction (EXPENSE - Chiquvchi umumiy balans uchun)
+                # 🌟 1. General Transaction (EXPENSE - Chiquvchi kassa tarixi uchun)
                 Transaction.objects.create(
                     organization=request.user.organization,
                     cashbox=from_box,
@@ -1646,10 +1619,10 @@ class CashTransferAPIView(APIView):
                     type='EXPENSE',
                     category='DIRECT',
                     employee=request.user,
-                    description=f"Kassalararo o'tkazma: {from_box.name} -> {to_box.name}. Izoh: {comment}"
+                    description=f"O'tkazma chiqim: {from_box.name} -> {to_box.name}. Izoh: {comment}"
                 )
 
-                # 🌟 4. General Transaction (INCOME - Kiruvchi umumiy balans uchun)
+                # 🌟 2. General Transaction (INCOME - Kiruvchi kassa tarixi uchun)
                 Transaction.objects.create(
                     organization=request.user.organization,
                     cashbox=to_box,
@@ -1657,7 +1630,7 @@ class CashTransferAPIView(APIView):
                     type='INCOME',
                     category='DIRECT',
                     employee=request.user,
-                    description=f"Kassalararo o'tkazma: {from_box.name} -> {to_box.name}. Izoh: {comment}"
+                    description=f"O'tkazma kirim: {from_box.name} -> {to_box.name}. Izoh: {comment}"
                 )
 
             # Muvaffaqiyatli javob qaytarish

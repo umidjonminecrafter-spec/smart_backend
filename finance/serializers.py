@@ -398,6 +398,8 @@ class TransactionSerializer(serializers.ModelSerializer):
 class FinanceActionSerializer(serializers.ModelSerializer):
     # required=False qilinadi, chunki Jarimada bu maydon front-end'dan kelmasligi ham mumkin
     cashbox = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    student_name = serializers.CharField(source='student.full_name', read_only=True, default=None)
+
 
     class Meta:
         model = FinanceAction

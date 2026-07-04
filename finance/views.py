@@ -2190,18 +2190,37 @@ class DiscountsAndBonusesReportView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        from finance.models import Transaction
+        from django.db.models import Sum, Q
+
         org_id = request.user.organization_id
         branch_id = request.query_params.get('branch')
 
-        # Tranzaksiyalar ichidan 'VOUCHER' (Chegirma) turidagilarni filtrlaymiz
-        discount_txs = Transaction.objects.filter(cashbox__organization_id=org_id, category='VOUCHER')
-        if branch_id:
-            discount_txs = discount_txs.filter(cashbox__branch_id=branch_id)
+        # 1. Tashkilot bo'yicha umumiy tranzaksiyalarni olamiz
+        # TenantModel avtomatik filtrlasa ham, qo'shimcha sug'urta qilamiz
+        if hasattr(Transaction, 'organization'):
+            base_txs = Transaction.objects.filter(organization_id=org_id)
+        else:
+            base_txs = Transaction.objects.filter(cashbox__organization_id=org_id)
 
-        total_discounts = discount_txs.aggregate(total=Sum('amount'))['total'] or 0
+        if branch_id:
+            base_txs = base_txs.filter(cashbox__branch_id=branch_id)
+
+        # 2. Chegirma va Bonuslarni ham category, ham description (izoh) orqali juda keng qidiramiz
+        # Chunki tizimda izohga "bonus" yoki "chegirma" deb yozilgan bo'lishi ehtimoli juda yuqori
+        discount_filter = Q(category='VOUCHER') | Q(description__icontains='chegirma') | Q(
+            description__icontains='voucher')
+        bonus_filter = Q(category='BONUS') | Q(description__icontains='bonus')
+
+        # Har birini alohida filtrlab olamiz
+        discount_txs = base_txs.filter(discount_filter).select_related('student')
+        bonus_txs = base_txs.filter(bonus_filter).select_related('student')
 
         rows = []
-        for index, tx in enumerate(discount_txs, start=1):
+        index = 1
+
+        # 3. Chegirmalarni jadvalga qo'shamiz
+        for tx in discount_txs:
             st_name = "Umumiy Chegirma"
             if tx.student:
                 st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
@@ -2214,10 +2233,31 @@ class DiscountsAndBonusesReportView(APIView):
                 "total_discount": float(tx.amount),
                 "bonus": 0.0
             })
+            index += 1
+
+        # 4. Bonuslarni jadvalga qo'shamiz
+        for tx in bonus_txs:
+            st_name = "Umumiy Bonus"
+            if tx.student:
+                st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
+
+            rows.append({
+                "id": index,
+                "name": st_name,
+                "course": "-",
+                "group": "-",
+                "total_discount": 0.0,
+                "bonus": float(tx.amount)
+            })
+            index += 1
+
+        # Jami summalarni hisoblash
+        total_discounts = sum(r['total_discount'] for r in rows)
+        total_bonuses = sum(r['bonus'] for r in rows)
 
         return Response({
             "summary": {
-                "total_bonuses": 0.0,
+                "total_bonuses": float(total_bonuses),
                 "total_discounts": float(total_discounts)
             },
             "total_count": len(rows),

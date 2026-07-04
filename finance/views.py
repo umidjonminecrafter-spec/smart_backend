@@ -2241,67 +2241,43 @@ class CancelledPaymentsReportView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# =====================================================================
-# 6-RASM: UMUMIY CHEGIRMALAR VA VOUCHERLAR HISOBOTI
-# =====================================================================
 class DiscountsAndBonusesReportView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        from finance.models import Transaction
-        from django.db.models import Sum, Q
+        from finance.models import Transaction, FinanceAction
+        from django.db.models import Q
 
         org_id = request.user.organization_id
         branch_id = request.query_params.get('branch')
 
-        # 1. Tashkilot va filial bo'yicha bazaviy filtr
+        # 1. Tashkilot bo'yicha bazaviy filterlar
         if hasattr(Transaction, 'organization'):
             base_txs = Transaction.objects.filter(organization_id=org_id)
+            base_actions = FinanceAction.objects.filter(organization_id=org_id)
         else:
             base_txs = Transaction.objects.filter(cashbox__organization_id=org_id)
+            base_actions = FinanceAction.objects.filter(student__organization_id=org_id)
 
         if branch_id:
             base_txs = base_txs.filter(cashbox__branch_id=branch_id)
+            # FinanceAction'da bevosita kassa yo'qligi sababli, unga bog'langan tranzaksiya orqali filialni tekshiramiz
+            base_actions = base_actions.filter(
+                Q(transaction__cashbox__branch_id=branch_id) | Q(student__branch_id=branch_id)
+            )
 
-        # 2. 🌟 FILTR KENGAYTIRILDI: Category 'DIRECT' bo'lsa ham izohida chegirma/bonus borlarni qidiradi
-        discount_filter = (
-                Q(category='VOUCHER') |
-                Q(description__icontains='chegirma') |
-                Q(description__icontains='voucher') |
-                Q(source_payment__comment__icontains='chegirma') |
-                Q(source_payment__comment__icontains='voucher')
-        )
-
-        bonus_filter = (
-                Q(category='BONUS') |
-                Q(description__icontains='bonus') |
-                Q(source_payment__comment__icontains='bonus')
-        )
-
-        # Munosabatlarni oldindan yuklaymiz (prefetch_related)
-        discount_txs = base_txs.filter(discount_filter).select_related('student', 'source_payment').prefetch_related(
-            'student__group_students__group__course',
-            'student__student_groups__group__course'
-        )
-        bonus_txs = base_txs.filter(bonus_filter).select_related('student', 'source_payment').prefetch_related(
-            'student__group_students__group__course',
-            'student__student_groups__group__course'
-        )
-
-        rows = []
-        index = 1
-
-        # Universal yordamchi funksiya: O'quvchining Kurs va Guruh nomlarini aniqlash
+        # 2. O'quvchining Kurs va Guruh ma'lumotlarini aniqlash universal funksiyasi
         def get_student_details(student):
             if not student:
                 return "-", "-"
 
             student_groups = []
-            # 'group_students' yoki 'student_groups' munosabatini tekshirish
             if hasattr(student, 'group_students') and student.group_students.exists():
                 student_groups = student.group_students.all()
             elif hasattr(student, 'student_groups') and student.student_groups.exists():
                 student_groups = student.student_groups.all()
+            elif hasattr(student, 'studentgroup_set') and student.studentgroup_set.exists():
+                student_groups = student.studentgroup_set.all()
 
             if student_groups:
                 group_names = []
@@ -2320,43 +2296,58 @@ class DiscountsAndBonusesReportView(APIView):
 
             return "-", "-"
 
-        # 3. Chegirmalarni jadvalga qo'shish
+        rows = []
+        index = 1
+
+        # 3. 🌟 FINANCEACTION ORQALI BONUS VALARNI YUKLASH
+        # Tizimda talabalarga berilgan barcha bonuslarni FinanceAction modelidan qidiramiz
+        student_bonuses = base_actions.filter(action_type='BONUS', target_type='STUDENT').select_related('student')
+
+        for action in student_bonuses:
+            if action.student:
+                st_name = f"{action.student.first_name} {action.student.last_name or ''}".strip()
+                course_name, group_name = get_student_details(action.student)
+
+                rows.append({
+                    "id": index,
+                    "name": st_name,
+                    "course": course_name,
+                    "group": group_name,
+                    "total_discount": 0.0,
+                    "bonus": float(action.amount)
+                })
+                index += 1
+
+        # 4. 🌟 TRANSACTIONS ORQALI CHEGIRMALARNI (`VOUCHER`) YUKLASH
+        # Kategoriya 'VOUCHER' bo'lgan yoki izohida 'chegirma'/'voucher' so'zlari bor tranzaksiyalar
+        discount_filter = (
+                Q(category='VOUCHER') |
+                Q(description__icontains='chegirma') |
+                Q(description__icontains='voucher') |
+                Q(source_payment__comment__icontains='chegirma')
+        )
+
+        discount_txs = base_txs.filter(discount_filter).select_related('student')
+
         for tx in discount_txs:
-            st_name = "Umumiy Chegirma"
-            course_name, group_name = "-", "-"
+            # Agar bu tranzaksiya allaqachon bonus sifatida qo'shilgan bo'lsa, takrorlamaslik uchun tekshiramiz
+            if tx.type == 'EXPENSE' and any(r['bonus'] > 0 and tx.student and r[
+                'name'] == f"{tx.student.first_name} {tx.student.last_name or ''}".strip() for r in rows):
+                continue
 
             if tx.student:
                 st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
                 course_name, group_name = get_student_details(tx.student)
 
-            rows.append({
-                "id": index,
-                "name": st_name,
-                "course": course_name,
-                "group": group_name,
-                "total_discount": float(tx.amount),
-                "bonus": 0.0
-            })
-            index += 1
-
-        # 4. Bonuslarni jadvalga qo'shish
-        for tx in bonus_txs:
-            st_name = "Umumiy Bonus"
-            course_name, group_name = "-", "-"
-
-            if tx.student:
-                st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
-                course_name, group_name = get_student_details(tx.student)
-
-            rows.append({
-                "id": index,
-                "name": st_name,
-                "course": course_name,
-                "group": group_name,
-                "total_discount": 0.0,
-                "bonus": float(tx.amount)
-            })
-            index += 1
+                rows.append({
+                    "id": index,
+                    "name": st_name,
+                    "course": course_name,
+                    "group": group_name,
+                    "total_discount": float(tx.amount),
+                    "bonus": 0.0
+                })
+                index += 1
 
         # Jami summalarni hisoblash
         total_discounts = sum(r['total_discount'] for r in rows)

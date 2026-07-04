@@ -12,16 +12,19 @@ from organizations.mixins import TenantViewSetMixin
 from django.db.models.functions import TruncDate, Coalesce
 from organizations.permissions import HasOrganizationPagePermission
 from datetime import datetime
+from audit.models import AuditLog
 from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Expense, MonthlyIncome,
-    Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox,CashTransaction,TransactionCategory
+    Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox, CashTransaction,
+    TransactionCategory
 )
 from finance.serializers import (
     ExpenseCategorySerializer, ExpenseSubcategorySerializer, ExpenseSerializer,
     MonthlyIncomeSerializer, PaymentSerializer, SaleSerializer, BonusSerializer,
     FineSerializer, SalarySerializer, TeacherSalaryRuleSerializer, TeacherSalaryCalculationSerializer, CashboxSerializer
 )
-from academics.models import Student, Group, StudentGroup, TeacherSalaryPayment
+from academics.models import Student, Group, StudentGroup, TeacherSalaryPayment, Attendance, GroupLesson, \
+    StudentGroupLeave, LeaveReason
 from academics.serializers import StudentSerializer, TeacherSalaryPaymentSerializer
 from django.contrib.auth import get_user_model
 
@@ -32,10 +35,12 @@ from .serializers import FinanceActionSerializer, TransactionSerializer, Transac
 
 User = get_user_model()
 
+
 class ExpenseCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Xarajatlar'
     queryset = ExpenseCategory.objects.all()
     serializer_class = ExpenseCategorySerializer
+
 
 from decimal import Decimal
 from rest_framework import viewsets, status, decorators
@@ -43,6 +48,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
 from rest_framework import filters
+
 
 class TransactionViewSet(viewsets.ModelViewSet):
     serializer_class = TransactionSerializer
@@ -99,7 +105,7 @@ class TransactionTypesView(APIView):
         ]
 
         return Response({
-            "types": types,          # Kirim, Chiqim
+            "types": types,  # Kirim, Chiqim
             "categories": categories  # To'g'ridan-to'g'ri, Bonus, Jarima, Voucher, Oylik
         }, status=status.HTTP_200_OK)
 
@@ -110,9 +116,13 @@ class ExpenseSubcategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ExpenseSubcategorySerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['category']
+
+
 from django.db import transaction as db_transaction
 
-class ExpenseViewSet(TenantViewSetMixin, viewsets.ModelViewSet):  # Agar TenantViewSetMixin kerak bo'lsa, merosxo'rlikka qaytarib qo'ying
+
+class ExpenseViewSet(TenantViewSetMixin,
+                     viewsets.ModelViewSet):  # Agar TenantViewSetMixin kerak bo'lsa, merosxo'rlikka qaytarib qo'ying
     permission_page_name = 'Xarajatlar'
     queryset = Expense.objects.all().select_related('category', 'subcategory', 'cashbox')
     serializer_class = ExpenseSerializer
@@ -216,6 +226,7 @@ class ExpenseViewSet(TenantViewSetMixin, viewsets.ModelViewSet):  # Agar TenantV
         result = [{"month": k, "total_expense": v} for k, v in sorted(summary.items())]
         return Response(result, status=status.HTTP_200_OK)
 
+
 class DetailedExpenseViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     Detailed views of expenses with helper reports.
@@ -229,18 +240,18 @@ class DetailedExpenseViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         expenses = Expense.objects.filter(organization_id=org_id)
         by_category = {}
         by_month = {}
-        
+
         for exp in expenses:
             cat_name = exp.category.name
             month_name = exp.date.strftime('%B %Y')
-            
+
             by_category[cat_name] = by_category.get(cat_name, Decimal('0.00')) + exp.amount
             by_month[month_name] = by_month.get(month_name, Decimal('0.00')) + exp.amount
-            
+
         return Response({
             "category_data": [{"category": k, "amount": v} for k, v in by_category.items()],
             "monthly_data": [{"month": k, "amount": v} for k, v in by_month.items()]
@@ -251,14 +262,14 @@ class DetailedExpenseViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         expenses = Expense.objects.filter(organization_id=org_id)
         total_exp = expenses.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
         highest_expense = expenses.order_by('-amount').first()
-        
+
         # Breakdown by category
         breakdown = expenses.values('category__name').annotate(total=Sum('amount')).order_by('-total')
-        
+
         return Response({
             "total_expenses": total_exp,
             "highest_single_expense": {
@@ -269,6 +280,7 @@ class DetailedExpenseViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
             "category_breakdown": breakdown
         }, status=status.HTTP_200_OK)
 
+
 class MonthlyIncomeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Barcha to\'lovlar'
     queryset = MonthlyIncome.objects.all()
@@ -278,7 +290,7 @@ class MonthlyIncomeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     def net_profit(self, request, pk=None):
         income = self.get_object()
         org_id = self.get_organization_id()
-        
+
         # Calculate expenses for the same month/year
         start_date = income.date.replace(day=1)
         # Simple end date calculation for month boundary
@@ -286,13 +298,13 @@ class MonthlyIncomeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             end_date = income.date.replace(year=income.date.year + 1, month=1, day=1)
         else:
             end_date = income.date.replace(month=income.date.month + 1, day=1)
-            
+
         total_expenses = Expense.objects.filter(
             organization_id=org_id,
             date__gte=start_date,
             date__lt=end_date
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-        
+
         net = income.amount - total_expenses
         return Response({
             "month": income.date.strftime('%Y-%m'),
@@ -300,6 +312,7 @@ class MonthlyIncomeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "expenses": total_expenses,
             "net_profit": net
         }, status=status.HTTP_200_OK)
+
 
 class PaymentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Barcha to\'lovlar'
@@ -309,6 +322,7 @@ class PaymentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     filterset_fields = ['student', 'payment_method']
     search_fields = ['student__first_name', 'student__last_name', 'comment']
     pagination_class = None
+
 
 class SaleViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
     permission_page_name = 'Moliya'
@@ -320,7 +334,7 @@ class SaleViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         sales = Sale.objects.filter(organization_id=org_id)
         stats = sales.aggregate(
             total=Sum('amount'),
@@ -329,7 +343,7 @@ class SaleViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
         total = stats['total'] or Decimal('0.00')
         count = stats['count'] or 0
         avg = total / count if count > 0 else Decimal('0.00')
-        
+
         return Response({
             "total_sales_amount": total,
             "total_sales_count": count,
@@ -345,6 +359,7 @@ class SaleViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
         count = Sale.objects.filter(organization_id=org_id, date__month=timezone.now().date().month).count()
         return Response({"active_sales_count_current_month": count}, status=status.HTTP_200_OK)
 
+
 class BonusViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Ish haqi'
     queryset = Bonus.objects.all()
@@ -352,12 +367,14 @@ class BonusViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['employee']
 
+
 class FineViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Ish haqi'
     queryset = Fine.objects.all()
     serializer_class = FineSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['employee']
+
 
 class SalaryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Ish haqi'
@@ -372,11 +389,11 @@ class SalaryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        period = request.data.get('period') or request.data.get('month') # Support both period and month
+
+        period = request.data.get('period') or request.data.get('month')  # Support both period and month
         if not period:
             return Response({"detail": "Period (YYYY-MM) is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         # Parse year/month
         try:
             year, month = map(int, period.split('-'))
@@ -384,23 +401,27 @@ class SalaryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             calc_date = datetime(year, month, 15).date()
         except ValueError:
             return Response({"detail": "Invalid period format. Use YYYY-MM."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         employees = User.objects.filter(organization_id=org_id).exclude(is_superuser=True)
         calculated = []
         for emp in employees:
             # Simple employee salary base calculation: check if there's rules or configure default
             # Deduct fines and add bonuses in the same period
-            bonuses = Bonus.objects.filter(employee=emp, date__year=year, date__month=month).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            fines = Fine.objects.filter(employee=emp, date__year=year, date__month=month).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            
-            base_salary = Decimal('1000.00') # Default base salary
+            bonuses = \
+            Bonus.objects.filter(employee=emp, date__year=year, date__month=month).aggregate(total=Sum('amount'))[
+                'total'] or Decimal('0.00')
+            fines = \
+            Fine.objects.filter(employee=emp, date__year=year, date__month=month).aggregate(total=Sum('amount'))[
+                'total'] or Decimal('0.00')
+
+            base_salary = Decimal('1000.00')  # Default base salary
             if emp.role == 'manager':
                 base_salary = Decimal('1500.00')
             elif emp.role == 'admin':
                 base_salary = Decimal('2000.00')
-            
+
             total_salary = base_salary + bonuses - fines
-            
+
             # Upsert
             sal, created = Salary.objects.update_or_create(
                 organization_id=org_id,
@@ -409,7 +430,7 @@ class SalaryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 defaults={'amount': total_salary, 'status': 'unpaid'}
             )
             calculated.append(sal)
-            
+
         return Response({
             "detail": f"Salaries calculated successfully for {len(calculated)} employees.",
             "period": period
@@ -420,16 +441,17 @@ class SalaryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         salaries = Salary.objects.filter(organization_id=org_id)
         paid = salaries.filter(status='paid').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
         unpaid = salaries.filter(status='unpaid').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-        
+
         return Response({
             "total_paid": paid,
             "total_unpaid": unpaid,
             "total_calculated": paid + unpaid
         }, status=status.HTTP_200_OK)
+
 
 class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Ish haqi'
@@ -442,10 +464,10 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         if not org_id:
             raise exceptions.ValidationError({"detail": "Organization context is required."})
-        
+
         branch_id = self.get_branch_id()
         instance = serializer.save(organization_id=org_id, branch_id=branch_id)
-        
+
         override_all = self.request.data.get('override_all')
         if override_all is True or str(override_all).lower() == 'true':
             if instance.teacher is None:
@@ -458,7 +480,7 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         instance = serializer.save()
-        
+
         override_all = self.request.data.get('override_all')
         if override_all is True or str(override_all).lower() == 'true':
             if instance.teacher is None:
@@ -475,7 +497,7 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         rules_data = request.data.get('rules', [])
         created_rules = []
         for r_data in rules_data:
@@ -483,7 +505,7 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             rule_type = r_data.get('rule_type')
             rate = r_data.get('rate')
             period = r_data.get('period', '2026-05')
-            
+
             rule = TeacherSalaryRule.objects.create(
                 organization_id=org_id,
                 branch_id=self.get_branch_id(),
@@ -494,7 +516,7 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 is_active=True
             )
             created_rules.append(rule)
-            
+
         return Response(TeacherSalaryRuleSerializer(created_rules, many=True).data, status=status.HTTP_201_CREATED)
 
     @decorators.action(detail=False, methods=['get'], url_path='get-by-period')
@@ -502,8 +524,9 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         period = request.query_params.get('period')
         if not org_id or not period:
-            return Response({"detail": "Organization and period query params are required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Organization and period query params are required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         rules = TeacherSalaryRule.objects.filter(organization_id=org_id, period=period)
         return Response(TeacherSalaryRuleSerializer(rules, many=True).data, status=status.HTTP_200_OK)
 
@@ -512,10 +535,11 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         source_period = request.data.get('source_period')
         target_period = request.data.get('target_period')
-        
+
         if not org_id or not source_period or not target_period:
-            return Response({"detail": "org_id, source_period, and target_period are required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "org_id, source_period, and target_period are required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         # Copy rules from source to target
         source_rules = TeacherSalaryRule.objects.filter(organization_id=org_id, period=source_period)
         copied = []
@@ -530,7 +554,7 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 is_active=True
             )
             copied.append(new_rule)
-            
+
         return Response({
             "detail": f"Successfully configured period {target_period} by copying {len(copied)} rules from {source_period}."
         }, status=status.HTTP_201_CREATED)
@@ -540,7 +564,7 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         periods = TeacherSalaryRule.objects.filter(organization_id=org_id).values_list('period', flat=True).distinct()
         return Response(list(periods), status=status.HTTP_200_OK)
 
@@ -549,19 +573,21 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         org_id = self.get_organization_id()
         period = request.query_params.get('period')
         if not org_id or not period:
-            return Response({"detail": "Organization and period query params are required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "Organization and period query params are required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         rules = TeacherSalaryRule.objects.filter(organization_id=org_id, period=period)
         count = rules.count()
         avg_rate = rules.aggregate(avg=Sum('rate'))['avg'] or Decimal('0.00')
         if count > 0:
             avg_rate = avg_rate / count
-            
+
         return Response({
             "period": period,
             "total_rules": count,
             "average_rate": avg_rate
         }, status=status.HTTP_200_OK)
+
 
 class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
     permission_page_name = 'Ish haqi'
@@ -576,11 +602,12 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ReadOnlyModel
         org_id = self.get_organization_id()
         period = request.query_params.get('period')
         if not org_id or not period:
-            return Response({"detail": "org_id and period query params are required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "org_id and period query params are required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         calcs = TeacherSalaryCalculation.objects.filter(organization_id=org_id, period=period)
         total_payout = calcs.aggregate(total=Sum('calculated_amount'))['total'] or Decimal('0.00')
-        
+
         return Response({
             "period": period,
             "total_calculated_payout": total_payout,
@@ -604,7 +631,7 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ReadOnlyModel
             # Formula: (Asosiy Oylik + Bonuslar) - (Avans + Jarimalar)
             # eslatma: field nomlarini o'zingizning modelingizga qarab moslab olasiz
             final_payout = (salary_calc.calculated_amount + salary_calc.bonus) - (
-                        salary_calc.advance + salary_calc.penalty)
+                    salary_calc.advance + salary_calc.penalty)
 
             # 4. Moliyaviy tranzaksiya yaratamiz (Chiqim)
             Transaction.objects.create(
@@ -618,24 +645,27 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ReadOnlyModel
             cashbox.balance -= final_payout
             cashbox.save()
 
+
 class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Ish haqi'
     """
     POST: Triggers Teacher Salary calculation for a period.
     """
+
     def post(self, request):
         from decimal import Decimal
         import calendar
         from django.db.models import Q
         from academics.models import Holiday, StudentPricing
-        
+
         org_id = self.get_organization_id()
-        period = request.data.get('period') or request.data.get('month') # Support both period and month
-        
+        period = request.data.get('period') or request.data.get('month')  # Support both period and month
+
         if not org_id or not period:
-            return Response({"detail": "org_id and period are required in payload."}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response({"detail": "org_id and period are required in payload."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         try:
             year, month = map(int, period.split('-'))
             _, last_day = calendar.monthrange(year, month)
@@ -643,10 +673,10 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
             month_end = timezone.datetime(year, month, last_day).date()
         except ValueError:
             return Response({"detail": "Invalid period format. Use YYYY-MM."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         teachers = User.objects.filter(organization_id=org_id, role='teacher')
         calcs = []
-        
+
         # Get subscription/account settings for salary rules
         from organizations.models import Subscription
         subscription = Subscription.objects.filter(
@@ -675,7 +705,7 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
             start_date__lte=month_end
         )
         staff_holidays = staff_holidays.filter(Q(end_date__gte=month_start) | Q(end_date__isnull=True))
-        
+
         holiday_dates = set()
         for h in staff_holidays:
             start = max(h.start_date, month_start)
@@ -693,7 +723,7 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
             start_date__lte=month_end
         )
         student_holidays = student_holidays.filter(Q(end_date__gte=month_start) | Q(end_date__isnull=True))
-        
+
         stud_holiday_dates = set()
         for h in student_holidays:
             start = max(h.start_date, month_start)
@@ -703,7 +733,7 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
                 stud_holiday_dates.add(curr)
                 curr += timezone.timedelta(days=1)
         stud_holiday_days = len(stud_holiday_dates)
-        
+
         student_discount = Decimal(1)
         if stud_holiday_days > 0 and last_day > 0:
             student_discount = Decimal(1) - (Decimal(stud_holiday_days) / Decimal(last_day))
@@ -716,7 +746,7 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
                 period=period,
                 is_active=True
             ).first()
-            
+
             if not rule:
                 # Use default standard rule if available, otherwise static fallback
                 if std_rule:
@@ -728,10 +758,10 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
             else:
                 rule_type = rule.rule_type
                 rate = rule.rate
-                
+
             details = {"rule_type": rule_type, "rate": str(rate)}
             calculated_amount = Decimal('0.00')
-            
+
             if rule_type == 'fixed':
                 if holiday_days_count > 0 and last_day > 0:
                     discount_factor = Decimal(1) - (Decimal(holiday_days_count) / Decimal(last_day))
@@ -740,22 +770,23 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
                     details['original_rate'] = str(rate)
                 else:
                     calculated_amount = rate
-                    
+
             elif rule_type == 'per_student' or rule_type == 'percentage':
                 # Enrolled students count in classes taught by this teacher
                 student_groups = StudentGroup.objects.filter(
                     group__teacher=teacher,
                     organization_id=org_id
                 )
-                
+
                 # Apply subscription settings dynamically
                 if subscription:
                     if subscription.ignore_trial_salary:
                         # Exclude students whose first name indicates a trial/mock entry
-                        student_groups = student_groups.exclude(student__first_name__icontains='trial').exclude(student__first_name__icontains='sinov')
+                        student_groups = student_groups.exclude(student__first_name__icontains='trial').exclude(
+                            student__first_name__icontains='sinov')
 
                 student_count = student_groups.count()
-                
+
                 if rule_type == 'per_student':
                     base_amount = rate * student_count
                     if holiday_days_count > 0 and last_day > 0:
@@ -766,79 +797,82 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
                     else:
                         calculated_amount = base_amount
                     details['student_count'] = student_count
-                    
-                else: # percentage
+
+                else:  # percentage
                     total_revenue = Decimal('0.00')
-                    student_groups = StudentGroup.objects.filter(group__teacher=teacher, organization_id=org_id).select_related('group', 'group__course')
+                    student_groups = StudentGroup.objects.filter(group__teacher=teacher,
+                                                                 organization_id=org_id).select_related('group',
+                                                                                                        'group__course')
                     student_count = student_groups.count()
-                    
+
                     # N+1 so'rovlar muammosini oldini olish uchun barcha StudentPricing yozuvlarini bir so'rovda yuklaymiz
                     student_ids = [sg.student_id for sg in student_groups]
                     course_ids = [sg.group.course_id for sg in student_groups if sg.group and sg.group.course]
-                    
+
                     pricings = StudentPricing.objects.filter(student_id__in=student_ids, course_id__in=course_ids)
                     pricing_map = {(p.student_id, p.course_id): p.custom_price for p in pricings}
-                    
+
                     for sg in student_groups:
                         custom_price = None
                         if sg.group and sg.group.course:
                             custom_price = pricing_map.get((sg.student_id, sg.group.course_id))
-                            
+
                         if custom_price is not None:
                             price = custom_price
                         else:
-                            price = sg.price or getattr(sg.group, 'price', None) or (sg.group.course.price if sg.group and sg.group.course else Decimal('0.00'))
-                        
+                            price = sg.price or getattr(sg.group, 'price', None) or (
+                                sg.group.course.price if sg.group and sg.group.course else Decimal('0.00'))
+
                         total_revenue += price * student_discount
-                        
+
                     calculated_amount = total_revenue * (rate / Decimal('100.00'))
                     details['student_count'] = student_count
                     details['total_revenue'] = str(total_revenue)
                     if stud_holiday_days > 0:
                         details['student_holiday_days'] = stud_holiday_days
-                    
+
             elif rule_type == 'per_hour':
                 from academics.models import LessonSchedule
-                
+
                 schedules = LessonSchedule.objects.filter(group__teacher=teacher, organization_id=org_id)
                 if schedules.exists():
                     total_hours = Decimal('0.00')
                     even_schedules = [s for s in schedules if s.day_type == 'even']
                     odd_schedules = [s for s in schedules if s.day_type == 'odd']
-                    
+
                     curr = month_start
                     while curr <= month_end:
                         # Skip holidays
                         if curr in holiday_dates:
                             curr += timezone.timedelta(days=1)
                             continue
-                            
+
                         weekday = curr.weekday()
                         day_schedules = []
-                        if weekday in (1, 3, 5): # Tue, Thu, Sat
+                        if weekday in (1, 3, 5):  # Tue, Thu, Sat
                             day_schedules = even_schedules
-                        elif weekday in (0, 2, 4): # Mon, Wed, Fri
+                        elif weekday in (0, 2, 4):  # Mon, Wed, Fri
                             day_schedules = odd_schedules
-                            
+
                         for s in day_schedules:
                             from datetime import datetime, combine
                             duration = datetime.combine(curr, s.end_time) - datetime.combine(curr, s.start_time)
                             hours = Decimal(duration.total_seconds()) / Decimal('3600.0')
                             total_hours += hours
-                            
+
                         curr += timezone.timedelta(days=1)
-                    
+
                     hours_taught = total_hours
                     details['calculated_via_schedules'] = True
                 else:
                     hours_taught = max(Decimal('0.00'), Decimal('24.00') - Decimal(holiday_days_count * 2))
                     details['calculated_via_schedules'] = False
-                    
+
                 calculated_amount = rate * hours_taught
                 details['hours_taught'] = str(hours_taught)
                 if holiday_days_count > 0:
                     details['holiday_days_deducted'] = holiday_days_count
-                
+
             calc, created = TeacherSalaryCalculation.objects.update_or_create(
                 organization_id=org_id,
                 teacher=teacher,
@@ -846,12 +880,13 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
                 defaults={'calculated_amount': calculated_amount, 'details': details}
             )
             calcs.append(calc)
-            
+
         return Response({
             "detail": f"Teacher salaries calculated successfully for {len(calcs)} teachers.",
             "period": period,
             "results": TeacherSalaryCalculationSerializer(calcs, many=True).data
         }, status=status.HTTP_201_CREATED)
+
 
 class TeacherSalaryPaymentsView(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
     # This matches /teacher-salary-payments/ endpoints in finance
@@ -867,7 +902,7 @@ class TeacherSalaryPaymentsView(TenantViewSetMixin, viewsets.ReadOnlyModelViewSe
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         payments = TeacherSalaryPayment.objects.filter(organization_id=org_id)
         total = payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
         count = payments.count()
@@ -875,6 +910,7 @@ class TeacherSalaryPaymentsView(TenantViewSetMixin, viewsets.ReadOnlyModelViewSe
             "total_salary_paid": total,
             "payments_count": count
         }, status=status.HTTP_200_OK)
+
 
 class StudentDebtsView(TenantViewSetMixin, generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
@@ -892,31 +928,34 @@ class StudentDebtsView(TenantViewSetMixin, generics.ListAPIView):
             qs = qs.filter(Q(branch_id=branch_id) | Q(branch__isnull=True))
         return qs
 
+
 class StudentDebtsSummaryView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Qarzdorlar'
+
     def get(self, request):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         from django.db.models import Q
         branch_id = self.get_branch_id()
         base_filter = Q(organization_id=org_id, balance__lt=0)
         if branch_id:
             base_filter &= (Q(branch_id=branch_id) | Q(branch__isnull=True))
-        
+
         total_debt = Student.objects.filter(base_filter).aggregate(total=Sum('balance'))['total'] or Decimal('0.00')
         return Response({
             "total_student_debts": abs(total_debt),
             "debtors_count": Student.objects.filter(base_filter).count()
         }, status=status.HTTP_200_OK)
 
+
 class StudentDebtDetailView(TenantViewSetMixin, generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Qarzdorlar'
     serializer_class = StudentSerializer
-    
+
     def get_queryset(self):
         org_id = self.get_organization_id()
         from django.db.models import Q
@@ -926,24 +965,28 @@ class StudentDebtDetailView(TenantViewSetMixin, generics.RetrieveAPIView):
             qs = qs.filter(Q(branch_id=branch_id) | Q(branch__isnull=True))
         return qs
 
+
 class TeacherDebtsView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Qarzdorlar'
+
     def get(self, request):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         # Teachers whose calculations are greater than payments made to them
         teachers = User.objects.filter(organization_id=org_id, role='teacher')
         debts = []
-        
+
         for t in teachers:
             # Get total calculated amount
-            total_calc = TeacherSalaryCalculation.objects.filter(teacher=t).aggregate(total=Sum('calculated_amount'))['total'] or Decimal('0.00')
+            total_calc = TeacherSalaryCalculation.objects.filter(teacher=t).aggregate(total=Sum('calculated_amount'))[
+                             'total'] or Decimal('0.00')
             # Get total paid amount
-            total_paid = TeacherSalaryPayment.objects.filter(teacher=t).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            
+            total_paid = TeacherSalaryPayment.objects.filter(teacher=t).aggregate(total=Sum('amount'))[
+                             'total'] or Decimal('0.00')
+
             diff = total_calc - total_paid
             if diff > 0:
                 debts.append({
@@ -953,61 +996,71 @@ class TeacherDebtsView(TenantViewSetMixin, APIView):
                     "total_paid": total_paid,
                     "outstanding_debt": diff
                 })
-                
+
         return Response(debts, status=status.HTTP_200_OK)
+
 
 class TeacherDebtsSummaryView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Qarzdorlar'
+
     def get(self, request):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         # Sum outstanding calculations
         teachers = User.objects.filter(organization_id=org_id, role='teacher')
         total_teacher_debt = Decimal('0.00')
         count = 0
         for t in teachers:
-            total_calc = TeacherSalaryCalculation.objects.filter(teacher=t).aggregate(total=Sum('calculated_amount'))['total'] or Decimal('0.00')
-            total_paid = TeacherSalaryPayment.objects.filter(teacher=t).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            total_calc = TeacherSalaryCalculation.objects.filter(teacher=t).aggregate(total=Sum('calculated_amount'))[
+                             'total'] or Decimal('0.00')
+            total_paid = TeacherSalaryPayment.objects.filter(teacher=t).aggregate(total=Sum('amount'))[
+                             'total'] or Decimal('0.00')
             diff = total_calc - total_paid
             if diff > 0:
                 total_teacher_debt += diff
                 count += 1
-                
+
         return Response({
             "total_teacher_debts": total_teacher_debt,
             "teachers_in_debt_count": count
         }, status=status.HTTP_200_OK)
 
+
 class AllDebtsView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Qarzdorlar'
+
     def get(self, request):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         # Combined student and teacher debts
-        student_debt = Student.objects.filter(organization_id=org_id, balance__lt=0).aggregate(total=Sum('balance'))['total'] or Decimal('0.00')
+        student_debt = Student.objects.filter(organization_id=org_id, balance__lt=0).aggregate(total=Sum('balance'))[
+                           'total'] or Decimal('0.00')
         student_debt_abs = abs(student_debt)
-        
+
         # Teacher debts calculation
         teachers = User.objects.filter(organization_id=org_id, role='teacher')
         teacher_debt_val = Decimal('0.00')
         for t in teachers:
-            total_calc = TeacherSalaryCalculation.objects.filter(teacher=t).aggregate(total=Sum('calculated_amount'))['total'] or Decimal('0.00')
-            total_paid = TeacherSalaryPayment.objects.filter(teacher=t).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            total_calc = TeacherSalaryCalculation.objects.filter(teacher=t).aggregate(total=Sum('calculated_amount'))[
+                             'total'] or Decimal('0.00')
+            total_paid = TeacherSalaryPayment.objects.filter(teacher=t).aggregate(total=Sum('amount'))[
+                             'total'] or Decimal('0.00')
             diff = total_calc - total_paid
             if diff > 0:
                 teacher_debt_val += diff
-                
+
         return Response({
             "student_debts": student_debt_abs,
             "teacher_debts": teacher_debt_val,
             "total_debts": student_debt_abs + teacher_debt_val
         }, status=status.HTTP_200_OK)
+
 
 class CashboxViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Moliya'
@@ -1015,26 +1068,32 @@ class CashboxViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     serializer_class = CashboxSerializer
     pagination_class = None
 
+
 class FinanceReportView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Moliya'
+
     def get(self, request):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         filters = {'organization_id': org_id}
         branch_id = self.get_branch_id()
         if branch_id:
             from django.db.models import Q
             payment_filter = Q(organization_id=org_id) & (Q(branch_id=branch_id) | Q(branch__isnull=True))
             expense_filter = Q(organization_id=org_id) & (Q(branch_id=branch_id) | Q(branch__isnull=True))
-            payments_sum = Payment.objects.filter(payment_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            expenses_sum = Expense.objects.filter(expense_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            payments_sum = Payment.objects.filter(payment_filter).aggregate(total=Sum('amount'))['total'] or Decimal(
+                '0.00')
+            expenses_sum = Expense.objects.filter(expense_filter).aggregate(total=Sum('amount'))['total'] or Decimal(
+                '0.00')
         else:
-            payments_sum = Payment.objects.filter(organization_id=org_id).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            expenses_sum = Expense.objects.filter(organization_id=org_id).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-        
+            payments_sum = Payment.objects.filter(organization_id=org_id).aggregate(total=Sum('amount'))[
+                               'total'] or Decimal('0.00')
+            expenses_sum = Expense.objects.filter(organization_id=org_id).aggregate(total=Sum('amount'))[
+                               'total'] or Decimal('0.00')
+
         return Response({
             "total_income": payments_sum,
             "total_expense": expenses_sum,
@@ -1052,13 +1111,13 @@ class CompanyProfitChartView(TenantViewSetMixin, APIView):
         from decimal import Decimal
         from finance.models import Payment, Expense, Salary
         from academics.models import TeacherSalaryPayment
-        
+
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         branch_id = self.get_branch_id()
-        
+
         today = datetime.date.today()
         months = []
         for i in range(5, -1, -1):
@@ -1068,41 +1127,43 @@ class CompanyProfitChartView(TenantViewSetMixin, APIView):
                 month_offset += 12
                 year_offset -= 1
             months.append((year_offset, month_offset))
-            
+
         labels = []
         values = []
-        
+
         uz_months = {
             1: "Yan", 2: "Fev", 3: "Mar", 4: "Apr", 5: "May", 6: "Iyun",
             7: "Iyul", 8: "Avg", 9: "Sen", 10: "Okt", 11: "Nov", 12: "Dek"
         }
-        
+
         for year, month in months:
             p_filter = {'organization_id': org_id, 'date__year': year, 'date__month': month}
             e_filter = {'organization_id': org_id, 'date__year': year, 'date__month': month}
             s_filter = {'organization_id': org_id, 'date__year': year, 'date__month': month, 'status': 'paid'}
             t_filter = {'organization_id': org_id, 'paid_at__year': year, 'paid_at__month': month}
-            
+
             if branch_id:
                 from django.db.models import Q
                 p_filter['branch_id'] = branch_id
                 e_filter['branch_id'] = branch_id
                 s_filter['branch_id'] = branch_id
                 t_filter['branch_id'] = branch_id
-                
+
             total_income = Payment.objects.filter(**p_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            
-            total_expense = Expense.objects.filter(**e_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+            total_expense = Expense.objects.filter(**e_filter).aggregate(total=Sum('amount'))['total'] or Decimal(
+                '0.00')
             total_salary = Salary.objects.filter(**s_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            total_teacher_salary = TeacherSalaryPayment.objects.filter(**t_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            
+            total_teacher_salary = TeacherSalaryPayment.objects.filter(**t_filter).aggregate(total=Sum('amount'))[
+                                       'total'] or Decimal('0.00')
+
             net_profit = total_income - (total_expense + total_salary + total_teacher_salary)
-            
+
             year_short = str(year)[2:]
             label = f"{uz_months[month]} {year_short}"
             labels.append(label)
             values.append(float(net_profit))
-            
+
         return Response({
             "labels": labels,
             "values": values
@@ -1283,6 +1344,7 @@ class CRMLeadsListView(TenantViewSetMixin, generics.ListAPIView):
     """
     Tanlangan bosqichdagi (pipeline_name bo'yicha) lidlarni filter va saralangan holda qaytaradi.
     """
+
     def get_serializer_class(self):
         from crm.serializers import LeadSerializer
         return LeadSerializer
@@ -1292,19 +1354,19 @@ class CRMLeadsListView(TenantViewSetMixin, generics.ListAPIView):
         if not org_id:
             from crm.models import Lead
             return Lead.objects.none()
-            
+
         start_date = self.request.query_params.get('start_date')
         end_date = self.request.query_params.get('end_date')
         source_id = self.request.query_params.get('source')
         pipeline_name = self.request.query_params.get('pipeline_name')
-        
+
         from crm.models import Lead
         from django.db.models import Q
         leads_qs = Lead.objects.filter(organization_id=org_id, is_archived=False)
         branch_id = self.get_branch_id()
         if branch_id:
             leads_qs = leads_qs.filter(Q(branch_id=branch_id) | Q(branch__isnull=True))
-        
+
         if pipeline_name:
             leads_qs = leads_qs.filter(pipeline__name=pipeline_name)
         if start_date:
@@ -1313,13 +1375,14 @@ class CRMLeadsListView(TenantViewSetMixin, generics.ListAPIView):
             leads_qs = leads_qs.filter(created_at__date__lte=end_date)
         if source_id:
             leads_qs = leads_qs.filter(source_id=source_id)
-            
+
         return leads_qs.order_by('-created_at')
 
 
 class ConversionReportsOverviewView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Konversiya hisoboti'
+
     def get(self, request):
         return Response({"detail": "Stub endpoint"}, status=status.HTTP_200_OK)
 
@@ -1327,6 +1390,7 @@ class ConversionReportsOverviewView(TenantViewSetMixin, APIView):
 class ConversionReportsLostReasonsView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Konversiya hisoboti'
+
     def get(self, request):
         return Response({"detail": "Stub endpoint"}, status=status.HTTP_200_OK)
 
@@ -1334,6 +1398,7 @@ class ConversionReportsLostReasonsView(TenantViewSetMixin, APIView):
 class ConversionReportsPipelineTransitionsView(TenantViewSetMixin, APIView):
     permission_classes = [permissions.IsAuthenticated, HasOrganizationPagePermission]
     permission_page_name = 'Konversiya hisoboti'
+
     def get(self, request):
         return Response({"detail": "Stub endpoint"}, status=status.HTTP_200_OK)
 
@@ -1344,26 +1409,27 @@ class LeadsReportPieChartView(TenantViewSetMixin, APIView):
     """
     Manbalar bo'yicha lidlar sonini qaytaradi (Pie chart).
     """
+
     def get(self, request):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
-        
+
         from crm.models import Lead
         leads_qs = Lead.objects.filter(organization_id=org_id)
-        
+
         if start_date:
             leads_qs = leads_qs.filter(created_at__date__gte=start_date)
         if end_date:
             leads_qs = leads_qs.filter(created_at__date__lte=end_date)
-            
+
         # Group by source
         from django.db.models import Count
         sources_data = leads_qs.values('source__name').annotate(count=Count('id'))
-        
+
         result = []
         for item in sources_data:
             name = item['source__name'] or "Noma'lum"
@@ -1380,28 +1446,29 @@ class LeadsReportBarChartView(TenantViewSetMixin, APIView):
     """
     Oylar bo'yicha lidlar oqimini qaytaradi (Bar chart).
     """
+
     def get(self, request):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
-        
+
         from crm.models import Lead
         leads_qs = Lead.objects.filter(organization_id=org_id)
-        
+
         if start_date:
             leads_qs = leads_qs.filter(created_at__date__gte=start_date)
         if end_date:
             leads_qs = leads_qs.filter(created_at__date__lte=end_date)
-            
+
         # Group by month in python to keep it database-agnostic
         monthly_counts = {}
         for lead in leads_qs:
             month_str = lead.created_at.strftime('%Y-%m')
             monthly_counts[month_str] = monthly_counts.get(month_str, 0) + 1
-            
+
         result = []
         for month in sorted(monthly_counts.keys()):
             result.append({
@@ -1417,32 +1484,36 @@ class LeadsReportStatisticsView(TenantViewSetMixin, APIView):
     """
     Jami lidlar sonini qaytaruvchi API.
     """
+
     def get(self, request):
         org_id = self.get_organization_id()
         if not org_id:
             return Response({"detail": "Organization context is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
-        
+
         from crm.models import Lead
         leads_qs = Lead.objects.filter(organization_id=org_id)
-        
+
         if start_date:
             leads_qs = leads_qs.filter(created_at__date__gte=start_date)
         if end_date:
             leads_qs = leads_qs.filter(created_at__date__lte=end_date)
-            
+
         total_leads = leads_qs.count()
         return Response({
             "total_leads": total_leads,
             "total_count": total_leads
         }, status=status.HTTP_200_OK)
 
+
 from finance.models import FinanceSetting, StaffSalaryPercent
 from finance.serializers import FinanceSettingSerializer, StaffSalaryPercentSerializer
-from organizations.mixins import TenantViewSetMixin # Agar mixiningiz nomi boshqacha bo'lsa to'g'rilab oling
+from organizations.mixins import TenantViewSetMixin  # Agar mixiningiz nomi boshqacha bo'lsa to'g'rilab oling
 from rest_framework.permissions import IsAuthenticated
+
+
 class FinanceSettingAPIView(APIView):
     """Moliya sozlamalarini bitta ob'ekt sifatida boshqarish endpointi"""
     permission_classes = [IsAuthenticated]
@@ -1476,6 +1547,7 @@ class StaffSalaryPercentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(organization=self.request.user.organization)
+
 
 class CashboxListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1523,8 +1595,6 @@ class AdvancedPaymentReportAPIView(APIView):
 
         serializer = PaymentSerializer(queryset, many=True)
         return Response(serializer.data)
-
-
 
 
 class TransactionCreateAPIView(APIView):
@@ -1726,7 +1796,6 @@ class FinanceActionViewSet(viewsets.ModelViewSet):
                 pass
 
 
-
 from .filters import FinancialReportFilter
 
 
@@ -1810,7 +1879,6 @@ class FinancialAnalyticsView(APIView):
         })
 
 
-
 class FinancialReportsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -1892,8 +1960,6 @@ class FinancialReportsView(APIView):
         })
 
 
-
-
 from .models import Transaction
 from datetime import datetime, time
 
@@ -1952,6 +2018,7 @@ class CashFlowReportView(APIView):
             "sof_pul_oqimi": float(total_income - total_expense)
         }, status=status.HTTP_200_OK)
 
+
 class PnLReportView(APIView):
     """
     Foyda va Zarar (PnL) hisoboti endpointi.
@@ -1973,7 +2040,8 @@ class PnLReportView(APIView):
                 pass
         if to_date:
             try:
-                queryset = queryset.filter(created_at__lte=datetime.combine(datetime.strptime(to_date, '%Y-%m-%d'), time.max))
+                queryset = queryset.filter(
+                    created_at__lte=datetime.combine(datetime.strptime(to_date, '%Y-%m-%d'), time.max))
             except ValueError:
                 pass
 
@@ -1989,16 +2057,13 @@ class PnLReportView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-
 class TransactionCategoryViewSet(viewsets.ModelViewSet):
-
     serializer_class = TransactionCategorySerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['type']
 
     def get_queryset(self):
-
         return TransactionCategory.objects.filter(organization_id=self.request.user.organization_id)
 
     def perform_create(self, serializer):
@@ -2035,8 +2100,9 @@ class EmployeeFinanceBalanceReportView(APIView):
 
             # Chiqim tranzaksiyalaridan xodim oylik to'lovlarini (Avans) hisoblaymiz
             advance_amount = \
-            Transaction.objects.filter(employee=emp, type='EXPENSE', category='SALARY').aggregate(total=Sum('amount'))[
-                'total'] or 0
+                Transaction.objects.filter(employee=emp, type='EXPENSE', category='SALARY').aggregate(
+                    total=Sum('amount'))[
+                    'total'] or 0
 
             final_salary = float(salary_amount)
             b_val = float(bonus_amount)
@@ -2104,9 +2170,6 @@ class RevenuePlanReportView(APIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
-# =====================================================================
-# 4-RASM: OʻQUVCHINING UMUMIY TOʻLANMAGAN TOʻLOVLARI (Debtors)
-# =====================================================================
 class UnpaidLessonsReportView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -2270,7 +2333,6 @@ class TeacherEfficiencyReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from academics.models import Teacher
         # Frontend'dan kelayotgan filter parametrlarini olish
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
@@ -2279,77 +2341,43 @@ class TeacherEfficiencyReportView(APIView):
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        # Filter shartlarini shakllantiramiz
-        # NOTA: 'groups__students__...' qismini o'zingizning Model munosabatlariga (Related Name) qarab moslang
+        org = getattr(request.user, 'organization', None)
+        teachers = User.objects.filter(organization=org, role='teacher').distinct()
 
-        # 1. Davr boshidagi holat (from_date'dan oldingi holat)
-        start_filter = Q()
-        if from_date:
-            start_filter &= Q(groups__students__joined_at__lt=from_date)  # Davr boshlanishidan oldin qo'shilganlar
+        def status_payload(queryset):
+            return {
+                "active": queryset.count(),
+                "left": 0,
+                "finished": 0,
+                "frozen": 0,
+            }
 
-        # 2. Davr ichidagi o'zgarishlar (from_date va to_date oralig'ida)
-        change_filter = Q()
-        if from_date:
-            change_filter &= Q(groups__students__joined_at__gte=from_date)
-        if to_date:
-            change_filter &= Q(groups__students__joined_at__lte=to_date)
-
-        # 3. Davr oxiridagi holat (to_date gacha bo'lgan jami holat)
-        end_filter = Q()
-        if to_date:
-            end_filter &= Q(groups__students__joined_at__lte=to_date)
-
-        # Haqiqiy so'rov (Queryset)
-        teachers_data = Teacher.objects.annotate(
-            # --- Davr boshidagi holat ---
-            start_active=Count('groups__students', filter=start_filter & Q(groups__students__status='active')),
-            start_left=Count('groups__students', filter=start_filter & Q(groups__students__status='left')),
-            start_finished=Count('groups__students', filter=start_filter & Q(groups__students__status='finished')),
-            start_frozen=Count('groups__students', filter=start_filter & Q(groups__students__status='frozen')),
-
-            # --- Davr ichidagi o'zgarishlar ---
-            change_active=Count('groups__students', filter=change_filter & Q(groups__students__status='active')),
-            change_left=Count('groups__students', filter=change_filter & Q(groups__students__status='left')),
-            change_finished=Count('groups__students', filter=change_filter & Q(groups__students__status='finished')),
-            change_frozen=Count('groups__students', filter=change_filter & Q(groups__students__status='frozen')),
-
-            # --- Davr oxiridagi holat ---
-            end_active=Count('groups__students', filter=end_filter & Q(groups__students__status='active')),
-            end_left=Count('groups__students', filter=end_filter & Q(groups__students__status='left')),
-            end_finished=Count('groups__students', filter=end_filter & Q(groups__students__status='finished')),
-            end_frozen=Count('groups__students', filter=end_filter & Q(groups__students__status='frozen'))
-        ).distinct()
-
-        # JSON formatga o'tkazish
         report = []
-        for index, teacher in enumerate(teachers_data, 1):
-            # Ism familiyani olish
-            if hasattr(teacher, 'user'):
-                name = f"{teacher.user.first_name} {teacher.user.last_name}".strip() or teacher.user.username
-            else:
-                name = getattr(teacher, 'name', f"O'qituvchi #{teacher.id}")
+        for index, teacher in enumerate(teachers.order_by('first_name', 'last_name', 'username'), 1):
+            teacher_groups = Group.objects.filter(group_teachers__teacher=teacher).distinct()
+            student_groups = StudentGroup.objects.filter(group__in=teacher_groups)
+
+            start_scope = student_groups
+            change_scope = student_groups
+            end_scope = student_groups
+
+            if from_date:
+                start_scope = student_groups.filter(joined_at__date__lt=from_date)
+                change_scope = student_groups.filter(joined_at__date__gte=from_date)
+            if to_date:
+                change_scope = change_scope.filter(joined_at__date__lte=to_date)
+                end_scope = student_groups.filter(joined_at__date__lte=to_date)
+
+            name = f"{teacher.first_name} {teacher.last_name}".strip() or teacher.username
+            group_count = teacher_groups.count()
 
             report.append({
                 "id": index,
                 "teacher_name": name,
-                "start_status": {
-                    "active": teacher.start_active,
-                    "left": teacher.start_left,
-                    "finished": teacher.start_finished,
-                    "frozen": teacher.start_frozen
-                },
-                "changes": {
-                    "active": teacher.change_active,
-                    "left": teacher.change_left,
-                    "finished": teacher.change_finished,
-                    "frozen": teacher.change_frozen
-                },
-                "end_status": {
-                    "active": teacher.end_active,
-                    "left": teacher.end_left,
-                    "finished": teacher.end_finished,
-                    "frozen": teacher.end_frozen
-                }
+                "group_count": group_count,
+                "start_status": status_payload(start_scope),
+                "changes": status_payload(change_scope),
+                "end_status": status_payload(end_scope),
             })
 
         return Response(report)
@@ -2368,72 +2396,38 @@ class AdministratorEfficiencyReportView(APIView):
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        # 1. Davr boshidagi holat (from_date'dan oldingi holat)
-        start_filter = Q()
-        if from_date:
-            # 'students__created_at' yoki o'quvchi qo'shilgan sana maydoni
-            start_filter &= Q(students__created_at__lt=from_date)
+        org = getattr(request.user, 'organization', None)
+        admins = User.objects.filter(organization=org, is_staff=True).distinct()
 
-            # 2. Davr ichidagi o'zgarishlar (from_date va to_date oralig'ida)
-        change_filter = Q()
-        if from_date:
-            change_filter &= Q(students__created_at__gte=from_date)
-        if to_date:
-            change_filter &= Q(students__created_at__lte=to_date)
+        def action_payload(queryset):
+            return {
+                "active": queryset.filter(action__icontains='create').count(),
+                "left": queryset.filter(action__icontains='update').count(),
+                "finished": queryset.filter(action__icontains='delete').count(),
+                "frozen": 0,
+            }
 
-        # 3. Davr oxiridagi holat (to_date gacha bo'lgan jami holat)
-        end_filter = Q()
-        if to_date:
-            end_filter &= Q(students__created_at__lte=to_date)
-
-        # Administratorlarni (masalan, guruh/roli moderator yoki admin bo'lganlarni) filterlab olish
-        # 'students' - bu User modelidan Student modeliga bo'lgan related_name
-        admins_data = User.objects.filter(
-            is_staff=True  # yoki guruhiga qarab filterlang: groups__name='boshqaruv'
-        ).annotate(
-            # --- Davr boshidagi holat ---
-            start_active=Count('students', filter=start_filter & Q(students__status='active')),
-            start_left=Count('students', filter=start_filter & Q(students__status='left')),
-            start_finished=Count('students', filter=start_filter & Q(students__status='finished')),
-            start_frozen=Count('students', filter=start_filter & Q(students__status='frozen')),
-
-            # --- Davr ichidagi o'zgarishlar ---
-            change_active=Count('students', filter=change_filter & Q(students__status='active')),
-            change_left=Count('students', filter=change_filter & Q(students__status='left')),
-            change_finished=Count('students', filter=change_filter & Q(students__status='finished')),
-            change_frozen=Count('students', filter=change_filter & Q(students__status='frozen')),
-
-            # --- Davr oxiridagi holat ---
-            end_active=Count('students', filter=end_filter & Q(students__status='active')),
-            end_left=Count('students', filter=end_filter & Q(students__status='left')),
-            end_finished=Count('students', filter=end_filter & Q(students__status='finished')),
-            end_frozen=Count('students', filter=end_filter & Q(students__status='frozen'))
-        ).distinct()
-
-        # Frontend kutayotgan JSON formatga o'tkazish
         report = []
-        for index, admin in enumerate(admins_data, 1):
+        for index, admin in enumerate(admins.order_by('first_name', 'last_name', 'username'), 1):
+            logs = AuditLog.objects.filter(user=admin, organization=org)
+            start_logs = logs
+            change_logs = logs
+            end_logs = logs
+
+            if from_date:
+                start_logs = logs.filter(timestamp__date__lt=from_date)
+                change_logs = logs.filter(timestamp__date__gte=from_date)
+            if to_date:
+                change_logs = change_logs.filter(timestamp__date__lte=to_date)
+                end_logs = logs.filter(timestamp__date__lte=to_date)
+
             report.append({
                 "id": index,
                 "admin_name": f"{admin.first_name} {admin.last_name}".strip() or admin.username,
-                "start_status": {
-                    "active": admin.start_active,
-                    "left": admin.start_left,
-                    "finished": admin.start_finished,
-                    "frozen": admin.start_frozen
-                },
-                "changes": {
-                    "active": admin.change_active,
-                    "left": admin.change_left,
-                    "finished": admin.change_finished,
-                    "frozen": admin.change_frozen
-                },
-                "end_status": {
-                    "active": admin.end_active,
-                    "left": admin.end_left,
-                    "finished": admin.end_finished,
-                    "frozen": admin.end_frozen
-                }
+                "start_status": action_payload(start_logs),
+                "changes": action_payload(change_logs),
+                "end_status": action_payload(end_logs),
+                "total_actions": logs.count(),
             })
 
         return Response(report)
@@ -2458,24 +2452,24 @@ class StudentLeaversReasonsReportView(APIView):
         to_date = parse_date(to_date_str) if to_date_str else None
 
         # 🌟 Filterlarni faqat joriy tashkilot va kiritilgan sanalar bo'yicha quramiz
-        filters = Q(student__organization=request.user.organization)
+        filters = Q(organization=getattr(request.user, 'organization', None))
 
         if from_date:
-            filters &= Q(created_at__date__gte=from_date)
+            filters &= Q(leave_date__gte=from_date)
         if to_date:
-            filters &= Q(created_at__date__lte=to_date)
+            filters &= Q(leave_date__lte=to_date)
 
         # 🌟 Ketish sababi (LeaveReason) modelidagi 'name' maydoni bo'yicha guruhlaymiz
         reasons_queryset = (
             StudentGroupLeave.objects.filter(filters)
-            .values('reason__name')  # Sababning nomini toza matn ko'rinishida olamiz
+            .values('leave_reason__reason')
             .annotate(count=Count('id'))
             .order_by('-count')
         )
 
         chart_data = []
         for item in reasons_queryset:
-            reason = item['reason__name'] or "Sababi ko'rsatilmagan"
+            reason = item['leave_reason__reason'] or "Sababi ko'rsatilmagan"
             chart_data.append({
                 "reason_name": reason,
                 "count": item['count']
@@ -2547,49 +2541,39 @@ class BranchMonitoringReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from organizations.models import Branch  # Filial modelingiz
+        from organizations.models import Branch
 
-        date_str = request.query_params.get('date')  # Kunlik filter uchun
+        org = getattr(request.user, 'organization', None)
+        date_str = request.query_params.get('date')
         target_date = parse_date(date_str) if date_str else None
-
-        date_filter = Q()
-        if target_date:
-            date_filter &= Q(students__created_at__date=target_date)
-
-        branches = Branch.objects.annotate(
-            # 1. Buyurtma statusidagilar
-            orders=Count('students', filter=date_filter & Q(students__status='order')),
-            # 2. Birinchi darsga keladiganlar
-            first_lesson=Count('students', filter=date_filter & Q(students__status='first_lesson')),
-            # 3. Yangi o'quvchilar
-            new_students=Count('students', filter=date_filter & Q(students__is_new=True)),
-            # 4. Aktiv o'quvchilar
-            active_students=Count('students', filter=date_filter & Q(students__status='active')),
-            # 5. Guruh o'quvchilari
-            group_students=Count('students', filter=date_filter & Q(students__groups__isnull=False)),
-            # 6. Buyurtmadan ketganlar
-            order_leavers=Count('students', filter=date_filter & Q(students__status='order_left')),
-            # 7. Qarzdorlar
-            debtors=Count('students', filter=date_filter & Q(students__balance__lt=0))
-        ).distinct()
+        branches = Branch.objects.filter(organization=org).order_by('name')
 
         table_data = []
         for index, branch in enumerate(branches, 1):
-            # Qarzdorlarning aktivga nisbatan foizi
-            debt_percentage = 0
-            if branch.active_students > 0:
-                debt_percentage = round((branch.debtors / branch.active_students) * 100, 1)
+            groups_qs = Group.objects.filter(organization=org, branch=branch)
+            student_groups = StudentGroup.objects.filter(organization=org, branch=branch)
+            leaves_qs = StudentGroupLeave.objects.filter(organization=org, branch=branch)
+
+            if target_date:
+                new_students_qs = student_groups.filter(joined_at__date=target_date)
+                leaves_qs = leaves_qs.filter(leave_date=target_date)
+            else:
+                new_students_qs = student_groups
+
+            active_students = student_groups.values('student_id').distinct().count()
+            debtors = student_groups.filter(student__balance__lt=0).values('student_id').distinct().count()
+            debt_percentage = round((debtors / active_students) * 100, 1) if active_students > 0 else 0
 
             table_data.append({
                 "id": index,
                 "branch_name": branch.name,
-                "buyurtma": branch.orders,
-                "birinchi_dars": branch.first_lesson,
-                "yangi_oquvchi": branch.new_students,
-                "aktiv_oquvchilar": branch.active_students,
-                "guruh_oquvchilari": branch.group_students,
-                "buyurtmadan_ketganlar": branch.order_leavers,
-                "qarzdorlar": branch.debtors,
+                "buyurtma": groups_qs.filter(status='pending').count(),
+                "birinchi_dars": groups_qs.filter(status='upcoming').count(),
+                "yangi_oquvchi": new_students_qs.values('student_id').distinct().count(),
+                "aktiv_oquvchilar": active_students,
+                "guruh_oquvchilari": student_groups.count(),
+                "buyurtmadan_ketganlar": leaves_qs.count(),
+                "qarzdorlar": debtors,
                 "qarzdorlar_foizi": f"{debt_percentage}%"
             })
 
@@ -2600,55 +2584,59 @@ class UnsubmittedAttendanceReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from academics.models import Group, Lesson  # Guruh va darslar modellarini tekshiring
-
+        org = getattr(request.user, 'organization', None)
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
 
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        # Berilgan oraliqdagi darslarni filterlash
-        lesson_filter = Q()
+        lessons = GroupLesson.objects.filter(organization=org).select_related('group', 'group__teacher', 'group__course')
         if from_date:
-            lesson_filter &= Q(lessons__date__gte=from_date)
+            lessons = lessons.filter(date__gte=from_date)
         if to_date:
-            lesson_filter &= Q(lessons__date__lte=to_date)
+            lessons = lessons.filter(date__lte=to_date)
 
-        # Davomati belgilanmagan (attendance_submitted=False bo'lgan) guruhlarni topish
-        unsubmitted_groups = Group.objects.filter(
-            lesson_filter & Q(lessons__attendance_submitted=False)
-        ).distinct().select_related('teacher')
+        missing_by_group = {}
+        for lesson in lessons.order_by('group_id', 'date'):
+            has_attendance = Attendance.objects.filter(
+                organization=org,
+                group=lesson.group,
+                date=lesson.date,
+            ).exists()
+            if has_attendance:
+                continue
+
+            group = lesson.group
+            teacher = getattr(group, 'teacher', None)
+            teacher_name = "O'qituvchi biriktirilmagan"
+            if teacher:
+                teacher_name = f"{teacher.first_name} {teacher.last_name}".strip() or teacher.username
+
+            current = missing_by_group.get(group.id)
+            if not current or lesson.date > current["lesson_obj"].date:
+                missing_by_group[group.id] = {
+                    "lesson_obj": lesson,
+                    "group_name": group.name,
+                    "teacher_name": teacher_name,
+                    "amount": float(getattr(group.course, 'price', 0) or 0),
+                }
 
         table_data = []
         total_lost_sum = 0
-
-        for index, group in enumerate(unsubmitted_groups, 1):
-            # Har bir guruhning narxi (misol uchun modelda 'price' bo'lsa)
-            group_price = getattr(group, 'price', 300000)
-            total_lost_sum += group_price
-
-            teacher_name = "O'qituvchi biriktirilmagan"
-            if group.teacher:
-                if hasattr(group.teacher, 'user'):
-                    teacher_name = f"{group.teacher.user.first_name} {group.teacher.user.last_name}".strip()
-                else:
-                    teacher_name = getattr(group.teacher, 'name', str(group.teacher))
-
-            # Oxirgi dars sanasini olish
-            last_lesson = group.lessons.filter(attendance_submitted=False).first()
-            lesson_date = last_lesson.date.strftime("%d.%m.%Y | %H:%M") if last_lesson else "-"
-
+        for index, item in enumerate(missing_by_group.values(), 1):
+            total_lost_sum += item["amount"]
             table_data.append({
                 "id": index,
-                "group_name": group.name,
-                "sana": lesson_date,
-                "teacher_name": teacher_name,
-                "amount": group_price
+                "group_name": item["group_name"],
+                "sana": item["lesson_obj"].date.strftime("%d.%m.%Y"),
+                "teacher_name": item["teacher_name"],
+                "amount": item["amount"],
             })
 
         return Response({
             "total_sum": total_lost_sum,
             "currency": "UZS",
-            "table_data": table_data
+            "table_data": table_data,
+            "missing_groups_count": len(table_data),
         })

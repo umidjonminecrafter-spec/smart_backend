@@ -199,42 +199,23 @@ class SubscribeConfirmView(APIView):
                 "missing": price - subscription.balance,
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        today = datetime.date.today()
-
-        # Subscription yangilash
-        if subscription.is_active and subscription.end_date >= today:
-            start = subscription.end_date  # muddatga qo'shiladi
-        else:
-            start = today
-
-        end = add_months(start, tariff.months)
-        next_charge = end  # keyingi yechish sanasi
-
         # Balancedan yechish
         subscription.balance -= price
-        subscription.tariff = tariff
-        subscription.start_date = start
-        subscription.end_date = end
-        subscription.is_active = True
         subscription.save()
 
-        # TariffPurchase saqlash
-        TariffPurchase.objects.create(
+        approved_request = SubscriptionRequest.objects.create(
             organization=org,
             tariff=tariff,
+            months=tariff.months,
             amount=price,
-            start_date=start,
-            next_charge_date=next_charge,
-            is_active=True,
+            status='approved',
+            comment="Tarif tasdiqlash orqali faollashtirildi",
         )
 
-        # BillingHistory saqlash
-        BillingHistory.objects.create(
-            organization=org,
-            amount=price,
-            plan_name=tariff.name,
-            months=tariff.months,
-        )
+        subscription = Subscription.objects.filter(organization=org).first()
+        start = subscription.start_date if subscription else None
+        end = subscription.end_date if subscription else None
+        next_charge = end
 
         return Response({
             "detail": "Tarif muvaffaqiyatli faollashtirildi.",
@@ -244,6 +225,7 @@ class SubscribeConfirmView(APIView):
             "start_date": start,
             "end_date": end,
             "next_charge_date": next_charge,
+            "request_id": approved_request.id,
         })
 
 

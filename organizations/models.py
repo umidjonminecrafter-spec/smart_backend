@@ -118,50 +118,10 @@ class Subscription(TenantModel):
         return f"Subscription for {self.organization.name}"
 
     def save(self, *args, **kwargs):
+        # Billing yozuvlarini boshqa joyda, bitta markazlashgan oqimda yaratamiz.
+        # Bu yerda faqat subscription o'zini saqlaymiz, aks holda history va purchase
+        # ikki marta yaralib, hisob-kitob buziladi.
         super().save(*args, **kwargs)
-
-        # If active and has tariff, auto-create BillingHistory & TariffPurchase if not exists
-        if self.is_active and self.tariff:
-            from billing.models import TariffPurchase, BillingHistory
-
-            # Check if TariffPurchase already exists for this active subscription period
-            purchase_exists = TariffPurchase.objects.filter(
-                organization=self.organization,
-                tariff=self.tariff,
-                start_date=self.start_date
-            ).exists()
-
-            if not purchase_exists:
-                TariffPurchase.objects.create(
-                    organization=self.organization,
-                    tariff=self.tariff,
-                    amount=self.tariff.final_price,
-                    start_date=self.start_date,
-                    next_charge_date=self.end_date,
-                    is_active=True
-                )
-
-            # Check if BillingHistory already exists
-            history_exists = BillingHistory.objects.filter(
-                organization=self.organization,
-                plan_name=self.tariff.name,
-                amount=self.tariff.final_price
-            ).exists()
-
-            if not history_exists:
-                months = self.tariff.months
-                if self.end_date and self.start_date:
-                    diff_months = (
-                                              self.end_date.year - self.start_date.year) * 12 + self.end_date.month - self.start_date.month
-                    if diff_months > 0:
-                        months = diff_months
-
-                BillingHistory.objects.create(
-                    organization=self.organization,
-                    amount=self.tariff.final_price,
-                    plan_name=self.tariff.name,
-                    months=months
-                )
 
 
 class ReceiptSetting(models.Model):
@@ -311,7 +271,6 @@ class LessonNotificationTemplate(TenantModel):
 
     def __str__(self):
         return f"{self.name} - {self.organization.name}"
-
 
 
 

@@ -73,7 +73,7 @@ class SubscriptionRequest(TenantModel):
                     'is_active': False,
                 }
             )
-            
+
             today = datetime.date.today()
             if subscription.is_active and subscription.end_date >= today:
                 start = subscription.end_date
@@ -93,6 +93,7 @@ class SubscriptionRequest(TenantModel):
             subscription.save()
 
             from billing.models import TariffPurchase, BillingHistory
+
             TariffPurchase.objects.get_or_create(
                 organization=self.organization,
                 tariff=self.tariff,

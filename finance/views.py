@@ -2249,13 +2249,12 @@ class DiscountsAndBonusesReportView(APIView):
 
     def get(self, request):
         from finance.models import Transaction
-        from django.db.models import Sum, Q
+        from django.db.models import Sum, Q  # 🌟 Q va Sum importi sug'urtalandi
 
         org_id = request.user.organization_id
         branch_id = request.query_params.get('branch')
 
-        # 1. Tashkilot bo'yicha umumiy tranzaksiyalarni olamiz
-        # TenantModel avtomatik filtrlasa ham, qo'shimcha sug'urta qilamiz
+        # 1. Tashkilot bo'yicha filterlarni quramiz
         if hasattr(Transaction, 'organization'):
             base_txs = Transaction.objects.filter(organization_id=org_id)
         else:
@@ -2264,46 +2263,77 @@ class DiscountsAndBonusesReportView(APIView):
         if branch_id:
             base_txs = base_txs.filter(cashbox__branch_id=branch_id)
 
-        # 2. Chegirma va Bonuslarni ham category, ham description (izoh) orqali juda keng qidiramiz
-        # Chunki tizimda izohga "bonus" yoki "chegirma" deb yozilgan bo'lishi ehtimoli juda yuqori
+        # 2. Chegirma va Bonuslarni ham category, ham description orqali keng qidiramiz
         discount_filter = Q(category='VOUCHER') | Q(description__icontains='chegirma') | Q(
             description__icontains='voucher')
         bonus_filter = Q(category='BONUS') | Q(description__icontains='bonus')
 
-        # Har birini alohida filtrlab olamiz
-        discount_txs = base_txs.filter(discount_filter).select_related('student')
-        bonus_txs = base_txs.filter(bonus_filter).select_related('student')
+        # select_related va prefetch_related orqali o'quvchi guruh va kurslarini optimal yuklaymiz
+        discount_txs = base_txs.filter(discount_filter).select_related('student').prefetch_related(
+            'student__student_groups__group__course')
+        bonus_txs = base_txs.filter(bonus_filter).select_related('student').prefetch_related(
+            'student__student_groups__group__course')
 
         rows = []
         index = 1
 
-        # 3. Chegirmalarni jadvalga qo'shamiz
+        # Ichki yordamchi funksiya: O'quvchining guruh va kurs nomlarini aniqlash uchun
+        def get_student_details(student):
+            if not student:
+                return "-", "-"
+
+            # O'quvchi biriktirilgan faol guruhlarni olamiz
+            student_groups = student.student_groups.all() if hasattr(student, 'student_groups') else []
+
+            if student_groups:
+                group_names = []
+                course_names = []
+                for sg in student_groups:
+                    if sg.group:
+                        group_names.append(sg.group.name)
+                        if sg.group.course:
+                            course_names.append(sg.group.course.name)
+
+                # Agar bir nechta guruh bo'lsa, vergul bilan ajratib ko'rsatamiz
+                g_name = ", ".join(list(set(group_names))) if group_names else "-"
+                c_name = ", ".join(list(set(course_names))) if course_names else "-"
+                return c_name, g_name
+
+            return "-", "-"
+
+        # 3. Chegirmalarni (`VOUCHER`) jadvalga to'g'ri maydonlar bilan qo'shish
         for tx in discount_txs:
             st_name = "Umumiy Chegirma"
+            course_name, group_name = "-", "-"
+
             if tx.student:
                 st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
+                course_name, group_name = get_student_details(tx.student)
 
             rows.append({
                 "id": index,
                 "name": st_name,
-                "course": "-",
-                "group": "-",
+                "course": course_name,  # 🌟 Endi null yoki '-' kelmaydi, bazadan keladi
+                "group": group_name,  # 🌟 Guruh nomi ham ulandi
                 "total_discount": float(tx.amount),
                 "bonus": 0.0
             })
             index += 1
 
-        # 4. Bonuslarni jadvalga qo'shamiz
+        # 4. Bonuslarni (`BONUS`) jadvalga qo'shish
         for tx in bonus_txs:
             st_name = "Umumiy Bonus"
+            course_name, group_name = "-", "-"
+
             if tx.student:
                 st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
+                course_name, group_name = get_student_details(tx.student)
 
             rows.append({
                 "id": index,
                 "name": st_name,
-                "course": "-",
-                "group": "-",
+                "course": course_name,
+                "group": group_name,
                 "total_discount": 0.0,
                 "bonus": float(tx.amount)
             })

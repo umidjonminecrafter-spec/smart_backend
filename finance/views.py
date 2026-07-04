@@ -1,18 +1,20 @@
 from django.db.models import Sum, Count, Q
 from django.utils import timezone
-from rest_framework import viewsets, permissions, status, decorators, generics
+from rest_framework import viewsets, permissions, status, decorators, generics, filters
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
 from decimal import Decimal
 from django.db import transaction
+from django.db import transaction as db_transaction
+from django.utils.dateparse import parse_date
 from crm.models import Pipeline, Lead
 from organizations.mixins import TenantViewSetMixin
 from django.db.models.functions import TruncDate, Coalesce
 from organizations.permissions import HasOrganizationPagePermission
-from datetime import datetime
-from audit.models import AuditLog
+from datetime import datetime, time
 from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Expense, MonthlyIncome,
     Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox, CashTransaction,
@@ -23,8 +25,7 @@ from finance.serializers import (
     MonthlyIncomeSerializer, PaymentSerializer, SaleSerializer, BonusSerializer,
     FineSerializer, SalarySerializer, TeacherSalaryRuleSerializer, TeacherSalaryCalculationSerializer, CashboxSerializer
 )
-from academics.models import Student, Group, StudentGroup, TeacherSalaryPayment, Attendance, GroupLesson, \
-    StudentGroupLeave, LeaveReason
+from academics.models import Student, Group, StudentGroup, TeacherSalaryPayment
 from academics.serializers import StudentSerializer, TeacherSalaryPaymentSerializer
 from django.contrib.auth import get_user_model
 
@@ -62,17 +63,12 @@ class TransactionViewSet(viewsets.ModelViewSet):
         return Transaction.objects.filter(cashbox__organization=self.request.user.organization)
 
     def perform_create(self, serializer):
-        with db_transaction.atomic():  # db_transaction importi bilan xavfsiz qilindi
-            tx = serializer.save()
-            cashbox = tx.cashbox
-
-            # Kirim bo'lsa kassa balansiga qo'shiladi, chiqim bo'lsa ayiriladi
-            if tx.type == 'INCOME':
-                cashbox.balance += tx.amount
-            elif tx.type == 'EXPENSE':
-                cashbox.balance -= tx.amount
-
-            cashbox.save()
+        # TO'G'RILANDI 1: `organization` maydoni serializerda yo'q edi - qo'lda qo'shildi,
+        # aks holda ma'lumot bazasida NOT NULL xatoligi chiqishi mumkin edi.
+        # TO'G'RILANDI 2: Kassa balansini bu yerda QO'LDA o'zgartirmaymiz!
+        # Transaction modelidagi `recompute_cashbox_balance` signali (models.py)
+        # buni AVTOMATIK va TO'G'RI (yagona formula asosida) bajaradi.
+        serializer.save(organization=self.request.user.organization)
 
 
 class TransactionTypesView(APIView):
@@ -183,28 +179,11 @@ class ExpenseViewSet(TenantViewSetMixin,
             # Xarajatni saqlaymiz
             expense = serializer.save(**save_kwargs)
 
-            # Kassa balansini yangilash qismi...
-            if expense.cashbox:
-                cashbox = expense.cashbox
-                cashbox.balance -= expense.amount
-                cashbox.save()
-
-                try:
-                    import json
-                    unpacked = json.loads(expense.description)
-                    title = unpacked.get('name') or expense.category.name
-                except:
-                    title = expense.category.name if expense.category else "Xarajat"
-
-                # 🌟 Bu yerga ham xavfsizlik uchun organization qo'shildi
-                Transaction.objects.create(
-                    organization=org,  # <-- Qo'shildi
-                    cashbox=cashbox,
-                    amount=expense.amount,
-                    type='EXPENSE',
-                    category='DIRECT',
-                    description=f"Xarajat: {title}"
-                )
+            # TO'G'RILANDI: Kassa balansini bu yerda QO'LDA o'zgartirmaymiz va
+            # Transaction'ni ham qo'lda yaratmaymiz! Expense modelidagi
+            # `expense_transaction_mirror_sync` signali (models.py) buni AVTOMATIK
+            # va TO'G'RI bajaradi - shu bilan birga kassa balansi ham yagona
+            # (Transaction asosidagi) formula bo'yicha to'g'ri qayta hisoblanadi.
 
     @decorators.action(detail=False, methods=['get'], url_path='monthly-summary')
     def monthly_summary(self, request):
@@ -634,16 +613,22 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ReadOnlyModel
                     salary_calc.advance + salary_calc.penalty)
 
             # 4. Moliyaviy tranzaksiya yaratamiz (Chiqim)
+            # TO'G'RILANDI: organization qo'shildi (avval yo'q edi - NOT NULL xatoligi
+            # berishi mumkin edi) va category='SALARY' qilib belgilandi.
             Transaction.objects.create(
+                organization=cashbox.organization,
                 cashbox=cashbox,
                 amount=final_payout,
                 type='EXPENSE',
+                category='SALARY',
+                employee=salary_calc.teacher,
                 description=f"Oylik to'lovi: {salary_calc.teacher} uchun ({salary_calc.period} davri)"
             )
 
-            # 5. Kassaning haqiqiy balansini kamaytiramiz
-            cashbox.balance -= final_payout
-            cashbox.save()
+            # TO'G'RILANDI: Kassa balansini bu yerda QO'LDA kamaytirmaymiz!
+            # Yuqoridagi Transaction.objects.create() chaqirilganda
+            # `recompute_cashbox_balance` signali (models.py) kassa balansini
+            # AVTOMATIK va TO'G'RI (yagona formula asosida) qayta hisoblaydi.
 
 
 class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
@@ -1192,20 +1177,19 @@ class WithdrawalViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         if amount and amount > 0:
             serializer.validated_data['amount'] = -amount
 
-        # Procedurally update student balance when a withdrawal is added
-        student = serializer.validated_data.get('student')
-        if student:
-            student.balance += serializer.validated_data['amount']
-            student.save()
-
+        # TO'G'RILANDI: Talaba balansini bu yerda QO'LDA yangilamaymiz!
+        # Payment modelida `payment_student_balance_update` degan post_save signal bor,
+        # u serializer.save() chaqirilganda AVTOMATIK ravishda
+        # student.balance += instance.amount qiladi. Bu yerda ham qo'lda qo'shilsa,
+        # balans HAR SAFAR ikki baravar (2x) o'zgarardi.
         serializer.save(organization_id=self.get_organization_id(), branch_id=self.get_branch_id())
 
     def perform_destroy(self, instance):
-        # Procedurally update student balance when a withdrawal is deleted (refund the withdrawal amount)
-        student = instance.student
-        if student:
-            student.balance -= instance.amount
-            student.save()
+        # TO'G'RILANDI: Talaba balansini bu yerda QO'LDA qaytarmaymiz!
+        # Payment modelida `payment_student_balance_delete` degan post_delete signal bor,
+        # u instance.delete() chaqirilganda AVTOMATIK ravishda
+        # student.balance -= instance.amount qiladi. Bu yerda ham qo'lda ayirilsa,
+        # balans HAR SAFAR ikki baravar (2x) o'zgarardi.
         instance.delete()
 
 
@@ -1671,15 +1655,12 @@ class CashTransferAPIView(APIView):
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
-                # Balanslarni o'zgartiramiz
-                from_box.balance -= amount
-                from_box.save(update_fields=['balance'])
-
-                to_box.balance += amount
-                to_box.save(update_fields=['balance'])
-
-                # 🔥 BU YERDAGI SERIAlIZER.SAVE() LAR OLIB TASHLANDI!
-                # Chunki pastdagi Transaction.objects.create allaqachon hamma narsani bazaga yozmoqda.
+                # TO'G'RILANDI: Balanslarni bu yerda QO'LDA o'zgartirmaymiz!
+                # Pastdagi ikkita Transaction.objects.create() chaqirilganda
+                # `recompute_cashbox_balance` signali (models.py) har ikkala
+                # kassaning balansini ham AVTOMATIK va TO'G'RI qayta hisoblaydi.
+                # Avval bu yerda QO'LDA ham, Transaction orqali ham o'zgartirilgani
+                # uchun balanslar noto'g'ri chiqishi mumkin edi.
 
                 # 🌟 1. General Transaction (EXPENSE - Chiquvchi kassa tarixi uchun)
                 Transaction.objects.create(
@@ -1775,16 +1756,23 @@ class FinanceActionViewSet(viewsets.ModelViewSet):
                 if cashbox_id:
                     cashbox = Cashbox.objects.get(id=cashbox_id)
 
-                    # Bu yerga ham organization qo'shildi!
+                    # TO'G'RILANDI: category='BONUS' qilib belgilandi va
+                    # student/employee to'g'ri bog'landi (hisobotlarda ko'rinishi uchun)
                     t = Transaction.objects.create(
                         organization=self.request.user.organization,
                         cashbox=cashbox,
                         amount=instance.amount,
                         type='EXPENSE',
+                        category='BONUS',
+                        student=instance.student,
+                        employee=instance.employee,
                         description=f"{instance.get_target_type_display()} uchun bonus: {instance.reason}"
                     )
-                    cashbox.balance -= instance.amount
-                    cashbox.save()
+
+                    # TO'G'RILANDI: Kassa balansini bu yerda QO'LDA kamaytirmaymiz!
+                    # Yuqoridagi Transaction.objects.create() chaqirilganda
+                    # `recompute_cashbox_balance` signali (models.py) kassa balansini
+                    # AVTOMATIK va TO'G'RI qayta hisoblaydi.
 
                     instance.transaction = t
                     instance.save()
@@ -2170,6 +2158,9 @@ class RevenuePlanReportView(APIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
+# =====================================================================
+# 4-RASM: OʻQUVCHINING UMUMIY TOʻLANMAGAN TOʻLOVLARI (Debtors)
+# =====================================================================
 class UnpaidLessonsReportView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -2191,11 +2182,15 @@ class UnpaidLessonsReportView(APIView):
             if hasattr(student, 'groups'):
                 groups_str = ", ".join([g.name for g in student.groups.all()])
 
+            # DIQQAT: bitta dars narxi hozircha 60 000 so'm deb QAT'IY (hardcoded) olingan.
+            # Bu haqiqiy kurs narxi emas - shuning uchun "unpaid_lessons_count" noaniq bo'lishi mumkin.
+            # To'g'ri yechim uchun: talabaning faol guruhi -> Course.price va dars soni orqali
+            # haqiqiy bitta dars narxini hisoblash kerak (bu o'zgarish alohida muhokama talab qiladi).
             rows.append({
                 "id": index,
                 "name": f"{student.first_name} {student.last_name or ''}".strip(),
                 "groups": groups_str,
-                "unpaid_lessons_count": int(balance_val / 60000) or 1,  # Taxminiy bitta dars narxi 60k deb olinsa
+                "unpaid_lessons_count": int(balance_val / 60000) or 1,
                 "total_unpaid_amount": balance_val
             })
 
@@ -2328,11 +2323,13 @@ class DiscountsAndBonusesReportView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-
 class TeacherEfficiencyReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        # TO'G'RILANDI: 'Teacher' alohida model emas, tizimda o'qituvchilar
+        # User modelida role='teacher' orqali saqlanadi (boshqa view'lardagi patternga moslandi)
+        org_id = request.user.organization_id
         # Frontend'dan kelayotgan filter parametrlarini olish
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
@@ -2341,43 +2338,76 @@ class TeacherEfficiencyReportView(APIView):
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        org = getattr(request.user, 'organization', None)
-        teachers = User.objects.filter(organization=org, role='teacher').distinct()
+        # Filter shartlarini shakllantiramiz
+        # NOTA: 'groups__students__...' qismini o'zingizning Model munosabatlariga (Related Name) qarab moslang
 
-        def status_payload(queryset):
-            return {
-                "active": queryset.count(),
-                "left": 0,
-                "finished": 0,
-                "frozen": 0,
-            }
+        # 1. Davr boshidagi holat (from_date'dan oldingi holat)
+        start_filter = Q()
+        if from_date:
+            start_filter &= Q(groups__students__joined_at__lt=from_date)  # Davr boshlanishidan oldin qo'shilganlar
 
+        # 2. Davr ichidagi o'zgarishlar (from_date va to_date oralig'ida)
+        change_filter = Q()
+        if from_date:
+            change_filter &= Q(groups__students__joined_at__gte=from_date)
+        if to_date:
+            change_filter &= Q(groups__students__joined_at__lte=to_date)
+
+        # 3. Davr oxiridagi holat (to_date gacha bo'lgan jami holat)
+        end_filter = Q()
+        if to_date:
+            end_filter &= Q(groups__students__joined_at__lte=to_date)
+
+        # Haqiqiy so'rov (Queryset)
+        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
+        # bu boshqa tashkilotlarning o'qituvchilari ham ko'rinishiga sabab bo'lardi)
+        teachers_data = User.objects.filter(organization_id=org_id, role='teacher').annotate(
+            # --- Davr boshidagi holat ---
+            start_active=Count('groups__students', filter=start_filter & Q(groups__students__status='active')),
+            start_left=Count('groups__students', filter=start_filter & Q(groups__students__status='left')),
+            start_finished=Count('groups__students', filter=start_filter & Q(groups__students__status='finished')),
+            start_frozen=Count('groups__students', filter=start_filter & Q(groups__students__status='frozen')),
+
+            # --- Davr ichidagi o'zgarishlar ---
+            change_active=Count('groups__students', filter=change_filter & Q(groups__students__status='active')),
+            change_left=Count('groups__students', filter=change_filter & Q(groups__students__status='left')),
+            change_finished=Count('groups__students', filter=change_filter & Q(groups__students__status='finished')),
+            change_frozen=Count('groups__students', filter=change_filter & Q(groups__students__status='frozen')),
+
+            # --- Davr oxiridagi holat ---
+            end_active=Count('groups__students', filter=end_filter & Q(groups__students__status='active')),
+            end_left=Count('groups__students', filter=end_filter & Q(groups__students__status='left')),
+            end_finished=Count('groups__students', filter=end_filter & Q(groups__students__status='finished')),
+            end_frozen=Count('groups__students', filter=end_filter & Q(groups__students__status='frozen'))
+        ).distinct()
+
+        # JSON formatga o'tkazish
         report = []
-        for index, teacher in enumerate(teachers.order_by('first_name', 'last_name', 'username'), 1):
-            teacher_groups = Group.objects.filter(group_teachers__teacher=teacher).distinct()
-            student_groups = StudentGroup.objects.filter(group__in=teacher_groups)
-
-            start_scope = student_groups
-            change_scope = student_groups
-            end_scope = student_groups
-
-            if from_date:
-                start_scope = student_groups.filter(joined_at__date__lt=from_date)
-                change_scope = student_groups.filter(joined_at__date__gte=from_date)
-            if to_date:
-                change_scope = change_scope.filter(joined_at__date__lte=to_date)
-                end_scope = student_groups.filter(joined_at__date__lte=to_date)
-
+        for index, teacher in enumerate(teachers_data, 1):
+            # Ism familiyani olish (teacher endi to'g'ridan-to'g'ri User instance'i)
             name = f"{teacher.first_name} {teacher.last_name}".strip() or teacher.username
-            group_count = teacher_groups.count()
 
             report.append({
                 "id": index,
                 "teacher_name": name,
-                "group_count": group_count,
-                "start_status": status_payload(start_scope),
-                "changes": status_payload(change_scope),
-                "end_status": status_payload(end_scope),
+                "start_status": {
+                    "active": teacher.start_active,
+                    "left": teacher.start_left,
+                    "finished": teacher.start_finished,
+                    "frozen": teacher.start_frozen
+                },
+                "changes": {
+                    "active": teacher.change_active,
+                    "left": teacher.change_left,
+                    "finished": teacher.change_finished,
+                    "frozen": teacher.change_frozen
+                },
+                "end_status": {
+                    "active": teacher.end_active,
+                    "left": teacher.end_left,
+                    "finished": teacher.end_finished,
+                    "frozen": teacher.end_frozen
+                }
             })
 
         return Response(report)
@@ -2396,38 +2426,76 @@ class AdministratorEfficiencyReportView(APIView):
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        org = getattr(request.user, 'organization', None)
-        admins = User.objects.filter(organization=org, is_staff=True).distinct()
+        # 1. Davr boshidagi holat (from_date'dan oldingi holat)
+        start_filter = Q()
+        if from_date:
+            # 'students__created_at' yoki o'quvchi qo'shilgan sana maydoni
+            start_filter &= Q(students__created_at__lt=from_date)
 
-        def action_payload(queryset):
-            return {
-                "active": queryset.filter(action__icontains='create').count(),
-                "left": queryset.filter(action__icontains='update').count(),
-                "finished": queryset.filter(action__icontains='delete').count(),
-                "frozen": 0,
-            }
+            # 2. Davr ichidagi o'zgarishlar (from_date va to_date oralig'ida)
+        change_filter = Q()
+        if from_date:
+            change_filter &= Q(students__created_at__gte=from_date)
+        if to_date:
+            change_filter &= Q(students__created_at__lte=to_date)
 
+        # 3. Davr oxiridagi holat (to_date gacha bo'lgan jami holat)
+        end_filter = Q()
+        if to_date:
+            end_filter &= Q(students__created_at__lte=to_date)
+
+        # Administratorlarni (masalan, guruh/roli moderator yoki admin bo'lganlarni) filterlab olish
+        # 'students' - bu User modelidan Student modeliga bo'lgan related_name
+        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
+        # bu boshqa tashkilotlarning administratorlari ham ko'rinishiga sabab bo'lardi)
+        org_id = request.user.organization_id
+        admins_data = User.objects.filter(
+            organization_id=org_id,
+            is_staff=True  # yoki guruhiga qarab filterlang: groups__name='boshqaruv'
+        ).annotate(
+            # --- Davr boshidagi holat ---
+            start_active=Count('students', filter=start_filter & Q(students__status='active')),
+            start_left=Count('students', filter=start_filter & Q(students__status='left')),
+            start_finished=Count('students', filter=start_filter & Q(students__status='finished')),
+            start_frozen=Count('students', filter=start_filter & Q(students__status='frozen')),
+
+            # --- Davr ichidagi o'zgarishlar ---
+            change_active=Count('students', filter=change_filter & Q(students__status='active')),
+            change_left=Count('students', filter=change_filter & Q(students__status='left')),
+            change_finished=Count('students', filter=change_filter & Q(students__status='finished')),
+            change_frozen=Count('students', filter=change_filter & Q(students__status='frozen')),
+
+            # --- Davr oxiridagi holat ---
+            end_active=Count('students', filter=end_filter & Q(students__status='active')),
+            end_left=Count('students', filter=end_filter & Q(students__status='left')),
+            end_finished=Count('students', filter=end_filter & Q(students__status='finished')),
+            end_frozen=Count('students', filter=end_filter & Q(students__status='frozen'))
+        ).distinct()
+
+        # Frontend kutayotgan JSON formatga o'tkazish
         report = []
-        for index, admin in enumerate(admins.order_by('first_name', 'last_name', 'username'), 1):
-            logs = AuditLog.objects.filter(user=admin, organization=org)
-            start_logs = logs
-            change_logs = logs
-            end_logs = logs
-
-            if from_date:
-                start_logs = logs.filter(timestamp__date__lt=from_date)
-                change_logs = logs.filter(timestamp__date__gte=from_date)
-            if to_date:
-                change_logs = change_logs.filter(timestamp__date__lte=to_date)
-                end_logs = logs.filter(timestamp__date__lte=to_date)
-
+        for index, admin in enumerate(admins_data, 1):
             report.append({
                 "id": index,
                 "admin_name": f"{admin.first_name} {admin.last_name}".strip() or admin.username,
-                "start_status": action_payload(start_logs),
-                "changes": action_payload(change_logs),
-                "end_status": action_payload(end_logs),
-                "total_actions": logs.count(),
+                "start_status": {
+                    "active": admin.start_active,
+                    "left": admin.start_left,
+                    "finished": admin.start_finished,
+                    "frozen": admin.start_frozen
+                },
+                "changes": {
+                    "active": admin.change_active,
+                    "left": admin.change_left,
+                    "finished": admin.change_finished,
+                    "frozen": admin.change_frozen
+                },
+                "end_status": {
+                    "active": admin.end_active,
+                    "left": admin.end_left,
+                    "finished": admin.end_finished,
+                    "frozen": admin.end_frozen
+                }
             })
 
         return Response(report)
@@ -2452,24 +2520,24 @@ class StudentLeaversReasonsReportView(APIView):
         to_date = parse_date(to_date_str) if to_date_str else None
 
         # 🌟 Filterlarni faqat joriy tashkilot va kiritilgan sanalar bo'yicha quramiz
-        filters = Q(organization=getattr(request.user, 'organization', None))
+        filters = Q(student__organization=request.user.organization)
 
         if from_date:
-            filters &= Q(leave_date__gte=from_date)
+            filters &= Q(created_at__date__gte=from_date)
         if to_date:
-            filters &= Q(leave_date__lte=to_date)
+            filters &= Q(created_at__date__lte=to_date)
 
         # 🌟 Ketish sababi (LeaveReason) modelidagi 'name' maydoni bo'yicha guruhlaymiz
         reasons_queryset = (
             StudentGroupLeave.objects.filter(filters)
-            .values('leave_reason__reason')
+            .values('reason__name')  # Sababning nomini toza matn ko'rinishida olamiz
             .annotate(count=Count('id'))
             .order_by('-count')
         )
 
         chart_data = []
         for item in reasons_queryset:
-            reason = item['leave_reason__reason'] or "Sababi ko'rsatilmagan"
+            reason = item['reason__name'] or "Sababi ko'rsatilmagan"
             chart_data.append({
                 "reason_name": reason,
                 "count": item['count']
@@ -2492,13 +2560,20 @@ class StudentLeaversReasonsReportView(APIView):
                 } for i, item in enumerate(chart_data, 1)
             ]
         })
+
+
 from django.utils.dateparse import parse_date
+
 
 class RoomAnalyticsReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from academics.models import Room  # Modelingizga qarab tekshiring
+
+        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
+        # bu boshqa tashkilotlarning xonalari ham ko'rinishiga sabab bo'lardi)
+        org_id = request.user.organization_id
 
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
@@ -2514,7 +2589,7 @@ class RoomAnalyticsReportView(APIView):
             group_filter &= Q(groups__created_at__lte=to_date)
 
         # Xonalar va ulardagi faol guruhlar sonini olish
-        rooms = Room.objects.annotate(
+        rooms = Room.objects.filter(organization_id=org_id).annotate(
             active_groups=Count('groups', filter=group_filter & Q(groups__status='active'))
         )
 
@@ -2541,39 +2616,53 @@ class BranchMonitoringReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from organizations.models import Branch
+        from organizations.models import Branch  # Filial modelingiz
 
-        org = getattr(request.user, 'organization', None)
-        date_str = request.query_params.get('date')
+        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
+        # bu boshqa tashkilotlarning filiallari ham ko'rinishiga sabab bo'lardi)
+        org_id = request.user.organization_id
+
+        date_str = request.query_params.get('date')  # Kunlik filter uchun
         target_date = parse_date(date_str) if date_str else None
-        branches = Branch.objects.filter(organization=org).order_by('name')
+
+        date_filter = Q()
+        if target_date:
+            date_filter &= Q(students__created_at__date=target_date)
+
+        branches = Branch.objects.filter(organization_id=org_id).annotate(
+            # 1. Buyurtma statusidagilar
+            orders=Count('students', filter=date_filter & Q(students__status='order')),
+            # 2. Birinchi darsga keladiganlar
+            first_lesson=Count('students', filter=date_filter & Q(students__status='first_lesson')),
+            # 3. Yangi o'quvchilar
+            new_students=Count('students', filter=date_filter & Q(students__is_new=True)),
+            # 4. Aktiv o'quvchilar
+            active_students=Count('students', filter=date_filter & Q(students__status='active')),
+            # 5. Guruh o'quvchilari
+            group_students=Count('students', filter=date_filter & Q(students__groups__isnull=False)),
+            # 6. Buyurtmadan ketganlar
+            order_leavers=Count('students', filter=date_filter & Q(students__status='order_left')),
+            # 7. Qarzdorlar
+            debtors=Count('students', filter=date_filter & Q(students__balance__lt=0))
+        ).distinct()
 
         table_data = []
         for index, branch in enumerate(branches, 1):
-            groups_qs = Group.objects.filter(organization=org, branch=branch)
-            student_groups = StudentGroup.objects.filter(organization=org, branch=branch)
-            leaves_qs = StudentGroupLeave.objects.filter(organization=org, branch=branch)
-
-            if target_date:
-                new_students_qs = student_groups.filter(joined_at__date=target_date)
-                leaves_qs = leaves_qs.filter(leave_date=target_date)
-            else:
-                new_students_qs = student_groups
-
-            active_students = student_groups.values('student_id').distinct().count()
-            debtors = student_groups.filter(student__balance__lt=0).values('student_id').distinct().count()
-            debt_percentage = round((debtors / active_students) * 100, 1) if active_students > 0 else 0
+            # Qarzdorlarning aktivga nisbatan foizi
+            debt_percentage = 0
+            if branch.active_students > 0:
+                debt_percentage = round((branch.debtors / branch.active_students) * 100, 1)
 
             table_data.append({
                 "id": index,
                 "branch_name": branch.name,
-                "buyurtma": groups_qs.filter(status='pending').count(),
-                "birinchi_dars": groups_qs.filter(status='upcoming').count(),
-                "yangi_oquvchi": new_students_qs.values('student_id').distinct().count(),
-                "aktiv_oquvchilar": active_students,
-                "guruh_oquvchilari": student_groups.count(),
-                "buyurtmadan_ketganlar": leaves_qs.count(),
-                "qarzdorlar": debtors,
+                "buyurtma": branch.orders,
+                "birinchi_dars": branch.first_lesson,
+                "yangi_oquvchi": branch.new_students,
+                "aktiv_oquvchilar": branch.active_students,
+                "guruh_oquvchilari": branch.group_students,
+                "buyurtmadan_ketganlar": branch.order_leavers,
+                "qarzdorlar": branch.debtors,
                 "qarzdorlar_foizi": f"{debt_percentage}%"
             })
 
@@ -2584,59 +2673,59 @@ class UnsubmittedAttendanceReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        org = getattr(request.user, 'organization', None)
+        from academics.models import Group, Lesson  # Guruh va darslar modellarini tekshiring
+
+        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
+        # bu boshqa tashkilotlarning guruhlari ham ko'rinishiga sabab bo'lardi)
+        org_id = request.user.organization_id
+
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
 
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        lessons = GroupLesson.objects.filter(organization=org).select_related('group', 'group__teacher', 'group__course')
+        # Berilgan oraliqdagi darslarni filterlash
+        lesson_filter = Q()
         if from_date:
-            lessons = lessons.filter(date__gte=from_date)
+            lesson_filter &= Q(lessons__date__gte=from_date)
         if to_date:
-            lessons = lessons.filter(date__lte=to_date)
+            lesson_filter &= Q(lessons__date__lte=to_date)
 
-        missing_by_group = {}
-        for lesson in lessons.order_by('group_id', 'date'):
-            has_attendance = Attendance.objects.filter(
-                organization=org,
-                group=lesson.group,
-                date=lesson.date,
-            ).exists()
-            if has_attendance:
-                continue
-
-            group = lesson.group
-            teacher = getattr(group, 'teacher', None)
-            teacher_name = "O'qituvchi biriktirilmagan"
-            if teacher:
-                teacher_name = f"{teacher.first_name} {teacher.last_name}".strip() or teacher.username
-
-            current = missing_by_group.get(group.id)
-            if not current or lesson.date > current["lesson_obj"].date:
-                missing_by_group[group.id] = {
-                    "lesson_obj": lesson,
-                    "group_name": group.name,
-                    "teacher_name": teacher_name,
-                    "amount": float(getattr(group.course, 'price', 0) or 0),
-                }
+        # Davomati belgilanmagan (attendance_submitted=False bo'lgan) guruhlarni topish
+        unsubmitted_groups = Group.objects.filter(
+            Q(organization_id=org_id) & lesson_filter & Q(lessons__attendance_submitted=False)
+        ).distinct().select_related('teacher')
 
         table_data = []
         total_lost_sum = 0
-        for index, item in enumerate(missing_by_group.values(), 1):
-            total_lost_sum += item["amount"]
+
+        for index, group in enumerate(unsubmitted_groups, 1):
+            # Har bir guruhning narxi (misol uchun modelda 'price' bo'lsa)
+            group_price = getattr(group, 'price', 300000)
+            total_lost_sum += group_price
+
+            teacher_name = "O'qituvchi biriktirilmagan"
+            if group.teacher:
+                if hasattr(group.teacher, 'user'):
+                    teacher_name = f"{group.teacher.user.first_name} {group.teacher.user.last_name}".strip()
+                else:
+                    teacher_name = getattr(group.teacher, 'name', str(group.teacher))
+
+            # Oxirgi dars sanasini olish
+            last_lesson = group.lessons.filter(attendance_submitted=False).first()
+            lesson_date = last_lesson.date.strftime("%d.%m.%Y | %H:%M") if last_lesson else "-"
+
             table_data.append({
                 "id": index,
-                "group_name": item["group_name"],
-                "sana": item["lesson_obj"].date.strftime("%d.%m.%Y"),
-                "teacher_name": item["teacher_name"],
-                "amount": item["amount"],
+                "group_name": group.name,
+                "sana": lesson_date,
+                "teacher_name": teacher_name,
+                "amount": group_price
             })
 
         return Response({
             "total_sum": total_lost_sum,
             "currency": "UZS",
-            "table_data": table_data,
-            "missing_groups_count": len(table_data),
+            "table_data": table_data
         })

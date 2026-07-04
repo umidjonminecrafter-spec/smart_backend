@@ -2254,7 +2254,7 @@ class DiscountsAndBonusesReportView(APIView):
         org_id = request.user.organization_id
         branch_id = request.query_params.get('branch')
 
-        # 1. Tashkilot va filial bo'yicha bazaviy filter
+        # 1. Tashkilot va filial bo'yicha bazaviy filtr
         if hasattr(Transaction, 'organization'):
             base_txs = Transaction.objects.filter(organization_id=org_id)
         else:
@@ -2263,30 +2263,44 @@ class DiscountsAndBonusesReportView(APIView):
         if branch_id:
             base_txs = base_txs.filter(cashbox__branch_id=branch_id)
 
-        # 2. Chegirma va Bonuslarni aniqlash filtri
-        discount_filter = Q(category='VOUCHER') | Q(description__icontains='chegirma') | Q(
-            description__icontains='voucher')
-        bonus_filter = Q(category='BONUS') | Q(description__icontains='bonus')
+        # 2. 🌟 FILTR KENGAYTIRILDI: Category 'DIRECT' bo'lsa ham izohida chegirma/bonus borlarni qidiradi
+        discount_filter = (
+                Q(category='VOUCHER') |
+                Q(description__icontains='chegirma') |
+                Q(description__icontains='voucher') |
+                Q(source_payment__comment__icontains='chegirma') |
+                Q(source_payment__comment__icontains='voucher')
+        )
 
-        # 🔥 TO'G'RILANDI: prefetch_related ichida 'student_groups' o'rniga haqiqiy 'group_students' ishlatildi
-        discount_txs = base_txs.filter(discount_filter).select_related('student').prefetch_related(
-            'student__group_students__group__course')
-        bonus_txs = base_txs.filter(bonus_filter).select_related('student').prefetch_related(
-            'student__group_students__group__course')
+        bonus_filter = (
+                Q(category='BONUS') |
+                Q(description__icontains='bonus') |
+                Q(source_payment__comment__icontains='bonus')
+        )
+
+        # Munosabatlarni oldindan yuklaymiz (prefetch_related)
+        discount_txs = base_txs.filter(discount_filter).select_related('student', 'source_payment').prefetch_related(
+            'student__group_students__group__course',
+            'student__student_groups__group__course'
+        )
+        bonus_txs = base_txs.filter(bonus_filter).select_related('student', 'source_payment').prefetch_related(
+            'student__group_students__group__course',
+            'student__student_groups__group__course'
+        )
 
         rows = []
         index = 1
 
-        # Ichki yordamchi funksiya: O'quvchining haqiqiy guruh va kurslarini aniqlash
+        # Universal yordamchi funksiya: O'quvchining Kurs va Guruh nomlarini aniqlash
         def get_student_details(student):
             if not student:
                 return "-", "-"
 
-            # 🔥 TO'G'RILANDI: Modelingizdagi haqiqiy munosabat nomi 'group_students'
             student_groups = []
-            if hasattr(student, 'group_students'):
+            # 'group_students' yoki 'student_groups' munosabatini tekshirish
+            if hasattr(student, 'group_students') and student.group_students.exists():
                 student_groups = student.group_students.all()
-            elif hasattr(student, 'student_groups'):
+            elif hasattr(student, 'student_groups') and student.student_groups.exists():
                 student_groups = student.student_groups.all()
 
             if student_groups:
@@ -2294,17 +2308,19 @@ class DiscountsAndBonusesReportView(APIView):
                 course_names = []
                 for sg in student_groups:
                     if sg.group:
-                        group_names.append(group.name if hasattr(sg.group, 'name') else str(sg.group))
+                        g_name = getattr(sg.group, 'name', None) or str(sg.group)
+                        group_names.append(g_name)
                         if getattr(sg.group, 'course', None):
-                            course_names.append(sg.group.course.name)
+                            c_name = getattr(sg.group.course, 'name', "-")
+                            course_names.append(c_name)
 
-                g_name = ", ".join(list(set(group_names))) if group_names else "-"
-                c_name = ", ".join(list(set(course_names))) if course_names else "-"
-                return c_name, g_name
+                final_groups = ", ".join(list(set(group_names))) if group_names else "-"
+                final_courses = ", ".join(list(set(course_names))) if course_names else "-"
+                return final_courses, final_groups
 
             return "-", "-"
 
-        # 3. Chegirmalarni qayta ishlash
+        # 3. Chegirmalarni jadvalga qo'shish
         for tx in discount_txs:
             st_name = "Umumiy Chegirma"
             course_name, group_name = "-", "-"
@@ -2316,14 +2332,14 @@ class DiscountsAndBonusesReportView(APIView):
             rows.append({
                 "id": index,
                 "name": st_name,
-                "course": course_name,  # 🔥 Endi null bo'lmaydi!
-                "group": group_name,  # 🔥 Guruh nomi chiqadi!
+                "course": course_name,
+                "group": group_name,
                 "total_discount": float(tx.amount),
                 "bonus": 0.0
             })
             index += 1
 
-        # 4. Bonuslarni qayta ishlash
+        # 4. Bonuslarni jadvalga qo'shish
         for tx in bonus_txs:
             st_name = "Umumiy Bonus"
             course_name, group_name = "-", "-"
@@ -2342,7 +2358,7 @@ class DiscountsAndBonusesReportView(APIView):
             })
             index += 1
 
-        # Jami hisob-kitoblar
+        # Jami summalarni hisoblash
         total_discounts = sum(r['total_discount'] for r in rows)
         total_bonuses = sum(r['bonus'] for r in rows)
 
@@ -2354,7 +2370,6 @@ class DiscountsAndBonusesReportView(APIView):
             "total_count": len(rows),
             "table_data": rows
         }, status=status.HTTP_200_OK)
-
 
 class TeacherEfficiencyReportView(APIView):
     permission_classes = [IsAuthenticated]

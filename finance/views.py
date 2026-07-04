@@ -2407,7 +2407,8 @@ class StudentLeaversReasonsReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from academics.models import Student, StudentGroup
+        # 🔥 To'g'ridan-to'g'ri ketishlar tarixi modelini import qilamiz
+        from academics.models import StudentGroupLeave
 
         tab_type = request.query_params.get('tab', 'all')
         from_date_str = request.query_params.get('from_date')
@@ -2416,36 +2417,31 @@ class StudentLeaversReasonsReportView(APIView):
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        # Filterlarni o'quvchining 'group_leaves' munosabatiga qarab quramiz
-        # 'group_leaves' bu o'quvchi ketgan guruhlar tarixi
-        filters = Q(group_leaves__isnull=False)
+        # 🌟 Filterlarni faqat joriy tashkilot va kiritilgan sanalar bo'yicha quramiz
+        filters = Q(student__organization=request.user.organization)
 
         if from_date:
-            filters &= Q(group_leaves__created_at__date__gte=from_date)  # Ketgan sanasi
+            filters &= Q(created_at__date__gte=from_date)
         if to_date:
-            filters &= Q(group_leaves__created_at__date__lte=to_date)
+            filters &= Q(created_at__date__lte=to_date)
 
-        # Tablar bo'yicha filter (baza tuzilmangizdagi sabab yoki turlarga qarab moslang)
-        # Hozircha umumiy ro'yxatni olish uchun guruhlaymiz:
-
-        # Ketish sababi ko'pincha shu group_leaves ichida 'reason' yoki 'comment' bo'lib keladi
+        # 🌟 Ketish sababi (LeaveReason) modelidagi 'name' maydoni bo'yicha guruhlaymiz
         reasons_queryset = (
-            Student.objects.filter(filters)
-            .values(
-                'group_leaves__reason')  # Agar group_leaves ichida maydon nomi boshqacha bo'lsa o'zgartiring (masalan: archive_reason)
+            StudentGroupLeave.objects.filter(filters)
+            .values('reason__name')  # Sababning nomini toza matn ko'rinishida olamiz
             .annotate(count=Count('id'))
             .order_by('-count')
         )
 
         chart_data = []
         for item in reasons_queryset:
-            reason = item['group_leaves__reason'] or "Sababi ko'rsatilmagan"
+            reason = item['reason__name'] or "Sababi ko'rsatilmagan"
             chart_data.append({
                 "reason_name": reason,
                 "count": item['count']
             })
 
-        # Agar bazada hozircha ketganlar tarixi bo'lmasa, frontend qulamasligi uchun mockup:
+        # Frontend qulab tushmasligi uchun sug'urta mockup:
         if not chart_data:
             chart_data = [{"reason_name": "Boshqa sabab", "count": 0}]
 

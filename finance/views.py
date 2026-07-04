@@ -2249,12 +2249,12 @@ class DiscountsAndBonusesReportView(APIView):
 
     def get(self, request):
         from finance.models import Transaction
-        from django.db.models import Sum, Q  # 🌟 Q va Sum importi sug'urtalandi
+        from django.db.models import Sum, Q
 
         org_id = request.user.organization_id
         branch_id = request.query_params.get('branch')
 
-        # 1. Tashkilot bo'yicha filterlarni quramiz
+        # 1. Tashkilot va filial bo'yicha bazaviy filter
         if hasattr(Transaction, 'organization'):
             base_txs = Transaction.objects.filter(organization_id=org_id)
         else:
@@ -2263,45 +2263,48 @@ class DiscountsAndBonusesReportView(APIView):
         if branch_id:
             base_txs = base_txs.filter(cashbox__branch_id=branch_id)
 
-        # 2. Chegirma va Bonuslarni ham category, ham description orqali keng qidiramiz
+        # 2. Chegirma va Bonuslarni aniqlash filtri
         discount_filter = Q(category='VOUCHER') | Q(description__icontains='chegirma') | Q(
             description__icontains='voucher')
         bonus_filter = Q(category='BONUS') | Q(description__icontains='bonus')
 
-        # select_related va prefetch_related orqali o'quvchi guruh va kurslarini optimal yuklaymiz
+        # 🔥 TO'G'RILANDI: prefetch_related ichida 'student_groups' o'rniga haqiqiy 'group_students' ishlatildi
         discount_txs = base_txs.filter(discount_filter).select_related('student').prefetch_related(
-            'student__student_groups__group__course')
+            'student__group_students__group__course')
         bonus_txs = base_txs.filter(bonus_filter).select_related('student').prefetch_related(
-            'student__student_groups__group__course')
+            'student__group_students__group__course')
 
         rows = []
         index = 1
 
-        # Ichki yordamchi funksiya: O'quvchining guruh va kurs nomlarini aniqlash uchun
+        # Ichki yordamchi funksiya: O'quvchining haqiqiy guruh va kurslarini aniqlash
         def get_student_details(student):
             if not student:
                 return "-", "-"
 
-            # O'quvchi biriktirilgan faol guruhlarni olamiz
-            student_groups = student.student_groups.all() if hasattr(student, 'student_groups') else []
+            # 🔥 TO'G'RILANDI: Modelingizdagi haqiqiy munosabat nomi 'group_students'
+            student_groups = []
+            if hasattr(student, 'group_students'):
+                student_groups = student.group_students.all()
+            elif hasattr(student, 'student_groups'):
+                student_groups = student.student_groups.all()
 
             if student_groups:
                 group_names = []
                 course_names = []
                 for sg in student_groups:
                     if sg.group:
-                        group_names.append(sg.group.name)
-                        if sg.group.course:
+                        group_names.append(group.name if hasattr(sg.group, 'name') else str(sg.group))
+                        if getattr(sg.group, 'course', None):
                             course_names.append(sg.group.course.name)
 
-                # Agar bir nechta guruh bo'lsa, vergul bilan ajratib ko'rsatamiz
                 g_name = ", ".join(list(set(group_names))) if group_names else "-"
                 c_name = ", ".join(list(set(course_names))) if course_names else "-"
                 return c_name, g_name
 
             return "-", "-"
 
-        # 3. Chegirmalarni (`VOUCHER`) jadvalga to'g'ri maydonlar bilan qo'shish
+        # 3. Chegirmalarni qayta ishlash
         for tx in discount_txs:
             st_name = "Umumiy Chegirma"
             course_name, group_name = "-", "-"
@@ -2313,14 +2316,14 @@ class DiscountsAndBonusesReportView(APIView):
             rows.append({
                 "id": index,
                 "name": st_name,
-                "course": course_name,  # 🌟 Endi null yoki '-' kelmaydi, bazadan keladi
-                "group": group_name,  # 🌟 Guruh nomi ham ulandi
+                "course": course_name,  # 🔥 Endi null bo'lmaydi!
+                "group": group_name,  # 🔥 Guruh nomi chiqadi!
                 "total_discount": float(tx.amount),
                 "bonus": 0.0
             })
             index += 1
 
-        # 4. Bonuslarni (`BONUS`) jadvalga qo'shish
+        # 4. Bonuslarni qayta ishlash
         for tx in bonus_txs:
             st_name = "Umumiy Bonus"
             course_name, group_name = "-", "-"
@@ -2339,7 +2342,7 @@ class DiscountsAndBonusesReportView(APIView):
             })
             index += 1
 
-        # Jami summalarni hisoblash
+        # Jami hisob-kitoblar
         total_discounts = sum(r['total_discount'] for r in rows)
         total_bonuses = sum(r['bonus'] for r in rows)
 

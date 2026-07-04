@@ -25,7 +25,7 @@ from finance.serializers import (
     MonthlyIncomeSerializer, PaymentSerializer, SaleSerializer, BonusSerializer,
     FineSerializer, SalarySerializer, TeacherSalaryRuleSerializer, TeacherSalaryCalculationSerializer, CashboxSerializer
 )
-from academics.models import Student, Group, StudentGroup, TeacherSalaryPayment
+from academics.models import Student, Group, StudentGroup, TeacherSalaryPayment,GroupLesson
 from academics.serializers import StudentSerializer, TeacherSalaryPaymentSerializer
 from django.contrib.auth import get_user_model
 
@@ -2718,41 +2718,45 @@ class UnsubmittedAttendanceReportView(APIView):
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        # Berilgan oraliqdagi darslarni filterlash sharti
-        lesson_filter = Q()
+        # 1. Darslar (GroupLesson) bo'yicha filterlarni shakllantiramiz
+        lesson_filter = Q(organization_id=org_id, attendance_submitted=False)
         if from_date:
-            lesson_filter &= Q(lessons__date__gte=from_date)
+            lesson_filter &= Q(date__gte=from_date)
         if to_date:
-            lesson_filter &= Q(lessons__date__lte=to_date)
+            lesson_filter &= Q(date__lte=to_date)
 
-        # Davomati topshirilmagan (attendance_submitted=False) darslari bor guruhlarni qidirish
-        unsubmitted_groups = Group.objects.filter(
-            Q(organization_id=org_id) & lesson_filter & Q(lessons__attendance_submitted=False)
-        ).distinct().select_related('teacher')
+        # 2. To'g'ridan-to'g'ri topshirilmagan darslarni olamiz va ularga bog'langan guruhlarni select_related qilamiz
+        # Bu 'Unsupported lookup' xatosini 100% oldini oladi
+        unsubmitted_lessons = GroupLesson.objects.filter(lesson_filter).select_related('group',
+                                                                                       'group__teacher').order_by(
+            'date')
 
         table_data = []
         total_lost_sum = 0
+        seen_groups = set()
+        index = 1
 
-        for index, group in enumerate(unsubmitted_groups, 1):
-            # Guruh narxini modeldan yoki unga tegishli kursdan tekshirib olamiz
+        for lesson in unsubmitted_lessons:
+            group = lesson.group
+            if not group:
+                continue
+
+            # Har bir guruh hisobotda faqat bir marta chiqishi uchun (yoki har bir darsni chiqarish ham mumkin)
+            if group.id in seen_groups:
+                continue
+            seen_groups.add(group.id)
+
             group_price = getattr(group, 'price', None) or getattr(group.course, 'price', 300000)
             total_lost_sum += float(group_price)
 
             teacher_name = "O'qituvchi biriktirilmagan"
             if group.teacher:
-                # group.teacher bu User modeliga bog'langan
                 teacher_name = f"{group.teacher.first_name} {group.teacher.last_name or ''}".strip() or group.teacher.username
 
-            # Oxirgi davomati topshirilmagan dars sanasini olish
-            last_lesson = group.lessons.filter(attendance_submitted=False).order_by('date').first()
-            if last_lesson and getattr(last_lesson, 'date', None):
-                # Agar DateTimeField bo'lsa strftime ishlatamiz, DateField bo'lsa isoformat
-                try:
-                    lesson_date = last_lesson.date.strftime("%d.%m.%Y | %H:%M")
-                except AttributeError:
-                    lesson_date = str(last_lesson.date)
-            else:
-                lesson_date = "-"
+            try:
+                lesson_date = lesson.date.strftime("%d.%m.%Y | %H:%M")
+            except AttributeError:
+                lesson_date = str(lesson.date)
 
             table_data.append({
                 "id": index,
@@ -2761,9 +2765,10 @@ class UnsubmittedAttendanceReportView(APIView):
                 "teacher_name": teacher_name,
                 "amount": float(group_price)
             })
+            index += 1
 
         return Response({
             "total_sum": total_lost_sum,
             "currency": "UZS",
             "table_data": table_data
-        })
+        }, status=200)

@@ -2241,43 +2241,67 @@ class CancelledPaymentsReportView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+# =====================================================================
+# 6-RASM: UMUMIY CHEGIRMALAR VA VOUCHERLAR HISOBOTI
+# =====================================================================
 class DiscountsAndBonusesReportView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        from finance.models import Transaction, FinanceAction
-        from django.db.models import Q
+        from finance.models import Transaction
+        from django.db.models import Sum, Q
 
         org_id = request.user.organization_id
         branch_id = request.query_params.get('branch')
 
-        # 1. Tashkilot bo'yicha bazaviy filterlar
+        # 1. Tashkilot va filial bo'yicha bazaviy filtr
         if hasattr(Transaction, 'organization'):
             base_txs = Transaction.objects.filter(organization_id=org_id)
-            base_actions = FinanceAction.objects.filter(organization_id=org_id)
         else:
             base_txs = Transaction.objects.filter(cashbox__organization_id=org_id)
-            base_actions = FinanceAction.objects.filter(student__organization_id=org_id)
 
         if branch_id:
             base_txs = base_txs.filter(cashbox__branch_id=branch_id)
-            # FinanceAction'da bevosita kassa yo'qligi sababli, unga bog'langan tranzaksiya orqali filialni tekshiramiz
-            base_actions = base_actions.filter(
-                Q(transaction__cashbox__branch_id=branch_id) | Q(student__branch_id=branch_id)
-            )
 
-        # 2. O'quvchining Kurs va Guruh ma'lumotlarini aniqlash universal funksiyasi
+        # 2. 🌟 FILTR KENGAYTIRILDI: Category 'DIRECT' bo'lsa ham izohida chegirma/bonus borlarni qidiradi
+        discount_filter = (
+                Q(category='VOUCHER') |
+                Q(description__icontains='chegirma') |
+                Q(description__icontains='voucher') |
+                Q(source_payment__comment__icontains='chegirma') |
+                Q(source_payment__comment__icontains='voucher')
+        )
+
+        bonus_filter = (
+                Q(category='BONUS') |
+                Q(description__icontains='bonus') |
+                Q(source_payment__comment__icontains='bonus')
+        )
+
+        # Munosabatlarni oldindan yuklaymiz (prefetch_related)
+        discount_txs = base_txs.filter(discount_filter).select_related('student', 'source_payment').prefetch_related(
+            'student__group_students__group__course',
+            'student__student_groups__group__course'
+        )
+        bonus_txs = base_txs.filter(bonus_filter).select_related('student', 'source_payment').prefetch_related(
+            'student__group_students__group__course',
+            'student__student_groups__group__course'
+        )
+
+        rows = []
+        index = 1
+
+        # Universal yordamchi funksiya: O'quvchining Kurs va Guruh nomlarini aniqlash
         def get_student_details(student):
             if not student:
                 return "-", "-"
 
             student_groups = []
+            # 'group_students' yoki 'student_groups' munosabatini tekshirish
             if hasattr(student, 'group_students') and student.group_students.exists():
                 student_groups = student.group_students.all()
             elif hasattr(student, 'student_groups') and student.student_groups.exists():
                 student_groups = student.student_groups.all()
-            elif hasattr(student, 'studentgroup_set') and student.studentgroup_set.exists():
-                student_groups = student.studentgroup_set.all()
 
             if student_groups:
                 group_names = []
@@ -2296,58 +2320,43 @@ class DiscountsAndBonusesReportView(APIView):
 
             return "-", "-"
 
-        rows = []
-        index = 1
-
-        # 3. 🌟 FINANCEACTION ORQALI BONUS VALARNI YUKLASH
-        # Tizimda talabalarga berilgan barcha bonuslarni FinanceAction modelidan qidiramiz
-        student_bonuses = base_actions.filter(action_type='BONUS', target_type='STUDENT').select_related('student')
-
-        for action in student_bonuses:
-            if action.student:
-                st_name = f"{action.student.first_name} {action.student.last_name or ''}".strip()
-                course_name, group_name = get_student_details(action.student)
-
-                rows.append({
-                    "id": index,
-                    "name": st_name,
-                    "course": course_name,
-                    "group": group_name,
-                    "total_discount": 0.0,
-                    "bonus": float(action.amount)
-                })
-                index += 1
-
-        # 4. 🌟 TRANSACTIONS ORQALI CHEGIRMALARNI (`VOUCHER`) YUKLASH
-        # Kategoriya 'VOUCHER' bo'lgan yoki izohida 'chegirma'/'voucher' so'zlari bor tranzaksiyalar
-        discount_filter = (
-                Q(category='VOUCHER') |
-                Q(description__icontains='chegirma') |
-                Q(description__icontains='voucher') |
-                Q(source_payment__comment__icontains='chegirma')
-        )
-
-        discount_txs = base_txs.filter(discount_filter).select_related('student')
-
+        # 3. Chegirmalarni jadvalga qo'shish
         for tx in discount_txs:
-            # Agar bu tranzaksiya allaqachon bonus sifatida qo'shilgan bo'lsa, takrorlamaslik uchun tekshiramiz
-            if tx.type == 'EXPENSE' and any(r['bonus'] > 0 and tx.student and r[
-                'name'] == f"{tx.student.first_name} {tx.student.last_name or ''}".strip() for r in rows):
-                continue
+            st_name = "Umumiy Chegirma"
+            course_name, group_name = "-", "-"
 
             if tx.student:
                 st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
                 course_name, group_name = get_student_details(tx.student)
 
-                rows.append({
-                    "id": index,
-                    "name": st_name,
-                    "course": course_name,
-                    "group": group_name,
-                    "total_discount": float(tx.amount),
-                    "bonus": 0.0
-                })
-                index += 1
+            rows.append({
+                "id": index,
+                "name": st_name,
+                "course": course_name,
+                "group": group_name,
+                "total_discount": float(tx.amount),
+                "bonus": 0.0
+            })
+            index += 1
+
+        # 4. Bonuslarni jadvalga qo'shish
+        for tx in bonus_txs:
+            st_name = "Umumiy Bonus"
+            course_name, group_name = "-", "-"
+
+            if tx.student:
+                st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
+                course_name, group_name = get_student_details(tx.student)
+
+            rows.append({
+                "id": index,
+                "name": st_name,
+                "course": course_name,
+                "group": group_name,
+                "total_discount": 0.0,
+                "bonus": float(tx.amount)
+            })
+            index += 1
 
         # Jami summalarni hisoblash
         total_discounts = sum(r['total_discount'] for r in rows)
@@ -2366,65 +2375,54 @@ class TeacherEfficiencyReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # TO'G'RILANDI: 'Teacher' alohida model emas, tizimda o'qituvchilar
-        # User modelida role='teacher' orqali saqlanadi (boshqa view'lardagi patternga moslandi)
         org_id = request.user.organization_id
-        # Frontend'dan kelayotgan filter parametrlarini olish
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
 
-        # Agar sana berilmagan bo'lsa, xatolik bermasligi uchun default qiymat yoki None
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        # Filter shartlarini shakllantiramiz
-        # NOTA: 'groups__students__...' qismini o'zingizning Model munosabatlariga (Related Name) qarab moslang
-
-        # 1. Davr boshidagi holat (from_date'dan oldingi holat)
+        # 1. Davr boshidagi holat (from_date'dan oldin qo'shilganlar)
         start_filter = Q()
         if from_date:
-            start_filter &= Q(groups__students__joined_at__lt=from_date)  # Davr boshlanishidan oldin qo'shilganlar
+            start_filter &= Q(teaching_groups__group_students__created_at__lt=from_date)
 
-        # 2. Davr ichidagi o'zgarishlar (from_date va to_date oralig'ida)
+        # 2. Davr ichidagi o'zgarishlar
         change_filter = Q()
         if from_date:
-            change_filter &= Q(groups__students__joined_at__gte=from_date)
+            change_filter &= Q(teaching_groups__group_students__created_at__gte=from_date)
         if to_date:
-            change_filter &= Q(groups__students__joined_at__lte=to_date)
+            change_filter &= Q(teaching_groups__group_students__created_at__lte=to_date)
 
-        # 3. Davr oxiridagi holat (to_date gacha bo'lgan jami holat)
+        # 3. Davr oxiridagi holat
         end_filter = Q()
         if to_date:
-            end_filter &= Q(groups__students__joined_at__lte=to_date)
+            end_filter &= Q(teaching_groups__group_students__created_at__lte=to_date)
 
-        # Haqiqiy so'rov (Queryset)
-        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
-        # bu boshqa tashkilotlarning o'qituvchilari ham ko'rinishiga sabab bo'lardi)
+        # O'qituvchilarni relyatsiyalar orqali annotate qilamiz
         teachers_data = User.objects.filter(organization_id=org_id, role='teacher').annotate(
             # --- Davr boshidagi holat ---
-            start_active=Count('groups__students', filter=start_filter & Q(groups__students__status='active')),
-            start_left=Count('groups__students', filter=start_filter & Q(groups__students__status='left')),
-            start_finished=Count('groups__students', filter=start_filter & Q(groups__students__status='finished')),
-            start_frozen=Count('groups__students', filter=start_filter & Q(groups__students__status='frozen')),
+            start_active=Count('teaching_groups__group_students', filter=start_filter & Q(teaching_groups__group_students__status='active')),
+            start_left=Count('teaching_groups__group_students', filter=start_filter & Q(teaching_groups__group_students__status='left')),
+            start_finished=Count('teaching_groups__group_students', filter=start_filter & Q(teaching_groups__group_students__status='finished')),
+            start_frozen=Count('teaching_groups__group_students', filter=start_filter & Q(teaching_groups__group_students__status='frozen')),
 
             # --- Davr ichidagi o'zgarishlar ---
-            change_active=Count('groups__students', filter=change_filter & Q(groups__students__status='active')),
-            change_left=Count('groups__students', filter=change_filter & Q(groups__students__status='left')),
-            change_finished=Count('groups__students', filter=change_filter & Q(groups__students__status='finished')),
-            change_frozen=Count('groups__students', filter=change_filter & Q(groups__students__status='frozen')),
+            change_active=Count('teaching_groups__group_students', filter=change_filter & Q(teaching_groups__group_students__status='active')),
+            change_left=Count('teaching_groups__group_students', filter=change_filter & Q(teaching_groups__group_students__status='left')),
+            change_finished=Count('teaching_groups__group_students', filter=change_filter & Q(teaching_groups__group_students__status='finished')),
+            change_frozen=Count('teaching_groups__group_students', filter=change_filter & Q(teaching_groups__group_students__status='frozen')),
 
             # --- Davr oxiridagi holat ---
-            end_active=Count('groups__students', filter=end_filter & Q(groups__students__status='active')),
-            end_left=Count('groups__students', filter=end_filter & Q(groups__students__status='left')),
-            end_finished=Count('groups__students', filter=end_filter & Q(groups__students__status='finished')),
-            end_frozen=Count('groups__students', filter=end_filter & Q(groups__students__status='frozen'))
+            end_active=Count('teaching_groups__group_students', filter=end_filter & Q(teaching_groups__group_students__status='active')),
+            end_left=Count('teaching_groups__group_students', filter=end_filter & Q(teaching_groups__group_students__status='left')),
+            end_finished=Count('teaching_groups__group_students', filter=end_filter & Q(teaching_groups__group_students__status='finished')),
+            end_frozen=Count('teaching_groups__group_students', filter=end_filter & Q(teaching_groups__group_students__status='frozen'))
         ).distinct()
 
-        # JSON formatga o'tkazish
         report = []
         for index, teacher in enumerate(teachers_data, 1):
-            # Ism familiyani olish (teacher endi to'g'ridan-to'g'ri User instance'i)
-            name = f"{teacher.first_name} {teacher.last_name}".strip() or teacher.username
+            name = f"{teacher.first_name} {teacher.last_name or ''}".strip() or teacher.username
 
             report.append({
                 "id": index,
@@ -2712,10 +2710,6 @@ class UnsubmittedAttendanceReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from academics.models import Group, Lesson  # Guruh va darslar modellarini tekshiring
-
-        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
-        # bu boshqa tashkilotlarning guruhlari ham ko'rinishiga sabab bo'lardi)
         org_id = request.user.organization_id
 
         from_date_str = request.query_params.get('from_date')
@@ -2724,14 +2718,14 @@ class UnsubmittedAttendanceReportView(APIView):
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        # Berilgan oraliqdagi darslarni filterlash
+        # Berilgan oraliqdagi darslarni filterlash sharti
         lesson_filter = Q()
         if from_date:
             lesson_filter &= Q(lessons__date__gte=from_date)
         if to_date:
             lesson_filter &= Q(lessons__date__lte=to_date)
 
-        # Davomati belgilanmagan (attendance_submitted=False bo'lgan) guruhlarni topish
+        # Davomati topshirilmagan (attendance_submitted=False) darslari bor guruhlarni qidirish
         unsubmitted_groups = Group.objects.filter(
             Q(organization_id=org_id) & lesson_filter & Q(lessons__attendance_submitted=False)
         ).distinct().select_related('teacher')
@@ -2740,27 +2734,32 @@ class UnsubmittedAttendanceReportView(APIView):
         total_lost_sum = 0
 
         for index, group in enumerate(unsubmitted_groups, 1):
-            # Har bir guruhning narxi (misol uchun modelda 'price' bo'lsa)
-            group_price = getattr(group, 'price', 300000)
-            total_lost_sum += group_price
+            # Guruh narxini modeldan yoki unga tegishli kursdan tekshirib olamiz
+            group_price = getattr(group, 'price', None) or getattr(group.course, 'price', 300000)
+            total_lost_sum += float(group_price)
 
             teacher_name = "O'qituvchi biriktirilmagan"
             if group.teacher:
-                if hasattr(group.teacher, 'user'):
-                    teacher_name = f"{group.teacher.user.first_name} {group.teacher.user.last_name}".strip()
-                else:
-                    teacher_name = getattr(group.teacher, 'name', str(group.teacher))
+                # group.teacher bu User modeliga bog'langan
+                teacher_name = f"{group.teacher.first_name} {group.teacher.last_name or ''}".strip() or group.teacher.username
 
-            # Oxirgi dars sanasini olish
-            last_lesson = group.lessons.filter(attendance_submitted=False).first()
-            lesson_date = last_lesson.date.strftime("%d.%m.%Y | %H:%M") if last_lesson else "-"
+            # Oxirgi davomati topshirilmagan dars sanasini olish
+            last_lesson = group.lessons.filter(attendance_submitted=False).order_by('date').first()
+            if last_lesson and getattr(last_lesson, 'date', None):
+                # Agar DateTimeField bo'lsa strftime ishlatamiz, DateField bo'lsa isoformat
+                try:
+                    lesson_date = last_lesson.date.strftime("%d.%m.%Y | %H:%M")
+                except AttributeError:
+                    lesson_date = str(last_lesson.date)
+            else:
+                lesson_date = "-"
 
             table_data.append({
                 "id": index,
                 "group_name": group.name,
                 "sana": lesson_date,
                 "teacher_name": teacher_name,
-                "amount": group_price
+                "amount": float(group_price)
             })
 
         return Response({

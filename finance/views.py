@@ -1662,26 +1662,30 @@ class CashTransferAPIView(APIView):
                 # Avval bu yerda QO'LDA ham, Transaction orqali ham o'zgartirilgani
                 # uchun balanslar noto'g'ri chiqishi mumkin edi.
 
-                # 🌟 1. General Transaction (EXPENSE - Chiquvchi kassa tarixi uchun)
-                Transaction.objects.create(
+                # 🌟 1. CashTransaction (chiqim)
+                CashTransaction.objects.create(
                     organization=request.user.organization,
                     cashbox=from_box,
                     amount=amount,
-                    type='EXPENSE',
-                    category='DIRECT',
+                    transaction_type='chiqim',
+                    payment_method='naqd',
+                    date=timezone.now().date(),
                     employee=request.user,
-                    description=f"O'tkazma chiqim: {from_box.name} -> {to_box.name}. Izoh: {comment}"
+                    category_name="Kassalararo o'tkazma",
+                    comment=f"Kassalararo o'tkazma chiqim: {from_box.name} -> {to_box.name}. Izoh: {comment}"
                 )
 
-                # 🌟 2. General Transaction (INCOME - Kiruvchi kassa tarixi uchun)
-                Transaction.objects.create(
+                # 🌟 2. CashTransaction (kirim)
+                CashTransaction.objects.create(
                     organization=request.user.organization,
                     cashbox=to_box,
                     amount=amount,
-                    type='INCOME',
-                    category='DIRECT',
+                    transaction_type='kirim',
+                    payment_method='naqd',
+                    date=timezone.now().date(),
                     employee=request.user,
-                    description=f"O'tkazma kirim: {from_box.name} -> {to_box.name}. Izoh: {comment}"
+                    category_name="Kassalararo o'tkazma",
+                    comment=f"Kassalararo o'tkazma kirim: {from_box.name} -> {to_box.name}. Izoh: {comment}"
                 )
 
             # Muvaffaqiyatli javob qaytarish
@@ -2375,170 +2379,167 @@ class TeacherEfficiencyReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.utils import timezone
+        from django.utils.dateparse import parse_date
+        
         org_id = request.user.organization_id
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
 
         from_date = parse_date(from_date_str) if from_date_str else None
-        to_date = parse_date(to_date_str) if to_date_str else None
+        to_date = parse_date(to_date_str) if to_date_str else timezone.now().date()
 
-        # 1. Davr boshidagi holat (from_date'dan oldin qo'shilganlar)
-        start_filter = Q()
-        if from_date:
-            start_filter &= Q(teaching_groups__group_students__created_at__lt=from_date)
-
-        # 2. Davr ichidagi o'zgarishlar
-        change_filter = Q()
-        if from_date:
-            change_filter &= Q(teaching_groups__group_students__created_at__gte=from_date)
-        if to_date:
-            change_filter &= Q(teaching_groups__group_students__created_at__lte=to_date)
-
-        # 3. Davr oxiridagi holat
-        end_filter = Q()
-        if to_date:
-            end_filter &= Q(teaching_groups__group_students__created_at__lte=to_date)
-
-        # O'qituvchilarni relyatsiyalar orqali annotate qilamiz
-        teachers_data = User.objects.filter(organization_id=org_id, role='teacher').annotate(
-            # --- Davr boshidagi holat ---
-            start_active=Count('teaching_groups__group_students', filter=start_filter & Q(teaching_groups__group_students__status='active')),
-            start_left=Count('teaching_groups__group_students', filter=start_filter & Q(teaching_groups__group_students__status='left')),
-            start_finished=Count('teaching_groups__group_students', filter=start_filter & Q(teaching_groups__group_students__status='finished')),
-            start_frozen=Count('teaching_groups__group_students', filter=start_filter & Q(teaching_groups__group_students__status='frozen')),
-
-            # --- Davr ichidagi o'zgarishlar ---
-            change_active=Count('teaching_groups__group_students', filter=change_filter & Q(teaching_groups__group_students__status='active')),
-            change_left=Count('teaching_groups__group_students', filter=change_filter & Q(teaching_groups__group_students__status='left')),
-            change_finished=Count('teaching_groups__group_students', filter=change_filter & Q(teaching_groups__group_students__status='finished')),
-            change_frozen=Count('teaching_groups__group_students', filter=change_filter & Q(teaching_groups__group_students__status='frozen')),
-
-            # --- Davr oxiridagi holat ---
-            end_active=Count('teaching_groups__group_students', filter=end_filter & Q(teaching_groups__group_students__status='active')),
-            end_left=Count('teaching_groups__group_students', filter=end_filter & Q(teaching_groups__group_students__status='left')),
-            end_finished=Count('teaching_groups__group_students', filter=end_filter & Q(teaching_groups__group_students__status='finished')),
-            end_frozen=Count('teaching_groups__group_students', filter=end_filter & Q(teaching_groups__group_students__status='frozen'))
-        ).distinct()
+        from academics.models import StudentGroup, StudentGroupLeave
+        teachers = User.objects.filter(organization_id=org_id, role='teacher')
 
         report = []
-        for index, teacher in enumerate(teachers_data, 1):
+        for index, teacher in enumerate(teachers, 1):
+            group_ids = list(teacher.teaching_groups.values_list('id', flat=True))
+
+            # StudentGroup joins
+            sg_qs = StudentGroup.objects.filter(group_id__in=group_ids)
+            # StudentGroupLeave leaves
+            sl_qs = StudentGroupLeave.objects.filter(group_id__in=group_ids)
+
+            # Start Status (before from_date)
+            if from_date:
+                start_active = sg_qs.filter(joined_at__date__lt=from_date).count()
+                start_left = sl_qs.filter(leave_date__lt=from_date).count()
+            else:
+                start_active = 0
+                start_left = 0
+
+            # Changes (between from_date and to_date)
+            change_sg = sg_qs
+            change_sl = sl_qs
+            if from_date:
+                change_sg = change_sg.filter(joined_at__date__gte=from_date)
+                change_sl = change_sl.filter(leave_date__gte=from_date)
+            if to_date:
+                change_sg = change_sg.filter(joined_at__date__lte=to_date)
+                change_sl = change_sl.filter(leave_date__lte=to_date)
+
+            change_active = change_sg.count()
+            change_left = change_sl.count()
+
+            # End Status (before to_date)
+            end_sg = sg_qs
+            end_sl = sl_qs
+            if to_date:
+                end_sg = end_sg.filter(joined_at__date__lte=to_date)
+                end_sl = end_sl.filter(leave_date__lte=to_date)
+
+            end_active = end_sg.count()
+            end_left = end_sl.count()
+
             name = f"{teacher.first_name} {teacher.last_name or ''}".strip() or teacher.username
 
             report.append({
                 "id": index,
                 "teacher_name": name,
                 "start_status": {
-                    "active": teacher.start_active,
-                    "left": teacher.start_left,
-                    "finished": teacher.start_finished,
-                    "frozen": teacher.start_frozen
+                    "active": start_active,
+                    "left": start_left,
+                    "finished": 0,
+                    "frozen": 0
                 },
                 "changes": {
-                    "active": teacher.change_active,
-                    "left": teacher.change_left,
-                    "finished": teacher.change_finished,
-                    "frozen": teacher.change_frozen
+                    "active": change_active,
+                    "left": change_left,
+                    "finished": 0,
+                    "frozen": 0
                 },
                 "end_status": {
-                    "active": teacher.end_active,
-                    "left": teacher.end_left,
-                    "finished": teacher.end_finished,
-                    "frozen": teacher.end_frozen
+                    "active": end_active,
+                    "left": end_left,
+                    "finished": 0,
+                    "frozen": 0
                 }
             })
 
         return Response(report)
 
-
-# finance/views.py ichiga qo'shing
 
 class AdministratorEfficiencyReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.utils import timezone
+        from django.utils.dateparse import parse_date
+        
         # Sanalarni frontend'dan olish
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
 
         from_date = parse_date(from_date_str) if from_date_str else None
-        to_date = parse_date(to_date_str) if to_date_str else None
+        to_date = parse_date(to_date_str) if to_date_str else timezone.now().date()
 
-        # 1. Davr boshidagi holat (from_date'dan oldingi holat)
-        start_filter = Q()
-        if from_date:
-            # 'students__created_at' yoki o'quvchi qo'shilgan sana maydoni
-            start_filter &= Q(students__created_at__lt=from_date)
-
-            # 2. Davr ichidagi o'zgarishlar (from_date va to_date oralig'ida)
-        change_filter = Q()
-        if from_date:
-            change_filter &= Q(students__created_at__gte=from_date)
-        if to_date:
-            change_filter &= Q(students__created_at__lte=to_date)
-
-        # 3. Davr oxiridagi holat (to_date gacha bo'lgan jami holat)
-        end_filter = Q()
-        if to_date:
-            end_filter &= Q(students__created_at__lte=to_date)
-
-        # Administratorlarni (masalan, guruh/roli moderator yoki admin bo'lganlarni) filterlab olish
-        # 'students' - bu User modelidan Student modeliga bo'lgan related_name
-        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
-        # bu boshqa tashkilotlarning administratorlari ham ko'rinishiga sabab bo'lardi)
+        from academics.models import Student, StudentGroupLeave
         org_id = request.user.organization_id
-        admins_data = User.objects.filter(
-            organization_id=org_id,
-            is_staff=True  # yoki guruhiga qarab filterlang: groups__name='boshqaruv'
-        ).annotate(
-            # --- Davr boshidagi holat ---
-            start_active=Count('students', filter=start_filter & Q(students__status='active')),
-            start_left=Count('students', filter=start_filter & Q(students__status='left')),
-            start_finished=Count('students', filter=start_filter & Q(students__status='finished')),
-            start_frozen=Count('students', filter=start_filter & Q(students__status='frozen')),
+        admins = User.objects.filter(organization_id=org_id, is_staff=True)
 
-            # --- Davr ichidagi o'zgarishlar ---
-            change_active=Count('students', filter=change_filter & Q(students__status='active')),
-            change_left=Count('students', filter=change_filter & Q(students__status='left')),
-            change_finished=Count('students', filter=change_filter & Q(students__status='finished')),
-            change_frozen=Count('students', filter=change_filter & Q(students__status='frozen')),
-
-            # --- Davr oxiridagi holat ---
-            end_active=Count('students', filter=end_filter & Q(students__status='active')),
-            end_left=Count('students', filter=end_filter & Q(students__status='left')),
-            end_finished=Count('students', filter=end_filter & Q(students__status='finished')),
-            end_frozen=Count('students', filter=end_filter & Q(students__status='frozen'))
-        ).distinct()
-
-        # Frontend kutayotgan JSON formatga o'tkazish
         report = []
-        for index, admin in enumerate(admins_data, 1):
+        for index, admin in enumerate(admins, 1):
+            students_qs = Student.objects.filter(organization_id=org_id, moderator=admin.id)
+            leaves_qs = StudentGroupLeave.objects.filter(organization_id=org_id, student__moderator=admin.id)
+
+            # Start Status
+            if from_date:
+                start_active = students_qs.filter(created_at__date__lt=from_date, student_groups__isnull=False).distinct().count()
+                start_left = leaves_qs.filter(leave_date__lt=from_date).count()
+            else:
+                start_active = 0
+                start_left = 0
+
+            # Changes
+            change_active_qs = students_qs.filter(student_groups__isnull=False)
+            change_left_qs = leaves_qs
+            if from_date:
+                change_active_qs = change_active_qs.filter(created_at__date__gte=from_date)
+                change_left_qs = change_left_qs.filter(leave_date__gte=from_date)
+            if to_date:
+                change_active_qs = change_active_qs.filter(created_at__date__lte=to_date)
+                change_left_qs = change_left_qs.filter(leave_date__lte=to_date)
+
+            change_active = change_active_qs.distinct().count()
+            change_left = change_left_qs.count()
+
+            # End Status
+            end_active_qs = students_qs.filter(student_groups__isnull=False)
+            end_left_qs = leaves_qs
+            if to_date:
+                end_active_qs = end_active_qs.filter(created_at__date__lte=to_date)
+                end_left_qs = end_left_qs.filter(leave_date__lte=to_date)
+
+            end_active = end_active_qs.distinct().count()
+            end_left = end_left_qs.count()
+
             report.append({
                 "id": index,
                 "admin_name": f"{admin.first_name} {admin.last_name}".strip() or admin.username,
                 "start_status": {
-                    "active": admin.start_active,
-                    "left": admin.start_left,
-                    "finished": admin.start_finished,
-                    "frozen": admin.start_frozen
+                    "active": start_active,
+                    "left": start_left,
+                    "finished": 0,
+                    "frozen": 0
                 },
                 "changes": {
-                    "active": admin.change_active,
-                    "left": admin.change_left,
-                    "finished": admin.change_finished,
-                    "frozen": admin.change_frozen
+                    "active": change_active,
+                    "left": change_left,
+                    "finished": 0,
+                    "frozen": 0
                 },
                 "end_status": {
-                    "active": admin.end_active,
-                    "left": admin.end_left,
-                    "finished": admin.end_finished,
-                    "frozen": admin.end_frozen
+                    "active": end_active,
+                    "left": end_left,
+                    "finished": 0,
+                    "frozen": 0
                 }
             })
 
         return Response(report)
 
 
-# finance/views.py ichiga qo'shing
 from academics.models import Student
 
 
@@ -2546,6 +2547,8 @@ class StudentLeaversReasonsReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.utils.dateparse import parse_date
+        
         # 🔥 To'g'ridan-to'g'ri ketishlar tarixi modelini import qilamiz
         from academics.models import StudentGroupLeave
 
@@ -2564,17 +2567,17 @@ class StudentLeaversReasonsReportView(APIView):
         if to_date:
             filters &= Q(created_at__date__lte=to_date)
 
-        # 🌟 Ketish sababi (LeaveReason) modelidagi 'name' maydoni bo'yicha guruhlaymiz
+        # 🌟 Ketish sababi (LeaveReason) modelidagi 'reason' maydoni bo'yicha guruhlaymiz
         reasons_queryset = (
             StudentGroupLeave.objects.filter(filters)
-            .values('reason__name')  # Sababning nomini toza matn ko'rinishida olamiz
+            .values('leave_reason__reason')  # Sababning nomini toza matn ko'rinishida olamiz
             .annotate(count=Count('id'))
             .order_by('-count')
         )
 
         chart_data = []
         for item in reasons_queryset:
-            reason = item['reason__name'] or "Sababi ko'rsatilmagan"
+            reason = item['leave_reason__reason'] or "Sababi ko'rsatilmagan"
             chart_data.append({
                 "reason_name": reason,
                 "count": item['count']
@@ -2653,53 +2656,51 @@ class BranchMonitoringReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from organizations.models import Branch  # Filial modelingiz
+        from django.utils.dateparse import parse_date
+        from organizations.models import Branch
+        from crm.models import Lead
+        from academics.models import Student
 
-        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
-        # bu boshqa tashkilotlarning filiallari ham ko'rinishiga sabab bo'lardi)
+        # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi
         org_id = request.user.organization_id
 
         date_str = request.query_params.get('date')  # Kunlik filter uchun
         target_date = parse_date(date_str) if date_str else None
 
-        date_filter = Q()
-        if target_date:
-            date_filter &= Q(students__created_at__date=target_date)
-
-        branches = Branch.objects.filter(organization_id=org_id).annotate(
-            # 1. Buyurtma statusidagilar
-            orders=Count('students', filter=date_filter & Q(students__status='order')),
-            # 2. Birinchi darsga keladiganlar
-            first_lesson=Count('students', filter=date_filter & Q(students__status='first_lesson')),
-            # 3. Yangi o'quvchilar
-            new_students=Count('students', filter=date_filter & Q(students__is_new=True)),
-            # 4. Aktiv o'quvchilar
-            active_students=Count('students', filter=date_filter & Q(students__status='active')),
-            # 5. Guruh o'quvchilari
-            group_students=Count('students', filter=date_filter & Q(students__groups__isnull=False)),
-            # 6. Buyurtmadan ketganlar
-            order_leavers=Count('students', filter=date_filter & Q(students__status='order_left')),
-            # 7. Qarzdorlar
-            debtors=Count('students', filter=date_filter & Q(students__balance__lt=0))
-        ).distinct()
-
+        branches = Branch.objects.filter(organization_id=org_id)
         table_data = []
+
         for index, branch in enumerate(branches, 1):
-            # Qarzdorlarning aktivga nisbatan foizi
+            # Base querysets for this branch using corrected related names
+            leads_qs = Lead.objects.filter(organization_id=org_id, branch=branch, is_archived=False)
+            students_qs = Student.objects.filter(organization_id=org_id, branch=branch)
+
+            if target_date:
+                leads_qs = leads_qs.filter(created_at__date=target_date)
+                students_qs = students_qs.filter(created_at__date=target_date)
+
+            orders = leads_qs.filter(status='open').count()
+            first_lesson = leads_qs.filter(status='first_lesson').count()
+            new_students = students_qs.count() # Since they are created on target_date, they are new!
+            active_students = students_qs.count() # All students in database are active in this context
+            group_students = students_qs.filter(student_groups__isnull=False).distinct().count()
+            order_leavers = leads_qs.filter(status='lost').count()
+            debtors = students_qs.filter(balance__lt=0).count()
+
             debt_percentage = 0
-            if branch.active_students > 0:
-                debt_percentage = round((branch.debtors / branch.active_students) * 100, 1)
+            if active_students > 0:
+                debt_percentage = round((debtors / active_students) * 100, 1)
 
             table_data.append({
                 "id": index,
                 "branch_name": branch.name,
-                "buyurtma": branch.orders,
-                "birinchi_dars": branch.first_lesson,
-                "yangi_oquvchi": branch.new_students,
-                "aktiv_oquvchilar": branch.active_students,
-                "guruh_oquvchilari": branch.group_students,
-                "buyurtmadan_ketganlar": branch.order_leavers,
-                "qarzdorlar": branch.debtors,
+                "buyurtma": orders,
+                "birinchi_dars": first_lesson,
+                "yangi_oquvchi": new_students,
+                "aktiv_oquvchilar": active_students,
+                "guruh_oquvchilari": group_students,
+                "buyurtmadan_ketganlar": order_leavers,
+                "qarzdorlar": debtors,
                 "qarzdorlar_foizi": f"{debt_percentage}%"
             })
 

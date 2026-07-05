@@ -460,16 +460,10 @@ class Homework(TenantModel):
     def __str__(self):
         return f"{self.group.name} - {self.title}"
 
-# ================= O'QITUVCHI OYLIK TO'LOVI BO'YICHA KASSA SIGNALI =================
+
+
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
-
-@receiver(post_save, sender=TeacherSalaryPayment)
-@receiver(post_delete, sender=TeacherSalaryPayment)
-def teacher_salary_payment_cashbox_update(sender, instance, **kwargs):
-    from finance.models import update_cashbox_balance
-    update_cashbox_balance(instance.organization)
-
 
 @receiver(post_save, sender=Exam)
 def exam_internal_notification(sender, instance, created, **kwargs):

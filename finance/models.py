@@ -642,6 +642,14 @@ def cashtransaction_transaction_mirror_delete(sender, instance, **kwargs):
     _delete_transaction_mirror(instance)
 
 
+def update_cashbox_balance(organization):
+    """
+    Backwards compatibility stub. Kassa balansi endi tranzaksiyalar asosida 
+    avtomatik ravishda recompute_cashbox_balance orqali hisoblanadi.
+    """
+    pass
+
+
 @receiver(post_save, sender=Transaction)
 @receiver(post_delete, sender=Transaction)
 def recompute_cashbox_balance(sender, instance, **kwargs):
@@ -662,3 +670,48 @@ def recompute_cashbox_balance(sender, instance, **kwargs):
         total=Sum('amount'))['total'] or Decimal('0.00')
 
     Cashbox.objects.filter(pk=cashbox.pk).update(balance=income - expense)
+
+
+# ================= O'QITUVCHI OYLIK TO'LOVI BO'YICHA TRANZAKSIYA SINXRONIZATSIYASI =================
+from academics.models import TeacherSalaryPayment
+
+@receiver(post_save, sender=TeacherSalaryPayment)
+def teacher_salary_payment_transaction_sync(sender, instance, created, **kwargs):
+    # Tashkilotning birinchi kassasini topamiz (afzalroq nomi 'Asosiy Kassa' yoki o'shanga o'xshash bo'lgan)
+    cashbox = Cashbox.objects.filter(organization=instance.organization, name__icontains="asosiy").first()
+    if not cashbox:
+        cashbox = Cashbox.objects.filter(organization=instance.organization).first()
+
+    if not cashbox:
+        return
+
+    teacher_name = f"{instance.teacher.first_name} {instance.teacher.last_name or ''}".strip() or instance.teacher.username
+    desc = f"O'qituvchi maosh to'lovi: {teacher_name} (SglID: {instance.id})"
+
+    tx = Transaction.objects.filter(
+        organization=instance.organization,
+        description__endswith=f"(SglID: {instance.id})"
+    ).first()
+
+    if tx:
+        tx.cashbox = cashbox
+        tx.amount = instance.amount
+        tx.save()
+    else:
+        Transaction.objects.create(
+            organization=instance.organization,
+            cashbox=cashbox,
+            amount=instance.amount,
+            type='EXPENSE',
+            category='SALARY',
+            employee=instance.teacher,
+            description=desc
+        )
+
+
+@receiver(post_delete, sender=TeacherSalaryPayment)
+def teacher_salary_payment_transaction_delete(sender, instance, **kwargs):
+    Transaction.objects.filter(
+        organization=instance.organization,
+        description__endswith=f"(SglID: {instance.id})"
+    ).delete()

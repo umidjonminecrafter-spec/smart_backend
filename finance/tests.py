@@ -324,3 +324,71 @@ class CashTransactionAPITests(APITestCase):
         self.assertEqual(gen_txs[1].employee, self.admin)
 
 
+class AnalyticsEndpointsTests(APITestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name="Analytics Org")
+        self.admin = User.objects.create_user(
+            username="+998901112255",
+            password="securepassword",
+            role="admin",
+            organization=self.org
+        )
+        self.client.force_authenticate(user=self.admin)
+
+    def test_branch_monitoring_report(self):
+        url = reverse('branch-monitoring')
+        response = self.client.get(f"{url}?date=2026-06-23")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_teacher_efficiency_report(self):
+        url = reverse('teacher-efficiency-report')
+        response = self.client.get(f"{url}?from_date=2026-06-01&to_date=2026-06-19")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_admin_efficiency_report(self):
+        url = reverse('admin-efficiency-report')
+        response = self.client.get(f"{url}?from_date=2026-06-01&to_date=2026-06-19")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_student_left_reasons_report(self):
+        url = reverse('student-left-reasons-report')
+        response = self.client.get(f"{url}?tab=all&from_date=2026-06-01&to_date=2026-06-20&time_resolution=kun")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_unsubmitted_attendance_report(self):
+        url = reverse('unsubmitted-attendance')
+        response = self.client.get(f"{url}?from_date=2026-06-01&to_date=2026-06-23")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_revenue_plan_report(self):
+        url = reverse('report-revenue-plan')
+        response = self.client.get(f"{url}?branch=1&date=2026-06-19&status=active")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_unpaid_payments_report(self):
+        url = reverse('report-unpaid-payments')
+        response = self.client.get(f"{url}?branch=1&start_date=2026-06-01")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_cancelled_payments_report(self):
+        url = reverse('report-cancelled-payments')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_discounts_bonuses_report(self):
+        url = reverse('report-discounts-bonuses')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_cash_flow_report(self):
+        url = reverse('report-cash-flow')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_employee_balance_report(self):
+        url = reverse('report-employee-balance')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+

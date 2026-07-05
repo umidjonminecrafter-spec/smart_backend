@@ -37,6 +37,18 @@ from .serializers import FinanceActionSerializer, TransactionSerializer, Transac
 User = get_user_model()
 
 
+def get_active_branch_id(request):
+    branch_id = request.query_params.get('branch') or request.query_params.get('branch_id')
+    if branch_id:
+        return branch_id
+    branch_id = request.META.get('HTTP_X_BRANCH_ID') or request.headers.get('x-branch-id')
+    if branch_id:
+        return branch_id
+    if request.user and request.user.is_authenticated:
+        return getattr(request.user, 'branch_id', None)
+    return None
+
+
 class ExpenseCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Xarajatlar'
     queryset = ExpenseCategory.objects.all()
@@ -2067,7 +2079,7 @@ class EmployeeFinanceBalanceReportView(APIView):
 
     def get(self, request):
         org_id = request.user.organization_id
-        branch_id = request.query_params.get('branch')  # CEO uchun filial filtri
+        branch_id = get_active_branch_id(request)
 
         # Foydalanuvchilar (Xodimlar) ro'yxatini olamiz
         from django.contrib.auth import get_user_model
@@ -2137,18 +2149,23 @@ class RevenuePlanReportView(APIView):
 
     def get(self, request):
         org_id = request.user.organization_id
+        branch_id = get_active_branch_id(request)
         date_str = request.query_params.get('date', 'Bugun')
 
         # Qarzdor o'quvchilar soni va umumiy summa
         debtors = Student.objects.filter(organization_id=org_id, balance__lt=0)
+        if branch_id:
+            debtors = debtors.filter(branch_id=branch_id)
+
         debtors_count = debtors.count()
         debtors_sum = abs(float(debtors.aggregate(total=Sum('balance'))['total'] or 0))
 
         # Shu oyda to'langan umumiy summalar (Transaction modeli orqali)
-        paid_sum = float(Transaction.objects.filter(
-            cashbox__organization_id=org_id,
-            type='INCOME'
-        ).aggregate(total=Sum('amount'))['total'] or 0)
+        tx_filters = Q(cashbox__organization_id=org_id, type='INCOME')
+        if branch_id:
+            tx_filters &= Q(cashbox__branch_id=branch_id)
+
+        paid_sum = float(Transaction.objects.filter(tx_filters).aggregate(total=Sum('amount'))['total'] or 0)
 
         data = [
             {"target": f"{date_str} holatiga", "students_count": debtors_count,
@@ -2170,7 +2187,7 @@ class UnpaidLessonsReportView(APIView):
 
     def get(self, request):
         org_id = request.user.organization_id
-        branch_id = request.query_params.get('branch')
+        branch_id = get_active_branch_id(request)
 
         # Balansi minusda bo'lgan o'quvchilarni olamiz
         students_qs = Student.objects.filter(organization_id=org_id, balance__lt=0)
@@ -2212,7 +2229,7 @@ class CancelledPaymentsReportView(APIView):
 
     def get(self, request):
         org_id = request.user.organization_id
-        branch_id = request.query_params.get('branch')
+        branch_id = get_active_branch_id(request)
 
         # Yangi Transaction modelidan 'EXPENSE' yoki bekor qilingan deb belgilanganlarini qidiramiz
         # Agar modelingizda maxsus status bo'lmasa, chiqim description'da 'bekor' so'zi borligini olamiz
@@ -2256,7 +2273,7 @@ class DiscountsAndBonusesReportView(APIView):
         from django.db.models import Sum, Q
 
         org_id = request.user.organization_id
-        branch_id = request.query_params.get('branch')
+        branch_id = get_active_branch_id(request)
 
         # 1. Tashkilot va filial bo'yicha bazaviy filtr
         if hasattr(Transaction, 'organization'):
@@ -2383,6 +2400,7 @@ class TeacherEfficiencyReportView(APIView):
         from django.utils.dateparse import parse_date
         
         org_id = request.user.organization_id
+        branch_id = get_active_branch_id(request)
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
 
@@ -2391,6 +2409,8 @@ class TeacherEfficiencyReportView(APIView):
 
         from academics.models import StudentGroup, StudentGroupLeave
         teachers = User.objects.filter(organization_id=org_id, role='teacher')
+        if branch_id:
+            teachers = teachers.filter(branch_id=branch_id)
 
         report = []
         for index, teacher in enumerate(teachers, 1):
@@ -2476,12 +2496,18 @@ class AdministratorEfficiencyReportView(APIView):
 
         from academics.models import Student, StudentGroupLeave
         org_id = request.user.organization_id
+        branch_id = get_active_branch_id(request)
         admins = User.objects.filter(organization_id=org_id, is_staff=True)
+        if branch_id:
+            admins = admins.filter(branch_id=branch_id)
 
         report = []
         for index, admin in enumerate(admins, 1):
             students_qs = Student.objects.filter(organization_id=org_id, moderator=admin.id)
             leaves_qs = StudentGroupLeave.objects.filter(organization_id=org_id, student__moderator=admin.id)
+            if branch_id:
+                students_qs = students_qs.filter(branch_id=branch_id)
+                leaves_qs = leaves_qs.filter(branch_id=branch_id)
 
             # Start Status
             if from_date:
@@ -2560,7 +2586,10 @@ class StudentLeaversReasonsReportView(APIView):
         to_date = parse_date(to_date_str) if to_date_str else None
 
         # 🌟 Filterlarni faqat joriy tashkilot va kiritilgan sanalar bo'yicha quramiz
+        branch_id = get_active_branch_id(request)
         filters = Q(student__organization=request.user.organization)
+        if branch_id:
+            filters &= Q(branch_id=branch_id)
 
         if from_date:
             filters &= Q(created_at__date__gte=from_date)
@@ -2614,6 +2643,7 @@ class RoomAnalyticsReportView(APIView):
         # TO'G'RILANDI: organization_id bo'yicha filter qo'shildi (avval umuman filter yo'q edi -
         # bu boshqa tashkilotlarning xonalari ham ko'rinishiga sabab bo'lardi)
         org_id = request.user.organization_id
+        branch_id = get_active_branch_id(request)
 
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
@@ -2629,7 +2659,11 @@ class RoomAnalyticsReportView(APIView):
             group_filter &= Q(groups__created_at__lte=to_date)
 
         # Xonalar va ulardagi faol guruhlar sonini olish
-        rooms = Room.objects.filter(organization_id=org_id).annotate(
+        rooms_qs = Room.objects.filter(organization_id=org_id)
+        if branch_id:
+            rooms_qs = rooms_qs.filter(branch_id=branch_id)
+
+        rooms = rooms_qs.annotate(
             active_groups=Count('groups', filter=group_filter & Q(groups__status='active'))
         )
 
@@ -2711,7 +2745,11 @@ class UnsubmittedAttendanceReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.utils.dateparse import parse_date
+        from academics.models import GroupLesson, Attendance
+
         org_id = request.user.organization_id
+        branch_id = get_active_branch_id(request)
 
         from_date_str = request.query_params.get('from_date')
         to_date_str = request.query_params.get('to_date')
@@ -2720,34 +2758,49 @@ class UnsubmittedAttendanceReportView(APIView):
         to_date = parse_date(to_date_str) if to_date_str else None
 
         # 1. Darslar (GroupLesson) bo'yicha filterlarni shakllantiramiz
-        lesson_filter = Q(organization_id=org_id, attendance_submitted=False)
+        lesson_filter = Q(organization_id=org_id, is_canceled=False)
+        if branch_id:
+            lesson_filter &= Q(branch_id=branch_id)
         if from_date:
             lesson_filter &= Q(date__gte=from_date)
         if to_date:
             lesson_filter &= Q(date__lte=to_date)
 
-        # 2. To'g'ridan-to'g'ri topshirilmagan darslarni olamiz va ularga bog'langan guruhlarni select_related qilamiz
-        # Bu 'Unsupported lookup' xatosini 100% oldini oladi
-        unsubmitted_lessons = GroupLesson.objects.filter(lesson_filter).select_related('group',
-                                                                                       'group__teacher').order_by(
-            'date')
+        # 2. Barcha darslarni olamiz
+        all_lessons = GroupLesson.objects.filter(lesson_filter).select_related(
+            'group', 'group__teacher', 'group__course'
+        ).order_by('date')
+
+        # 3. Yo'qlama topshirilgan darslarni aniqlash
+        # Agar Attendance jadvalida shu guruh va sana uchun yozuv bo'lsa, yo'qlama qilingan
+        submitted_pairs = set(
+            Attendance.objects.filter(
+                organization_id=org_id
+            ).values_list('group_id', 'date')
+        )
 
         table_data = []
         total_lost_sum = 0
         seen_groups = set()
         index = 1
 
-        for lesson in unsubmitted_lessons:
+        for lesson in all_lessons:
             group = lesson.group
             if not group:
                 continue
 
-            # Har bir guruh hisobotda faqat bir marta chiqishi uchun (yoki har bir darsni chiqarish ham mumkin)
+            # Yo'qlama topshirilganmi?
+            if (group.id, lesson.date) in submitted_pairs:
+                continue
+
+            # Har bir guruh hisobotda faqat bir marta chiqishi uchun
             if group.id in seen_groups:
                 continue
             seen_groups.add(group.id)
 
-            group_price = getattr(group, 'price', None) or getattr(group.course, 'price', 300000)
+            group_price = getattr(group, 'price', None) or (
+                group.course.price if group.course and hasattr(group.course, 'price') else 300000
+            )
             total_lost_sum += float(group_price)
 
             teacher_name = "O'qituvchi biriktirilmagan"
@@ -2755,7 +2808,7 @@ class UnsubmittedAttendanceReportView(APIView):
                 teacher_name = f"{group.teacher.first_name} {group.teacher.last_name or ''}".strip() or group.teacher.username
 
             try:
-                lesson_date = lesson.date.strftime("%d.%m.%Y | %H:%M")
+                lesson_date = lesson.date.strftime("%d.%m.%Y")
             except AttributeError:
                 lesson_date = str(lesson.date)
 

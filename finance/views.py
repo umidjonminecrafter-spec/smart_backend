@@ -393,6 +393,9 @@ class SalaryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         except ValueError:
             return Response({"detail": "Invalid period format. Use YYYY-MM."}, status=status.HTTP_400_BAD_REQUEST)
 
+        from finance.models import FinanceSetting
+        setting = FinanceSetting.objects.filter(organization_id=org_id).first()
+
         employees = User.objects.filter(organization_id=org_id).exclude(is_superuser=True)
         calculated = []
         for emp in employees:
@@ -405,13 +408,48 @@ class SalaryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             Fine.objects.filter(employee=emp, date__year=year, date__month=month).aggregate(total=Sum('amount'))[
                 'total'] or Decimal('0.00')
 
-            base_salary = Decimal('1000.00')  # Default base salary
-            if emp.role == 'manager':
-                base_salary = Decimal('1500.00')
-            elif emp.role == 'admin':
-                base_salary = Decimal('2000.00')
+            # 1. StaffSalaryPercent (Oylik foizlari) integration
+            base_salary = Decimal('0.00')
+            if emp.salary_percentage:
+                payments_sum = Payment.objects.filter(
+                    employee=emp,
+                    date__year=year,
+                    date__month=month
+                ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+                base_salary = payments_sum * (Decimal(str(emp.salary_percentage.percent)) / Decimal('100.00'))
+                base_salary = round(base_salary, 2)
+            else:
+                base_salary = Decimal('1000.00')  # Default base salary
+                if emp.role == 'manager':
+                    base_salary = Decimal('1500.00')
+                elif emp.role == 'admin':
+                    base_salary = Decimal('2000.00')
 
             total_salary = base_salary + bonuses - fines
+
+            # 2. Count-based bonus integration
+            if setting and setting.is_count_bonus_enabled:
+                from academics.models import Student
+                active_count = Student.objects.filter(organization_id=org_id, balance__gte=0).count()
+                debtor_count = Student.objects.filter(organization_id=org_id, balance__lt=0).count()
+
+                if active_count > 0 and setting.has_money_students_amount > 0:
+                    total_salary += Decimal(str(setting.has_money_students_amount))
+                if debtor_count == 0 and setting.debtor_students_amount > 0:
+                    total_salary += Decimal(str(setting.debtor_students_amount))
+
+            # 3. KPI target revenue bonus integration
+            if setting and setting.kpi_settings:
+                target_revenue = Decimal(str(setting.kpi_settings.get('target_revenue', '0.00')))
+                kpi_bonus = Decimal(str(setting.kpi_settings.get('kpi_bonus', '0.00')))
+                if target_revenue > 0 and kpi_bonus > 0:
+                    total_revenue = Payment.objects.filter(
+                        organization_id=org_id,
+                        date__year=year,
+                        date__month=month
+                    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+                    if total_revenue >= target_revenue:
+                        total_salary += kpi_bonus
 
             # Upsert
             sal, created = Salary.objects.update_or_create(

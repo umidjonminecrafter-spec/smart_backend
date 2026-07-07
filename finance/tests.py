@@ -682,6 +682,92 @@ class FinanceSettingIntegrationTests(APITestCase):
         )
         self.assertEqual(penalties.count(), 2)
 
+    def test_debtor_payment_percent_bonus(self):
+        from academics.models import Student
+        from finance.models import Payment, Bonus
+
+        # Set debtor percent to 8% in settings
+        self.setting.debtor_balance_percent = Decimal('8.00')
+        self.setting.save()
+
+        # Create a debtor student (balance < 0)
+        student = Student.objects.create(
+            organization=self.org,
+            first_name="Frank",
+            phone="+998901234569",
+            balance=Decimal('-500.00')
+        )
+
+        Payment.objects.create(
+            organization=self.org,
+            student=student,
+            amount=Decimal('1000.00'),
+            date=timezone.now().date(),
+            cashbox=self.cashbox,
+            payment_method="Cash",
+            employee=self.manager
+        )
+
+        # 8% of 1000 is 80 UZS
+        bonus = Bonus.objects.filter(employee=self.manager, reason__contains="qarzdorlik to'lovi").first()
+        self.assertIsNotNone(bonus)
+        self.assertEqual(bonus.amount, Decimal('80.00'))
+
+    def test_employee_salary_calculation_with_all_settings(self):
+        from finance.models import StaffSalaryPercent, Salary, Payment
+        from academics.models import Student
+        from datetime import date
+        
+        # Link manager to a salary percentage (e.g. 10%)
+        percent_setting = StaffSalaryPercent.objects.create(
+            organization=self.org,
+            name="Manager level",
+            percent=Decimal('10.00')
+        )
+        self.manager.salary_percentage = percent_setting
+        self.manager.save()
+
+        # Enable count bonus and KPI settings
+        self.setting.is_count_bonus_enabled = True
+        self.setting.has_money_students_amount = Decimal('12000.00')  # active student count bonus
+        self.setting.debtor_students_amount = Decimal('8000.00')  # zero debtors bonus
+        self.setting.kpi_settings = {
+            "target_revenue": "100000.00",
+            "kpi_bonus": "15000.00"
+        }
+        self.setting.save()
+
+        # Process a payment by the manager (total payments = 200,000 UZS)
+        student = Student.objects.create(organization=self.org, first_name="Grace", phone="+998908888888", balance=Decimal('0.00'))
+        Payment.objects.create(
+            organization=self.org,
+            student=student,
+            amount=Decimal('200000.00'),
+            date=date(2026, 7, 15),
+            cashbox=self.cashbox,
+            employee=self.manager
+        )
+
+        # Calculate salary
+        url = reverse('salary-calculate')
+        data = {
+            "period": "2026-07"
+        }
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Let's verify calculated salary:
+        # Base salary (10% of 200,000) = 20,000 UZS
+        # Active students (Grace balance >= 0, so count > 0) bonus = 12,000 UZS
+        # Debtors (0 debtors) bonus = 8,000 UZS
+        # KPI target revenue (payments 200,000 >= 100,000 target) bonus = 15,000 UZS
+        # Expected base salary + bonuses = 20000 + 12000 + 8000 + 15000 = 55,000 UZS + bonuses
+        
+        salary_rec = Salary.objects.filter(employee=self.manager, date=date(2026, 7, 15)).first()
+        self.assertIsNotNone(salary_rec)
+        self.assertTrue(salary_rec.amount >= Decimal('55000.00'))
+
+
 
 
 

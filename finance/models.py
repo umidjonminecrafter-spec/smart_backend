@@ -862,13 +862,22 @@ def payment_bonuses_sync(sender, instance, created, **kwargs):
 
         # 2. Finance Staff Percentage Bonus for Payment Processor
         if instance.employee and setting.is_percent_bonus_enabled:
-            payment_percent = Decimal(str(setting.student_payment_percent))
+            # Check if student was a debtor (balance < 0) before this payment
+            was_debtor = False
+            if instance.student:
+                curr_balance = Decimal(str(instance.student.balance))
+                # Current balance has already been updated with instance.amount
+                if (curr_balance - instance.amount) < 0:
+                    was_debtor = True
+
+            payment_percent = Decimal(str(setting.debtor_balance_percent)) if was_debtor else Decimal(str(setting.student_payment_percent))
             if payment_percent > 0:
                 bonus_amt = instance.amount * (payment_percent / Decimal('100.00'))
                 bonus_amt = round(bonus_amt, 2)
                 if bonus_amt > 0:
                     student_name = instance.student.full_name if instance.student else "O'chirilgan Talaba"
-                    reason = f"Kirim to'lovi foiz bonusi ({payment_percent}%) - (Talaba: {student_name})"
+                    desc_type = "qarzdorlik to'lovi" if was_debtor else "kirim to'lovi"
+                    reason = f"Kirim to'lovi foiz bonusi ({desc_type} {payment_percent}%) - (Talaba: {student_name})"
 
                     tx = Transaction.objects.create(
                         organization=instance.organization,

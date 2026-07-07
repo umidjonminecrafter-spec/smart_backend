@@ -1563,17 +1563,50 @@ class FinanceSettingAPIView(APIView):
         )
         return setting
 
+    def get_response_data(self, setting):
+        serializer = FinanceSettingSerializer(setting)
+        
+        # Build choices
+        from accounts.models import User
+        from academics.models import Student
+        from finance.models import Cashbox
+        
+        roles_data = [{"id": key, "name": value} for key, value in User.ROLE_CHOICES]
+        
+        students_data = [
+            {"id": s.id, "full_name": s.full_name} 
+            for s in Student.objects.filter(organization=setting.organization)
+        ]
+        
+        employees_data = [
+            {"id": u.id, "full_name": f"{u.first_name} {u.last_name}".strip() or u.username, "role": u.role} 
+            for u in User.objects.filter(organization=setting.organization)
+        ]
+        
+        cashboxes_data = [
+            {"id": c.id, "name": c.name} 
+            for c in Cashbox.objects.filter(organization=setting.organization, is_archived=False)
+        ]
+        
+        response_data = dict(serializer.data)
+        response_data['choices'] = {
+            'roles': roles_data,
+            'students': students_data,
+            'employees': employees_data,
+            'cashboxes': cashboxes_data
+        }
+        return response_data
+
     def get(self, request):
         setting = self.get_object()
-        serializer = FinanceSettingSerializer(setting)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(self.get_response_data(setting), status=status.HTTP_200_OK)
 
     def put(self, request):
         setting = self.get_object()
         serializer = FinanceSettingSerializer(setting, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(self.get_response_data(setting), status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 

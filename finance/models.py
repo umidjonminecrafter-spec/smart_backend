@@ -978,94 +978,241 @@ def track_leave_fine(sender, instance, created, **kwargs):
 @receiver(post_save, sender=FinanceSetting)
 def sync_finance_setting_to_actions(sender, instance, created, **kwargs):
     try:
-        from finance.models import FinanceAction
+        from finance.models import FinanceAction, Cashbox, Transaction, Bonus, Fine
+        from academics.models import Student, BalanceHistory
+        from django.contrib.auth import get_user_model
         from decimal import Decimal
+        from django.utils import timezone
 
-        active_bonus_names = []
-        if isinstance(instance.bonus_types, list):
-            for bt in instance.bonus_types:
-                name = bt.get('name')
-                amount_str = bt.get('amount')
+        User = get_user_model()
+        synced_action_ids = []
+
+        def process_items(items, action_type):
+            if not isinstance(items, list):
+                return
+
+            for item in items:
+                name = item.get('name')
+                amount_str = item.get('amount')
                 if not name or not amount_str:
                     continue
                 try:
                     amount = Decimal(str(amount_str))
                 except:
                     continue
-                active_bonus_names.append(name)
 
-                role_str = str(bt.get('role', '')).lower()
+                role_str = str(item.get('role', '')).lower()
                 target_type = 'STUDENT' if role_str == 'student' else 'EMPLOYEE'
 
-                # Get or create FinanceAction by name/reason
-                action, action_created = FinanceAction.objects.get_or_create(
+                # Extract optional specific fields
+                student_id = item.get('student')
+                employee_id = item.get('employee')
+                cashbox_id = item.get('cashbox')
+                description = item.get('description', '')
+
+                # Validate database objects exist
+                student_obj = None
+                if student_id:
+                    student_obj = Student.objects.filter(id=student_id, organization=instance.organization).first()
+                    student_id = student_obj.id if student_obj else None
+
+                employee_obj = None
+                if employee_id:
+                    employee_obj = User.objects.filter(id=employee_id, organization=instance.organization).first()
+                    employee_id = employee_obj.id if employee_obj else None
+
+                cashbox_obj = None
+                if cashbox_id:
+                    cashbox_obj = Cashbox.objects.filter(id=cashbox_id, organization=instance.organization, is_archived=False).first()
+                    if not cashbox_obj:
+                        cashbox_obj = Cashbox.objects.filter(id=cashbox_id, organization=instance.organization).first()
+                    cashbox_id = cashbox_obj.id if cashbox_obj else None
+
+                # Find or create corresponding FinanceAction
+                action = FinanceAction.objects.filter(
                     organization=instance.organization,
-                    action_type='BONUS',
+                    action_type=action_type,
                     reason=name,
-                    student__isnull=True,
-                    employee__isnull=True,
-                    defaults={'amount': amount, 'target_type': target_type}
-                )
-                if not action_created:
-                    updated = False
-                    if action.amount != amount:
-                        action.amount = amount
-                        updated = True
-                    if action.target_type != target_type:
-                        action.target_type = target_type
-                        updated = True
-                    if updated:
-                        action.save(update_fields=['amount', 'target_type'])
+                    student_id=student_id,
+                    employee_id=employee_id
+                ).first()
 
-        active_penalty_names = []
-        if isinstance(instance.penalty_types, list):
-            for pt in instance.penalty_types:
-                name = pt.get('name')
-                amount_str = pt.get('amount')
-                if not name or not amount_str:
-                    continue
-                try:
-                    amount = Decimal(str(amount_str))
-                except:
-                    continue
-                active_penalty_names.append(name)
+                if not action:
+                    action = FinanceAction(
+                        organization=instance.organization,
+                        action_type=action_type,
+                        target_type=target_type,
+                        student_id=student_id,
+                        employee_id=employee_id,
+                        amount=Decimal('0.00'),
+                        reason=name
+                    )
 
-                role_str = str(pt.get('role', '')).lower()
-                target_type = 'STUDENT' if role_str == 'student' else 'EMPLOYEE'
+                old_amount = action.amount
+                action.amount = amount
+                action.target_type = target_type
+                action.save()
+                synced_action_ids.append(action.id)
 
-                action, action_created = FinanceAction.objects.get_or_create(
+                # Now handle transaction and balance logic for SPECIFIC assignments
+                if student_id or employee_id:
+                    diff = amount - old_amount
+                    tx = action.transaction
+
+                    # 1. Handle Transaction (only for BONUS)
+                    if action_type == 'BONUS':
+                        if not cashbox_obj:
+                            cashbox_obj = Cashbox.objects.filter(organization=instance.organization, is_archived=False).first()
+                        if not cashbox_obj:
+                            cashbox_obj = Cashbox.objects.filter(organization=instance.organization).first()
+                        if not cashbox_obj:
+                            cashbox_obj = Cashbox.objects.create(organization=instance.organization, name="Asosiy kassa")
+
+                        desc = f"{action.get_target_type_display()} uchun bonus: {name}"
+                        if description:
+                            desc += f" ({description})"
+
+                        if not tx:
+                            tx = Transaction.objects.create(
+                                organization=instance.organization,
+                                cashbox=cashbox_obj,
+                                amount=amount,
+                                type='EXPENSE',
+                                category='BONUS',
+                                student_id=student_id,
+                                employee_id=employee_id,
+                                description=desc
+                            )
+                            action.transaction = tx
+                            action.save(update_fields=['transaction'])
+                        else:
+                            updated_tx = False
+                            if tx.amount != amount:
+                                tx.amount = amount
+                                updated_tx = True
+                            if tx.cashbox != cashbox_obj:
+                                tx.cashbox = cashbox_obj
+                                updated_tx = True
+                            if tx.description != desc:
+                                tx.description = desc
+                                updated_tx = True
+                            if updated_tx:
+                                tx.save()
+
+                    # 2. Handle Employee Bonus / Fine models
+                    if employee_id:
+                        if action_type == 'BONUS':
+                            b_obj = Bonus.objects.filter(
+                                organization=instance.organization,
+                                employee_id=employee_id,
+                                reason__startswith=name,
+                                date=action.created_at.date() if action.id and action.created_at else timezone.now().date()
+                            ).first()
+                            
+                            b_reason = f"{name}: {description}" if description else name
+                            if not b_obj:
+                                Bonus.objects.create(
+                                    organization=instance.organization,
+                                    employee_id=employee_id,
+                                    amount=amount,
+                                    reason=b_reason,
+                                    date=timezone.now().date()
+                                )
+                            else:
+                                if b_obj.amount != amount or b_obj.reason != b_reason:
+                                    b_obj.amount = amount
+                                    b_obj.reason = b_reason
+                                    b_obj.save()
+                        else:
+                            f_obj = Fine.objects.filter(
+                                organization=instance.organization,
+                                employee_id=employee_id,
+                                reason__startswith=name,
+                                date=action.created_at.date() if action.id and action.created_at else timezone.now().date()
+                            ).first()
+                            
+                            f_reason = f"{name}: {description}" if description else name
+                            if not f_obj:
+                                Fine.objects.create(
+                                    organization=instance.organization,
+                                    employee_id=employee_id,
+                                    amount=amount,
+                                    reason=f_reason,
+                                    date=timezone.now().date()
+                                )
+                            else:
+                                if f_obj.amount != amount or f_obj.reason != f_reason:
+                                    f_obj.amount = amount
+                                    f_obj.reason = f_reason
+                                    f_obj.save()
+
+                    # 3. Handle Student Balance update
+                    if student_obj and diff != 0:
+                        if action_type == 'BONUS':
+                            student_obj.balance = Decimal(str(student_obj.balance)) + diff
+                            history_type = f"Bonus: {name}"
+                            history_amount = diff
+                        else:
+                            student_obj.balance = Decimal(str(student_obj.balance)) - diff
+                            history_type = f"Jarima: {name}"
+                            history_amount = -diff
+
+                        student_obj.save(update_fields=['balance'])
+                        BalanceHistory.objects.create(
+                            organization=instance.organization,
+                            student=student_obj,
+                            amount=history_amount,
+                            transaction_type=history_type
+                        )
+
+        process_items(instance.bonus_types, 'BONUS')
+        process_items(instance.penalty_types, 'PENALTY')
+
+        # Clean up removed FinanceAction objects and reverse their effects
+        removed_actions = FinanceAction.objects.filter(
+            organization=instance.organization
+        ).exclude(id__in=synced_action_ids)
+
+        for action in removed_actions:
+            if action.student:
+                student = action.student
+                if action.action_type == 'BONUS':
+                    student.balance = Decimal(str(student.balance)) - action.amount
+                    history_amount = -action.amount
+                    history_type = f"O'chirildi (Bonus: {action.reason})"
+                else:
+                    student.balance = Decimal(str(student.balance)) + action.amount
+                    history_amount = action.amount
+                    history_type = f"O'chirildi (Jarima: {action.reason})"
+
+                student.save(update_fields=['balance'])
+                BalanceHistory.objects.create(
                     organization=instance.organization,
-                    action_type='PENALTY',
-                    reason=name,
-                    student__isnull=True,
-                    employee__isnull=True,
-                    defaults={'amount': amount, 'target_type': target_type}
+                    student=student,
+                    amount=history_amount,
+                    transaction_type=history_type
                 )
-                if not action_created:
-                    updated = False
-                    if action.amount != amount:
-                        action.amount = amount
-                        updated = True
-                    if action.target_type != target_type:
-                        action.target_type = target_type
-                        updated = True
-                    if updated:
-                        action.save(update_fields=['amount', 'target_type'])
 
-        # Delete any FinanceAction that was created from settings but is no longer in settings
-        FinanceAction.objects.filter(
-            organization=instance.organization,
-            action_type='BONUS',
-            student__isnull=True,
-            employee__isnull=True
-        ).exclude(reason__in=active_bonus_names).delete()
+            if action.transaction:
+                action.transaction.delete()
 
-        FinanceAction.objects.filter(
-            organization=instance.organization,
-            action_type='PENALTY',
-            student__isnull=True,
-            employee__isnull=True
-        ).exclude(reason__in=active_penalty_names).delete()
+            if action.employee:
+                if action.action_type == 'BONUS':
+                    Bonus.objects.filter(
+                        organization=instance.organization,
+                        employee=action.employee,
+                        amount=action.amount,
+                        reason__startswith=action.reason
+                    ).delete()
+                else:
+                    Fine.objects.filter(
+                        organization=instance.organization,
+                        employee=action.employee,
+                        amount=action.amount,
+                        reason__startswith=action.reason
+                    ).delete()
+
+            action.delete()
 
     except Exception as e:
         print(f"Error syncing finance settings to actions: {str(e)}")

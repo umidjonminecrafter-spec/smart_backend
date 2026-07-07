@@ -703,6 +703,93 @@ class FinanceSettingIntegrationTests(APITestCase):
         self.assertEqual(std_penalty.target_type, 'STUDENT')
         self.assertEqual(std_penalty.amount, Decimal('25000.00'))
 
+    def test_finance_setting_specific_person_sync(self):
+        from academics.models import Student, BalanceHistory
+        from finance.models import FinanceAction, Transaction, Bonus, Fine
+        
+        # Create a test student and teacher
+        student = Student.objects.create(
+            organization=self.org,
+            first_name="Ali",
+            last_name="Valiyev",
+            phone="+998901234567",
+            balance=Decimal('100000.00')
+        )
+        
+        teacher = User.objects.create_user(
+            username="+998901112288",
+            password="securepassword",
+            role="teacher",
+            organization=self.org
+        )
+        
+        # Test 1: Add specific student bonus and teacher penalty via settings
+        self.setting.bonus_types = [
+            {
+                "id": 1,
+                "name": "Super Student Bonus",
+                "amount": "25000.00",
+                "role": "student",
+                "student": student.id,
+                "cashbox": self.cashbox.id,
+                "description": "Faol qatnashgani uchun"
+            }
+        ]
+        self.setting.penalty_types = [
+            {
+                "id": 1,
+                "name": "Kechikish jarimasi",
+                "amount": "15000.00",
+                "role": "teacher",
+                "employee": teacher.id,
+                "description": "Darsga kech qoldi"
+            }
+        ]
+        self.setting.save()
+        
+        # Verify student balance updated (+25,000 UZS)
+        student.refresh_from_db()
+        self.assertEqual(student.balance, Decimal('125000.00'))
+        
+        # Verify student BalanceHistory created
+        self.assertTrue(BalanceHistory.objects.filter(student=student, amount=Decimal('25000.00')).exists())
+        
+        # Verify Transaction was created for the student bonus
+        tx = Transaction.objects.filter(student_id=student.id, category='BONUS').first()
+        self.assertIsNotNone(tx)
+        self.assertEqual(tx.amount, Decimal('25000.00'))
+        self.assertEqual(tx.cashbox, self.cashbox)
+        self.assertEqual(tx.description, "Talaba uchun bonus: Super Student Bonus (Faol qatnashgani uchun)")
+        
+        # Verify Fine was created for the teacher penalty
+        fine = Fine.objects.filter(employee_id=teacher.id).first()
+        self.assertIsNotNone(fine)
+        self.assertEqual(fine.amount, Decimal('15000.00'))
+        self.assertEqual(fine.reason, "Kechikish jarimasi: Darsga kech qoldi")
+
+        # Test 2: Modify the specific student bonus amount to 40,000 UZS
+        self.setting.bonus_types[0]['amount'] = "40000.00"
+        self.setting.save()
+        
+        # Verify student balance updated by the diff (+15,000 UZS)
+        student.refresh_from_db()
+        self.assertEqual(student.balance, Decimal('140000.00'))
+        
+        # Verify transaction updated
+        tx.refresh_from_db()
+        self.assertEqual(tx.amount, Decimal('40000.00'))
+        
+        # Test 3: Delete the student bonus from settings
+        self.setting.bonus_types = []
+        self.setting.save()
+        
+        # Verify student balance reverted (-40,000 UZS)
+        student.refresh_from_db()
+        self.assertEqual(student.balance, Decimal('100000.00'))
+        
+        # Verify Transaction was deleted
+        self.assertFalse(Transaction.objects.filter(id=tx.id).exists())
+
     def test_debtor_payment_percent_bonus(self):
         from academics.models import Student
         from finance.models import Payment, Bonus

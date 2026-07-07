@@ -391,4 +391,206 @@ class AnalyticsEndpointsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
+class FinanceSettingIntegrationTests(APITestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name="Integration Test Org")
+        self.manager = User.objects.create_user(
+            username="+998901112277",
+            password="securepassword",
+            role="manager",
+            is_staff=True,
+            organization=self.org
+        )
+        self.client.force_authenticate(user=self.manager)
+        
+        from finance.models import Cashbox, FinanceSetting
+        self.cashbox = Cashbox.objects.create(
+            organization=self.org,
+            name="Asosiy kassa",
+            balance=0.00
+        )
+        
+        self.setting = FinanceSetting.objects.create(
+            organization=self.org,
+            is_bonus_enabled=True,
+            bonus_types=[
+                {"id": 1, "name": "Buyurtma qo'shgani uchun bonus miqdori", "amount": "50000.00"},
+                {"id": 2, "name": "Birinchi to'lovi uchun bonus miqdori", "amount": "30000.00"}
+            ],
+            is_penalty_enabled=True,
+            penalty_types=[
+                {"id": 1, "name": "To'lov qilmasdan ketgani uchun jarima", "amount": "15000.00"}
+            ],
+            is_percent_bonus_enabled=True,
+            student_payment_percent="5.00",
+            is_auto_discount_enabled=True,
+            two_groups_discount_percent="10.00",
+            three_groups_discount_percent="15.00",
+            four_groups_discount_percent="20.00"
+        )
+
+    def test_lead_bonus_triggers(self):
+        from crm.models import Lead
+        from finance.models import Bonus, FinanceAction, Transaction
+
+        # Create a lead
+        Lead.objects.create(
+            organization=self.org,
+            name="Jane Doe",
+            phone="+998905555555",
+            created_by=self.manager
+        )
+
+        # Verify bonus creation
+        bonus = Bonus.objects.filter(employee=self.manager).first()
+        self.assertIsNotNone(bonus)
+        self.assertEqual(bonus.amount, Decimal('50000.00'))
+
+        # Verify FinanceAction
+        action = FinanceAction.objects.filter(employee=self.manager, action_type='BONUS').first()
+        self.assertIsNotNone(action)
+        self.assertEqual(action.amount, Decimal('50000.00'))
+
+        # Verify Transaction
+        tx = Transaction.objects.filter(employee=self.manager, category='BONUS').first()
+        self.assertIsNotNone(tx)
+        self.assertEqual(tx.amount, Decimal('50000.00'))
+        self.assertEqual(tx.type, 'EXPENSE')
+
+    def test_first_payment_bonus_triggers(self):
+        from academics.models import Student
+        from finance.models import Payment, Bonus, FinanceAction, Transaction
+
+        student = Student.objects.create(
+            organization=self.org,
+            first_name="Alice",
+            phone="+998904444444",
+            moderator=self.manager.id
+        )
+
+        # Create first payment
+        Payment.objects.create(
+            organization=self.org,
+            student=student,
+            amount=Decimal('100000.00'),
+            date=timezone.now().date(),
+            cashbox=self.cashbox,
+            payment_method="Cash",
+            employee=self.manager
+        )
+
+        # Moderator should get first payment bonus
+        bonus = Bonus.objects.filter(employee=self.manager, reason__contains="Birinchi to'lov").first()
+        self.assertIsNotNone(bonus)
+        self.assertEqual(bonus.amount, Decimal('30000.00'))
+
+    def test_finance_staff_payment_percent_bonus(self):
+        from academics.models import Student
+        from finance.models import Payment, Bonus
+
+        student = Student.objects.create(
+            organization=self.org,
+            first_name="Bob",
+            phone="+998903333333"
+        )
+
+        # Create payment
+        Payment.objects.create(
+            organization=self.org,
+            student=student,
+            amount=Decimal('200000.00'),
+            date=timezone.now().date(),
+            cashbox=self.cashbox,
+            payment_method="Card",
+            employee=self.manager
+        )
+
+        # Payment processor should get 5% bonus
+        bonus = Bonus.objects.filter(employee=self.manager, reason__contains="Kirim to'lovi foiz bonusi").first()
+        self.assertIsNotNone(bonus)
+        # 5% of 200000 is 10000
+        self.assertEqual(bonus.amount, Decimal('10000.00'))
+
+    def test_student_leaving_unpaid_fine(self):
+        from academics.models import Student, Group, Course, StudentGroupLeave
+        from finance.models import Fine, FinanceAction
+
+        course = Course.objects.create(
+            organization=self.org,
+            name="Physics",
+            price=200000.00,
+            duration_weeks=4
+        )
+        group = Group.objects.create(
+            organization=self.org,
+            name="Physics-1",
+            course=course
+        )
+        student = Student.objects.create(
+            organization=self.org,
+            first_name="Charlie",
+            phone="+998902222222",
+            balance=Decimal('-1000.00'),  # negative balance
+            moderator=self.manager.id
+        )
+
+        # Create leave record
+        StudentGroupLeave.objects.create(
+            organization=self.org,
+            student=student,
+            group=group,
+            leave_date=timezone.now().date()
+        )
+
+        # Moderator should get penalty fine
+        fine = Fine.objects.filter(employee=self.manager).first()
+        self.assertIsNotNone(fine)
+        self.assertEqual(fine.amount, Decimal('15000.00'))
+
+        action = FinanceAction.objects.filter(employee=self.manager, action_type='PENALTY').first()
+        self.assertIsNotNone(action)
+        self.assertEqual(action.amount, Decimal('15000.00'))
+
+    def test_auto_discount_applied_on_attendance(self):
+        from academics.models import Student, Group, Course, StudentGroup, Attendance, charge_attendance
+        from finance.models import Transaction
+
+        course1 = Course.objects.create(organization=self.org, name="Bio", price=300000.00)
+        course2 = Course.objects.create(organization=self.org, name="Chem", price=300000.00)
+        
+        group1 = Group.objects.create(organization=self.org, name="Bio-1", course=course1)
+        group2 = Group.objects.create(organization=self.org, name="Chem-1", course=course2)
+
+        student = Student.objects.create(
+            organization=self.org,
+            first_name="Diana",
+            phone="+998901111111"
+        )
+
+        # Enroll in 2 groups
+        StudentGroup.objects.create(organization=self.org, student=student, group=group1)
+        StudentGroup.objects.create(organization=self.org, student=student, group=group2)
+
+        # Charge attendance for group1 (monthly price: 300,000 UZS)
+        # Lessons count in month (e.g. 27 days excluding Sundays)
+        # Cost per lesson without discount: 300,000 / 27 = 11111.11 UZS
+        # Cost with 10% discount: 11111.11 * 0.9 = 10000.00 UZS
+        
+        attendance = Attendance.objects.create(
+            organization=self.org,
+            group=group1,
+            student=student,
+            date=timezone.now().date(),
+            status="present"
+        )
+        
+        charge_attendance(student, group1, timezone.now().date(), attendance.id, self.org)
+        
+        # Verify transaction created with 10,000 UZS
+        tx = Transaction.objects.filter(student=student, description__contains="Davomat").first()
+        self.assertIsNotNone(tx)
+        self.assertEqual(float(tx.amount), 10000.00)
+
+
+
 

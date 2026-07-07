@@ -446,8 +446,10 @@ def payment_student_balance_update(sender, instance, created, **kwargs):
     student = instance.student
     # TO'G'RILANDI: Agar talaba bo'lsa (NULL bo'lmasa) balansi yangilanadi
     if student:
+        from decimal import Decimal
+        student_balance = Decimal(str(student.balance))
         if created:
-            student.balance += instance.amount
+            student.balance = student_balance + instance.amount
             student.save(update_fields=['balance'])
         else:
             old_amount = getattr(instance, '_old_amount', None)
@@ -456,15 +458,15 @@ def payment_student_balance_update(sender, instance, created, **kwargs):
             if old_amount is not None:
                 if old_student and old_student != instance.student:
                     # Eski talaba hali ham bazada bo'lsa uning balansini to'g'rilaymiz
-                    old_student.balance -= old_amount
+                    old_student.balance = Decimal(str(old_student.balance)) - old_amount
                     old_student.save(update_fields=['balance'])
 
-                    student.balance += instance.amount
+                    student.balance = student_balance + instance.amount
                     student.save(update_fields=['balance'])
                 else:
                     diff = instance.amount - old_amount
                     if diff != 0:
-                        student.balance += diff
+                        student.balance = student_balance + diff
                         student.save(update_fields=['balance'])
 
 
@@ -473,7 +475,8 @@ def payment_student_balance_delete(sender, instance, **kwargs):
     student = instance.student
     # TO'G'RILANDI: Agar talaba o'chirilgan bo'lsa, signal xatolik bermay o'tib ketadi.
     if student:
-        student.balance -= instance.amount
+        from decimal import Decimal
+        student.balance = Decimal(str(student.balance)) - instance.amount
         student.save(update_fields=['balance'])
 
 
@@ -715,3 +718,249 @@ def teacher_salary_payment_transaction_delete(sender, instance, **kwargs):
         organization=instance.organization,
         description__endswith=f"(SglID: {instance.id})"
     ).delete()
+
+
+@receiver(post_save, sender='crm.Lead')
+def track_lead_bonus(sender, instance, created, **kwargs):
+    if not created or not instance.created_by:
+        return
+
+    try:
+        from finance.models import FinanceSetting, Cashbox, Transaction, FinanceAction, Bonus
+        from django.utils import timezone
+        from decimal import Decimal
+
+        # Get settings
+        setting = FinanceSetting.objects.filter(organization=instance.organization).first()
+        if not setting or not setting.is_bonus_enabled:
+            return
+
+        # Search for Lead creation bonus in setting.bonus_types
+        bonus_amount = Decimal('0.00')
+        for bt in setting.bonus_types:
+            name = str(bt.get('name', '')).lower()
+            if 'buyurtma' in name or 'lead' in name:
+                bonus_amount = Decimal(str(bt.get('amount', '0')))
+                break
+
+        if bonus_amount <= 0:
+            return
+
+        # Find Cashbox
+        cashbox = Cashbox.objects.filter(organization=instance.organization, is_archived=False).first()
+        if not cashbox:
+            cashbox = Cashbox.objects.filter(organization=instance.organization).first()
+        if not cashbox:
+            cashbox = Cashbox.objects.create(organization=instance.organization, name="Asosiy kassa")
+
+        reason = f"Buyurtma qo'shilganligi uchun bonus (Lid: {instance.name})"
+
+        # Create Transaction
+        tx = Transaction.objects.create(
+            organization=instance.organization,
+            cashbox=cashbox,
+            amount=bonus_amount,
+            type='EXPENSE',
+            category='BONUS',
+            employee=instance.created_by,
+            description=reason
+        )
+
+        # Create FinanceAction
+        FinanceAction.objects.create(
+            organization=instance.organization,
+            action_type='BONUS',
+            target_type='EMPLOYEE',
+            employee=instance.created_by,
+            amount=bonus_amount,
+            reason=reason,
+            transaction=tx
+        )
+
+        # Create Bonus
+        Bonus.objects.create(
+            organization=instance.organization,
+            employee=instance.created_by,
+            amount=bonus_amount,
+            reason=reason,
+            date=timezone.now().date()
+        )
+
+    except Exception as e:
+        print(f"Error tracking lead bonus: {str(e)}")
+
+
+@receiver(post_save, sender=Payment)
+def payment_bonuses_sync(sender, instance, created, **kwargs):
+    if not created:
+        return
+
+    try:
+        from finance.models import FinanceSetting, Cashbox, Transaction, FinanceAction, Bonus
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+        from decimal import Decimal
+
+        User = get_user_model()
+        setting = FinanceSetting.objects.filter(organization=instance.organization).first()
+        if not setting:
+            return
+
+        cashbox = instance.cashbox
+        if not cashbox:
+            cashbox = Cashbox.objects.filter(organization=instance.organization, is_archived=False).first()
+        if not cashbox:
+            cashbox = Cashbox.objects.filter(organization=instance.organization).first()
+        if not cashbox:
+            cashbox = Cashbox.objects.create(organization=instance.organization, name="Asosiy kassa")
+
+        # 1. First Payment Bonus for Moderator
+        if instance.student and instance.student.moderator:
+            is_first_payment = Payment.objects.filter(student=instance.student).count() == 1
+            if is_first_payment:
+                moderator_user = User.objects.filter(id=instance.student.moderator).first()
+                if moderator_user and setting.is_bonus_enabled:
+                    first_pay_bonus = Decimal('0.00')
+                    for bt in setting.bonus_types:
+                        name = str(bt.get('name', '')).lower()
+                        if 'birinchi' in name or 'first' in name:
+                            first_pay_bonus = Decimal(str(bt.get('amount', '0')))
+                            break
+
+                    if first_pay_bonus > 0:
+                        reason = f"Birinchi to'lov uchun bonus (Talaba: {instance.student.full_name})"
+                        
+                        tx = Transaction.objects.create(
+                            organization=instance.organization,
+                            cashbox=cashbox,
+                            amount=first_pay_bonus,
+                            type='EXPENSE',
+                            category='BONUS',
+                            employee=moderator_user,
+                            student=instance.student,
+                            description=reason
+                        )
+
+                        FinanceAction.objects.create(
+                            organization=instance.organization,
+                            action_type='BONUS',
+                            target_type='EMPLOYEE',
+                            employee=moderator_user,
+                            student=instance.student,
+                            amount=first_pay_bonus,
+                            reason=reason,
+                            transaction=tx
+                        )
+
+                        Bonus.objects.create(
+                            organization=instance.organization,
+                            employee=moderator_user,
+                            amount=first_pay_bonus,
+                            reason=reason,
+                            date=timezone.now().date()
+                        )
+
+        # 2. Finance Staff Percentage Bonus for Payment Processor
+        if instance.employee and setting.is_percent_bonus_enabled:
+            payment_percent = Decimal(str(setting.student_payment_percent))
+            if payment_percent > 0:
+                bonus_amt = instance.amount * (payment_percent / Decimal('100.00'))
+                bonus_amt = round(bonus_amt, 2)
+                if bonus_amt > 0:
+                    student_name = instance.student.full_name if instance.student else "O'chirilgan Talaba"
+                    reason = f"Kirim to'lovi foiz bonusi ({payment_percent}%) - (Talaba: {student_name})"
+
+                    tx = Transaction.objects.create(
+                        organization=instance.organization,
+                        cashbox=cashbox,
+                        amount=bonus_amt,
+                        type='EXPENSE',
+                        category='BONUS',
+                        employee=instance.employee,
+                        student=instance.student,
+                        description=reason
+                    )
+
+                    FinanceAction.objects.create(
+                        organization=instance.organization,
+                        action_type='BONUS',
+                        target_type='EMPLOYEE',
+                        employee=instance.employee,
+                        student=instance.student,
+                        amount=bonus_amt,
+                        reason=reason,
+                        transaction=tx
+                    )
+
+                    Bonus.objects.create(
+                        organization=instance.organization,
+                        employee=instance.employee,
+                        amount=bonus_amt,
+                        reason=reason,
+                        date=timezone.now().date()
+                    )
+
+    except Exception as e:
+        print(f"Error tracking payment bonuses: {str(e)}")
+
+
+@receiver(post_save, sender='academics.StudentGroupLeave')
+def track_leave_fine(sender, instance, created, **kwargs):
+    if not created or not instance.student or not instance.student.moderator:
+        return
+
+    try:
+        from decimal import Decimal
+        from django.utils import timezone
+        from django.contrib.auth import get_user_model
+        from finance.models import FinanceSetting, Fine, FinanceAction
+
+        # Check if student left with negative balance (debtor)
+        if instance.student.balance >= 0:
+            return
+
+        User = get_user_model()
+        moderator_user = User.objects.filter(id=instance.student.moderator).first()
+        if not moderator_user:
+            return
+
+        # Get settings
+        setting = FinanceSetting.objects.filter(organization=instance.organization).first()
+        if not setting or not setting.is_penalty_enabled:
+            return
+
+        # Find penalty amount
+        penalty_amount = Decimal('0.00')
+        for pt in setting.penalty_types:
+            name = str(pt.get('name', '')).lower()
+            if "to'lov qilmasdan" in name or 'ketgani' in name or 'unpaid' in name or 'leave' in name:
+                penalty_amount = Decimal(str(pt.get('amount', '0')))
+                break
+
+        if penalty_amount <= 0:
+            return
+
+        reason = f"Talaba to'lov qilmasdan ketganligi uchun jarima (Talaba: {instance.student.full_name})"
+
+        # Create Fine
+        Fine.objects.create(
+            organization=instance.organization,
+            employee=moderator_user,
+            amount=penalty_amount,
+            reason=reason,
+            date=timezone.now().date()
+        )
+
+        # Create FinanceAction
+        FinanceAction.objects.create(
+            organization=instance.organization,
+            action_type='PENALTY',
+            target_type='EMPLOYEE',
+            employee=moderator_user,
+            student=instance.student,
+            amount=penalty_amount,
+            reason=reason
+        )
+
+    except Exception as e:
+        print(f"Error tracking leave fine: {str(e)}")

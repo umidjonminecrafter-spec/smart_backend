@@ -919,6 +919,25 @@ def charge_attendance(student, group, date, attendance_id, organization):
         monthly_price = sg.price
     elif group.course:
         monthly_price = group.course.price
+
+    # Apply Auto-Discount from settings if enabled
+    try:
+        from finance.models import FinanceSetting
+        setting = FinanceSetting.objects.filter(organization=organization).first()
+        if setting and setting.is_auto_discount_enabled:
+            groups_count = StudentGroup.objects.filter(student=student).count()
+            discount_percent = Decimal('0.00')
+            if groups_count == 2:
+                discount_percent = Decimal(str(setting.two_groups_discount_percent))
+            elif groups_count == 3:
+                discount_percent = Decimal(str(setting.three_groups_discount_percent))
+            elif groups_count >= 4:
+                discount_percent = Decimal(str(setting.four_groups_discount_percent))
+            
+            if discount_percent > 0:
+                monthly_price = monthly_price * (Decimal('1.00') - (discount_percent / Decimal('100.00')))
+    except Exception as e:
+        print(f"Error applying auto discount: {str(e)}")
         
     # Get lessons count in month
     lessons_in_month = get_lessons_in_month(group, date.year, date.month)

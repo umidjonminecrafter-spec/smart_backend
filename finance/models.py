@@ -290,24 +290,68 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
 @receiver(post_save, sender=Payment)
 def payment_telegram_notification(sender, instance, created, **kwargs):
     if created:
-        # TO'G'RILANDI: Talaba o'chgan holatda Crash berishini oldi olindi
-        student_name = f"{instance.student.first_name} {instance.student.last_name or ''}" if instance.student else "O'chirilgan Talaba"
-        branch_name = instance.branch.name if hasattr(instance, 'branch') and instance.branch else "Noma'lum"
-        comment_str = f"\n📝 Izoh: {instance.comment}" if instance.comment else ""
+        organization_name = instance.organization.name if instance.organization else "Noma'lum"
+        branch_name = instance.branch.name if hasattr(instance, 'branch') and instance.branch else "Asosiy Filial"
+        student_name = f"{instance.student.first_name} {instance.student.last_name or ''}".strip() if instance.student else "O'chirilgan Talaba"
+        employee_name = f"{instance.employee.first_name} {instance.employee.last_name or ''}".strip() or instance.employee.username if instance.employee else "Tizim"
 
         try:
             amount_formatted = f"{int(instance.amount):,}".replace(",", " ")
         except:
             amount_formatted = str(instance.amount)
 
+        # Cash vs Card/Plastic breakdown
+        pm = str(instance.payment_method).lower()
+        if 'naqd' in pm or 'cash' in pm:
+            cash_formatted = amount_formatted
+            card_formatted = "0"
+        elif 'plastik' in pm or 'card' in pm or 'terminal' in pm:
+            cash_formatted = "0"
+            card_formatted = amount_formatted
+        else:
+            cash_formatted = amount_formatted
+            card_formatted = "0"
+
+        # Courses, prices and discounts calculation
+        courses_count = 0
+        courses_prices_list = []
+        total_discount = 0
+
+        if instance.student:
+            active_groups = instance.student.student_groups.select_related('group__course').all()
+            courses_count = active_groups.count()
+            from decimal import Decimal
+            for sg in active_groups:
+                default_price = sg.group.course.price if (sg.group and sg.group.course) else Decimal('0.00')
+                actual_price = sg.price if sg.price is not None else default_price
+                
+                try:
+                    price_formatted = f"{int(actual_price):,}".replace(",", " ")
+                except:
+                    price_formatted = str(actual_price)
+                
+                courses_prices_list.append(f"  • {sg.group.name}: {price_formatted} UZS")
+                total_discount += max(Decimal('0.00'), default_price - actual_price)
+
+        courses_prices_str = "\n".join(courses_prices_list) if courses_prices_list else "  • Guruhlar mavjud emas"
+        try:
+            discount_formatted = f"{int(total_discount):,}".replace(",", " ")
+        except:
+            discount_formatted = str(total_discount)
+
         text = (
-            f"<b>Kirim (Talaba to'lovi)</b> 📥\n\n"
-            f"👤 Talaba: {student_name}\n"
-            f"💰 Summa: {amount_formatted} UZS\n"
-            f"💳 To'lov turi: {instance.payment_method}\n"
-            f"🗓 Sana: {instance.date}\n"
-            f"🏢 Filial: {branch_name}"
-            f"{comment_str}"
+            f"<b>To'lov Qabul Qilindi</b> 📥\n\n"
+            f"🛒 <b>Tashkilot:</b> {organization_name}\n"
+            f"📍 <b>Filial:</b> {branch_name}\n\n"
+            f"💸 <b>Batafsil ma'lumotlar:</b>\n"
+            f"👤 <b>Mijoz:</b> {student_name}\n"
+            f"🧑‍💼 <b>Qabul qiluvchi:</b> {employee_name}\n"
+            f"💰 <b>Tranzaksiya summasi:</b> {amount_formatted} UZS\n"
+            f"💵 <b>Naqd pul:</b> {cash_formatted} UZS\n"
+            f"💳 <b>Plastik/Terminal:</b> {card_formatted} UZS\n"
+            f"📚 <b>Fanga to'lovlar soni:</b> {courses_count} ta\n\n"
+            f"📦 <b>Kurslar va narxlari:</b>\n{courses_prices_str}\n\n"
+            f"🎁 <b>Jami chegirma:</b> {discount_formatted} UZS"
         )
         send_telegram_payment_notification(instance.organization, text, 'student_payments')
 

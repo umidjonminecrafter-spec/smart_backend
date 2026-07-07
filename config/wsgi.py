@@ -42,6 +42,21 @@ def start_bot_and_scheduler():
         scheduler = BackgroundScheduler()
         # Har 1 daqiqada darslarni tekshirib eslatma yuboradi
         scheduler.add_job(check_and_send_lesson_reminders, 'interval', minutes=1)
+
+        # Har kuni soat 9:00 da (Toshkent vaqti bilan) kunlik hisobotlarni yuboradi
+        try:
+            from academics.tasks import send_daily_telegram_reports
+            scheduler.add_job(
+                send_daily_telegram_reports,
+                'cron',
+                hour=9,
+                minute=0,
+                timezone='Asia/Tashkent'
+            )
+            print("[OK] Kunlik Telegram hisobotlari jadvali qo'shildi!")
+        except Exception as es:
+            print(f"[XATO] Kunlik hisobot schedulerini sozlashda xatolik: {str(es)}")
+
         scheduler.start()
         print("[OK] Telegram Bot scheduler-i muvaffaqiyatli yurib ketdi!")
     except Exception as e:

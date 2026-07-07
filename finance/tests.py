@@ -875,6 +875,78 @@ class FinanceSettingIntegrationTests(APITestCase):
         self.assertIsNotNone(salary_rec)
         self.assertTrue(salary_rec.amount >= Decimal('55000.00'))
 
+    def test_telegram_daily_report_generation(self):
+        from academics.models import Student, BalanceHistory
+        from academics.tasks import generate_daily_report_message
+        from finance.models import Payment, Expense, Salary
+        from datetime import date
+        
+        # Create some students
+        s1 = Student.objects.create(
+            organization=self.org,
+            first_name="Vali",
+            last_name="Aliyev",
+            phone="+998901234568",
+            balance=Decimal('-50000.00')
+        )
+        
+        s2 = Student.objects.create(
+            organization=self.org,
+            first_name="Sami",
+            last_name="Karimov",
+            phone="+998901234569",
+            balance=Decimal('20000.00')
+        )
+        
+        report_date = date(2026, 7, 6)
+        
+        # Payments yesterday
+        p1 = Payment.objects.create(
+            organization=self.org,
+            student=s2,
+            amount=Decimal('150000.00'),
+            date=report_date,
+            cashbox=self.cashbox,
+            employee=self.manager,
+            payment_method="Naqd"
+        )
+        
+        # Expense yesterday
+        from finance.models import ExpenseCategory
+        exp_category = ExpenseCategory.objects.create(
+            organization=self.org,
+            name="Office expenses"
+        )
+        Expense.objects.create(
+            organization=self.org,
+            category=exp_category,
+            amount=Decimal('30000.00'),
+            date=report_date,
+            cashbox=self.cashbox,
+            description="Office stationery"
+        )
+        
+        # Debts issued yesterday
+        BalanceHistory.objects.create(
+            organization=self.org,
+            student=s1,
+            amount=Decimal('-50000.00'),
+            transaction_type="Lesson charge"
+        )
+        BalanceHistory.objects.filter(student=s1).update(date=report_date)
+        
+        # Generate daily report message
+        report_msg = generate_daily_report_message(self.org, report_date)
+        
+        # Assertions on message content
+        self.assertIn("Ежедневный отчет за 2026-07-06", report_msg)
+        self.assertIn("150 000 UZS", report_msg)
+        self.assertIn("120 000 UZS", report_msg)
+        self.assertIn("Sotuvlar (Продажи)", report_msg)
+        self.assertIn("Mijozlar (Клиенты)", report_msg)
+        self.assertIn("Qarzdorlik (Долги)", report_msg)
+        self.assertIn("Yangi qarzdorlik (Выдано долгов): 50 000", report_msg)
+
 
 
 

@@ -137,7 +137,7 @@ def handle_telegram_update(bot_type, token, update_data):
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
                 msg = f"<b>Muvaffaqiyatli bog'landi!</b> 💼\n\nSiz Xodimlar botidan muvaffaqiyatli ro'yxatdan o'tdingiz."
-                menu = get_reply_keyboard([["👤 Profilim", "📅 Kunlik dars jadvalim"]])
+                menu = get_reply_keyboard([["👤 Profilim", "📅 Kunlik dars jadvalim"], ["📊 Kunlik Hisobot"]])
                 send_telegram_message(token, chat_id, msg, menu)
             else:
                 msg = f"Kechirasiz, <code>{phone_normalized}</code> telefon raqamli xodim topilmadi."
@@ -304,6 +304,20 @@ def handle_telegram_update(bot_type, token, update_data):
                     f"🚪 Xona: {sch.room_name}\n\n"
                 )
             send_telegram_message(token, chat_id, res)
+
+        elif text == "📊 Kunlik Hisobot":
+            from django.utils import timezone
+            from datetime import timedelta
+            from academics.tasks import generate_daily_report_message
+            if user.organization:
+                yesterday = (timezone.now() - timedelta(days=1)).date()
+                try:
+                    report_msg = generate_daily_report_message(user.organization, yesterday)
+                    send_telegram_message(token, chat_id, report_msg)
+                except Exception as e:
+                    send_telegram_message(token, chat_id, f"Hisobot shakllantirishda xatolik: {str(e)}")
+            else:
+                send_telegram_message(token, chat_id, "Tashkilotingiz aniqlanmadi.")
 
         else:
             send_telegram_message(token, chat_id, "Noma'lum buyruq. Iltimos menyudan foydalaning.")

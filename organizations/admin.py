@@ -4,7 +4,7 @@ from django import forms
 from django.shortcuts import render
 from django.http import HttpResponseRedirect
 from django.contrib import messages
-from organizations.models import Organization, Branch, Tariff, Subscription
+from organizations.models import Organization, Branch, Tariff, Subscription, TelegramNotificationSetting
 from communication.models import Notification
 
 
@@ -106,3 +106,32 @@ class SubscriptionAdmin(admin.ModelAdmin):
     list_display = ('id', 'organization', 'tariff', 'start_date', 'end_date', 'is_active', 'balance')
     list_filter = ('is_active', 'start_date', 'end_date')
     list_display_links = ['id', 'organization']
+
+
+@admin.register(TelegramNotificationSetting)
+class TelegramNotificationSettingAdmin(admin.ModelAdmin):
+    list_display = ('id', 'organization', 'is_active', 'staff_bot_token', 'parent_bot_token')
+    list_filter = ('is_active',)
+    list_display_links = ['id', 'organization']
+    fieldsets = (
+        ('Tashkilot', {
+            'fields': ('organization', 'is_active')
+        }),
+        ('Asosiy bot (To\'lov xabarlari)', {
+            'fields': ('bot_token', 'chat_ids', 'student_payments', 'teacher_salaries', 'expenses', 'other_payments')
+        }),
+        ('Staff Bot (Xodimlar)', {
+            'fields': ('staff_bot_token', 'staff_bot_username'),
+            'description': 'Xodimlar boti — kunlik hisobot va boshqaruv uchun'
+        }),
+        ('Parent Bot (Ota-onalar)', {
+            'fields': ('parent_bot_token', 'parent_bot_username'),
+            'description': 'Ota-onalar boti — eslatma va davomat uchun'
+        }),
+        ('Student Bot (Talabalar)', {
+            'fields': ('student_bot_token', 'student_bot_username'),
+        }),
+        ('Verification Bot (Tasdiqlash)', {
+            'fields': ('verification_bot_token', 'verification_bot_username'),
+        }),
+    )

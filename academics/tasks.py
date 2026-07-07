@@ -213,3 +213,188 @@ def check_and_send_parent_checkout_notifications():
                             requests.post(url, json=payload, timeout=5)
                         except Exception as e:
                             print(f"Error sending checkout notification to parent {chat_id}: {str(e)}")
+
+
+def generate_daily_report_message(org, report_date):
+    from django.db.models import Sum
+    from datetime import timedelta
+    from decimal import Decimal
+    from finance.models import Payment, Expense, Salary, Sale
+    from academics.models import Student, StudentGroup, StudentGroupLeave, BalanceHistory, TeacherSalaryPayment
+    from accounts.models import User
+
+    prev_date = report_date - timedelta(days=1)
+
+    # 1. Sales/Revenue (Выручка)
+    rev_today = Payment.objects.filter(organization=org, date=report_date).aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+    rev_prev = Payment.objects.filter(organization=org, date=prev_date).aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+    rev_pct = ((rev_today - rev_prev) / rev_prev * 100) if rev_prev > 0 else Decimal('0.00')
+
+    # Net Revenue
+    net_rev_today = rev_today
+    net_rev_pct = rev_pct
+
+    # Net Profit (Revenue - Expenses - Salaries)
+    exp_today = Expense.objects.filter(organization=org, date=report_date).aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+    sal_today = Salary.objects.filter(organization=org, date=report_date, status='paid').aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+    tsal_today = TeacherSalaryPayment.objects.filter(organization=org, paid_at__date=report_date).aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+    profit_today = rev_today - exp_today - sal_today - tsal_today
+
+    exp_prev = Expense.objects.filter(organization=org, date=prev_date).aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+    sal_prev = Salary.objects.filter(organization=org, date=prev_date, status='paid').aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+    tsal_prev = TeacherSalaryPayment.objects.filter(organization=org, paid_at__date=prev_date).aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+    profit_prev = rev_prev - exp_prev - sal_prev - tsal_prev
+    profit_pct = ((profit_today - profit_prev) / profit_prev * 100) if profit_prev != 0 else Decimal('0.00')
+
+    # Product/Course sales count
+    sales_today = Sale.objects.filter(organization=org, date=report_date).count() + StudentGroup.objects.filter(organization=org, joined_at__date=report_date).count()
+    sales_prev = Sale.objects.filter(organization=org, date=prev_date).count() + StudentGroup.objects.filter(organization=org, joined_at__date=prev_date).count()
+    sales_pct = ((sales_today - sales_prev) / sales_prev * 100) if sales_prev > 0 else Decimal('0.00')
+
+    # Returns/Leaves count
+    ret_today = StudentGroupLeave.objects.filter(organization=org, leave_date=report_date).count()
+    ret_prev = StudentGroupLeave.objects.filter(organization=org, leave_date=prev_date).count()
+    ret_pct = ((ret_today - ret_prev) / ret_prev * 100) if ret_prev > 0 else Decimal('0.00')
+
+    # Clients
+    clients_total = Student.objects.filter(organization=org).count()
+    new_clients_today = Student.objects.filter(organization=org, created_at__date=report_date).count()
+    new_clients_prev = Student.objects.filter(organization=org, created_at__date=prev_date).count()
+    new_clients_pct = ((new_clients_today - new_clients_prev) / new_clients_prev * 100) if new_clients_prev > 0 else Decimal('0.00')
+
+    ret_clients_today = Payment.objects.filter(organization=org, date=report_date, student__created_at__date__lt=report_date).values('student').distinct().count()
+    ret_clients_prev = Payment.objects.filter(organization=org, date=prev_date, student__created_at__date__lt=prev_date).values('student').distinct().count()
+    ret_clients_pct = ((ret_clients_today - ret_clients_prev) / ret_clients_prev * 100) if ret_clients_prev > 0 else Decimal('0.00')
+
+    # Brand Key Indicators
+    payments_today_count = Payment.objects.filter(organization=org, date=report_date).count()
+    payments_prev_count = Payment.objects.filter(organization=org, date=prev_date).count()
+
+    avg_check_today = rev_today / payments_today_count if payments_today_count > 0 else Decimal('0.00')
+    avg_check_prev = rev_prev / payments_prev_count if payments_prev_count > 0 else Decimal('0.00')
+    avg_check_pct = ((avg_check_today - avg_check_prev) / avg_check_prev * 100) if avg_check_prev > 0 else Decimal('0.00')
+
+    payments_today = Payment.objects.filter(organization=org, date=report_date).select_related('student')
+    total_items_today = sum(p.student.student_groups.count() for p in payments_today if p.student)
+    avg_items_today = total_items_today / payments_today_count if payments_today_count > 0 else 0
+
+    payments_prev = Payment.objects.filter(organization=org, date=prev_date).select_related('student')
+    total_items_prev = sum(p.student.student_groups.count() for p in payments_prev if p.student)
+    avg_items_prev = total_items_prev / payments_prev_count if payments_prev_count > 0 else 0
+    avg_items_pct = ((avg_items_today - avg_items_prev) / avg_items_prev * 100) if avg_items_prev > 0 else 0
+
+    avg_cost_today = avg_check_today / Decimal(str(avg_items_today)) if avg_items_today > 0 else avg_check_today
+    avg_cost_prev = avg_check_prev / Decimal(str(avg_items_prev)) if avg_items_prev > 0 else avg_check_prev
+    avg_cost_pct = ((avg_cost_today - avg_cost_prev) / avg_cost_prev * 100) if avg_cost_prev > 0 else Decimal('0.00')
+
+    # Sellers / Employees
+    sellers_data = []
+    employees_today = User.objects.filter(organization=org, payments__date=report_date).distinct()
+    for emp in employees_today:
+        emp_payments = Payment.objects.filter(organization=org, employee=emp, date=report_date)
+        emp_rev = emp_payments.aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+        emp_count = emp_payments.count()
+        emp_avg = emp_rev / emp_count if emp_count > 0 else Decimal('0.00')
+        emp_name = f"{emp.first_name} {emp.last_name or ''}".strip() or emp.username
+        sellers_data.append(
+            f"👤 <b>{emp_name}:</b>\n"
+            f"   Sof tushum: {int(emp_rev):,} UZS\n"
+            f"   O'rtacha chek: {int(emp_avg):,} UZS".replace(",", " ")
+        )
+    sellers_str = "\n".join(sellers_data) if sellers_data else "Faol sotuvchilar yo'q."
+
+    # Debts
+    debts_issued = abs(BalanceHistory.objects.filter(organization=org, date=report_date, amount__lt=0).aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00'))
+    debts_paid = Payment.objects.filter(organization=org, date=report_date, student__balance__lt=0).aggregate(Sum('amount'))['amount__sum'] or Decimal('0.00')
+    remaining_debts = abs(Student.objects.filter(organization=org, balance__lt=0).aggregate(Sum('balance'))['balance__sum'] or Decimal('0.00'))
+    total_debtors = Student.objects.filter(organization=org, balance__lt=0).count()
+
+    fully_paid_debt = 0
+    partially_paid_debt = 0
+    for p in payments_today:
+        if p.student:
+            prev_bal = p.student.balance - p.amount
+            if prev_bal < 0:
+                if p.student.balance >= 0:
+                    fully_paid_debt += 1
+                else:
+                    partially_paid_debt += 1
+
+    not_paid_debt_count = max(0, total_debtors - fully_paid_debt - partially_paid_debt)
+
+    # Format percentages and numbers
+    def fmt_num(val):
+        try:
+            return f"{int(val):,}".replace(",", " ")
+        except:
+            return str(val)
+
+    msg = (
+        f"📋 <b>Ежедневный отчет за {report_date.isoformat()}</b>\n\n"
+        f"📈 <b>Sotuvlar (Продажи)</b>\n\n"
+        f"<b>Tushum (Выручка):</b>\n"
+        f"  Jami: {fmt_num(rev_today)} UZS ({int(rev_pct)}%)\n\n"
+        f"<b>Sof tushum (Чистая выручка):</b>\n"
+        f"  Jami: {fmt_num(net_rev_today)} UZS ({int(net_rev_pct)}%)\n\n"
+        f"<b>Sof foyda (Чистая прибыль):</b>\n"
+        f"  Jami: {fmt_num(profit_today)} UZS ({int(profit_pct)}%)\n\n"
+        f"<b>Sotilgan kurslar (Кол-во проданных продуктов):</b>\n"
+        f"  Jami: {sales_today} ed. ({int(sales_pct)}%)\n\n"
+        f"<b>Bekor qilingan (Кол-во возвращенных продуктов):</b>\n"
+        f"  Jami: {ret_today} ed. ({int(ret_pct)}%)\n\n"
+        f"👥 <b>Mijozlar (Клиенты)</b>\n\n"
+        f"  Jami: {clients_total} (0%)\n"
+        f"  Yangi mijozlar (Новые клиенты): {new_clients_today} ({int(new_clients_pct)}%)\n"
+        f"  Qaytgan mijozlar (Возвращающиеся клиенты): {ret_clients_today} ({int(ret_clients_pct)}%)\n\n"
+        f"📊 <b>Asosiy ko'rsatkichlar (Основные показатели бренда)</b>\n\n"
+        f"<b>O'rtacha chek (Средний чек):</b>\n"
+        f"  Jami: {fmt_num(avg_check_today)} UZS ({int(avg_check_pct)}%)\n\n"
+        f"<b>O'rtacha tovarlar soni (Среднее кол-во товаров в чеке):</b>\n"
+        f"  Jami: {round(avg_items_today, 1)} ed. ({int(avg_items_pct)}%)\n\n"
+        f"<b>Tovarlarning o'rtacha qiymati (Средняя стоимость товаров в чеке):</b>\n"
+        f"  Jami: {fmt_num(avg_cost_today)} UZS ({int(avg_cost_pct)}%)\n\n"
+        f"🧑‍💼 <b>Sotuvchilar (Продавцы) bo'yicha tushum</b>\n\n"
+        f"{sellers_str}\n\n"
+        f"💸 <b>Qarzdorlik (Долги)</b>\n\n"
+        f"  Yangi qarzdorlik (Выдано долгов): {fmt_num(debts_issued)}\n"
+        f"  Qarzdorlik so'ndirildi (Погашено на сумму): {fmt_num(debts_paid)}\n"
+        f"  Qarzdorlik qoldig'i (Остаток долгов): {fmt_num(remaining_debts)}\n"
+        f"  Jami qarzdorlar (Всего должников): {total_debtors}\n"
+        f"  Qisman to'laganlar (Частично погашенных): {partially_paid_debt}\n"
+        f"  To'liq to'laganlar (Полностью погасили): {fully_paid_debt}\n"
+        f"  To'lamaganlar (Не погасили): {not_paid_debt_count}"
+    )
+    return msg
+
+
+def send_daily_telegram_reports():
+    from django.db import connection
+    connection.close()
+
+    from django.utils import timezone
+    from datetime import timedelta
+    from organizations.models import TelegramNotificationSetting
+    from accounts.models import User
+
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+
+    active_settings = TelegramNotificationSetting.objects.filter(is_active=True).select_related('organization')
+    for setting in active_settings:
+        org = setting.organization
+        if not setting.staff_bot_token:
+            continue
+
+        staff_users = User.objects.filter(
+            organization=org,
+            telegram_chat_id__isnull=False
+        ).exclude(role='student')
+
+        if not staff_users.exists():
+            continue
+
+        try:
+            report_msg = generate_daily_report_message(org, yesterday)
+            for user in staff_users:
+                send_telegram_message(setting.staff_bot_token, user.telegram_chat_id, report_msg)
+        except Exception as e:
+            print(f"Error sending daily report for org {org.id}: {str(e)}")

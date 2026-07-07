@@ -935,17 +935,24 @@ class FinanceSettingIntegrationTests(APITestCase):
         )
         BalanceHistory.objects.filter(student=s1).update(date=report_date)
         
-        # Generate daily report message
-        report_msg = generate_daily_report_message(self.org, report_date)
-        
-        # Assertions on message content
-        self.assertIn("Ежедневный отчет за 2026-07-06", report_msg)
-        self.assertIn("150 000 UZS", report_msg)
-        self.assertIn("120 000 UZS", report_msg)
-        self.assertIn("Sotuvlar (Продажи)", report_msg)
-        self.assertIn("Mijozlar (Клиенты)", report_msg)
-        self.assertIn("Qarzdorlik (Долги)", report_msg)
-        self.assertIn("Yangi qarzdorlik (Выдано долгов): 50 000", report_msg)
+        # Generate daily report message in UZ (default)
+        report_msg_uz = generate_daily_report_message(self.org, report_date, lang='uz')
+        self.assertIn("Kunlik hisobot", report_msg_uz)
+        self.assertIn("150 000 UZS", report_msg_uz)
+        self.assertIn("120 000 UZS", report_msg_uz)
+        self.assertIn("Sotuvlar", report_msg_uz)
+        self.assertIn("Mijozlar", report_msg_uz)
+        self.assertIn("Qarzdorlik", report_msg_uz)
+        self.assertIn("Yangi qarzdorlik: 50 000", report_msg_uz)
+
+        # Generate in RU
+        report_msg_ru = generate_daily_report_message(self.org, report_date, lang='ru')
+        self.assertIn("Ежедневный отчет за 2026-07-06", report_msg_ru)
+        self.assertIn("Выручка", report_msg_ru)
+        self.assertIn("Чистая прибыль", report_msg_ru)
+        self.assertIn("Клиенты", report_msg_ru)
+        self.assertIn("Долги", report_msg_ru)
+        self.assertIn("Выдано долгов: 50 000", report_msg_ru)
 
 
 

@@ -399,18 +399,4 @@ def send_daily_telegram_reports():
                 report_msg = generate_daily_report_message(org, yesterday, lang=lang)
                 send_telegram_message(setting.staff_bot_token, user.telegram_chat_id, report_msg)
             except Exception as e:
-
-        staff_users = User.objects.filter(
-            organization=org,
-            telegram_chat_id__isnull=False
-        ).exclude(role='student')
-
-        if not staff_users.exists():
-            continue
-
-        try:
-            report_msg = generate_daily_report_message(org, yesterday)
-            for user in staff_users:
-                send_telegram_message(setting.staff_bot_token, user.telegram_chat_id, report_msg)
-        except Exception as e:
-            print(f"Error sending daily report for org {org.id}: {str(e)}")
+                print(f"Error sending daily report to user {user.id}: {str(e)}")

@@ -964,3 +964,81 @@ def track_leave_fine(sender, instance, created, **kwargs):
 
     except Exception as e:
         print(f"Error tracking leave fine: {str(e)}")
+
+
+@receiver(post_save, sender=FinanceSetting)
+def sync_finance_setting_to_actions(sender, instance, created, **kwargs):
+    try:
+        from finance.models import FinanceAction
+        from decimal import Decimal
+
+        active_bonus_names = []
+        if isinstance(instance.bonus_types, list):
+            for bt in instance.bonus_types:
+                name = bt.get('name')
+                amount_str = bt.get('amount')
+                if not name or not amount_str:
+                    continue
+                try:
+                    amount = Decimal(str(amount_str))
+                except:
+                    continue
+                active_bonus_names.append(name)
+
+                # Get or create FinanceAction by name/reason
+                action, action_created = FinanceAction.objects.get_or_create(
+                    organization=instance.organization,
+                    action_type='BONUS',
+                    target_type='EMPLOYEE',
+                    reason=name,
+                    student__isnull=True,
+                    employee__isnull=True,
+                    defaults={'amount': amount}
+                )
+                if not action_created and action.amount != amount:
+                    action.amount = amount
+                    action.save(update_fields=['amount'])
+
+        active_penalty_names = []
+        if isinstance(instance.penalty_types, list):
+            for pt in instance.penalty_types:
+                name = pt.get('name')
+                amount_str = pt.get('amount')
+                if not name or not amount_str:
+                    continue
+                try:
+                    amount = Decimal(str(amount_str))
+                except:
+                    continue
+                active_penalty_names.append(name)
+
+                action, action_created = FinanceAction.objects.get_or_create(
+                    organization=instance.organization,
+                    action_type='PENALTY',
+                    target_type='EMPLOYEE',
+                    reason=name,
+                    student__isnull=True,
+                    employee__isnull=True,
+                    defaults={'amount': amount}
+                )
+                if not action_created and action.amount != amount:
+                    action.amount = amount
+                    action.save(update_fields=['amount'])
+
+        # Delete any FinanceAction that was created from settings but is no longer in settings
+        FinanceAction.objects.filter(
+            organization=instance.organization,
+            action_type='BONUS',
+            student__isnull=True,
+            employee__isnull=True
+        ).exclude(reason__in=active_bonus_names).delete()
+
+        FinanceAction.objects.filter(
+            organization=instance.organization,
+            action_type='PENALTY',
+            student__isnull=True,
+            employee__isnull=True
+        ).exclude(reason__in=active_penalty_names).delete()
+
+    except Exception as e:
+        print(f"Error syncing finance settings to actions: {str(e)}")

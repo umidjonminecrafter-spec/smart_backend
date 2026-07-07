@@ -633,6 +633,55 @@ class FinanceSettingIntegrationTests(APITestCase):
         calc = TeacherSalaryCalculation.objects.get(teacher=teacher, period='2026-07')
         self.assertEqual(float(calc.calculated_amount), 90000.00)
 
+    def test_finance_setting_sync_to_actions(self):
+        from finance.models import FinanceAction
+        
+        # Verify they are synced as FinanceAction
+        bonuses = FinanceAction.objects.filter(
+            organization=self.org,
+            action_type='BONUS',
+            student__isnull=True,
+            employee__isnull=True
+        )
+        self.assertEqual(bonuses.count(), 2)
+        
+        penalties = FinanceAction.objects.filter(
+            organization=self.org,
+            action_type='PENALTY',
+            student__isnull=True,
+            employee__isnull=True
+        )
+        self.assertEqual(penalties.count(), 1)
+        
+        # Modify settings to remove one bonus and add a new penalty
+        self.setting.bonus_types = [
+            {"id": 1, "name": "Buyurtma qo'shgani uchun bonus miqdori", "amount": "60000.00"}
+        ]
+        self.setting.penalty_types = [
+            {"id": 1, "name": "To'lov qilmasdan ketgani uchun jarima", "amount": "15000.00"},
+            {"id": 2, "name": "Yangi jarima", "amount": "25000.00"}
+        ]
+        self.setting.save()
+        
+        # Verify sync updated the amount, deleted the removed bonus, and added the new penalty
+        bonuses = FinanceAction.objects.filter(
+            organization=self.org,
+            action_type='BONUS',
+            student__isnull=True,
+            employee__isnull=True
+        )
+        self.assertEqual(bonuses.count(), 1)
+        self.assertEqual(bonuses.first().reason, "Buyurtma qo'shgani uchun bonus miqdori")
+        self.assertEqual(bonuses.first().amount, Decimal('60000.00'))
+        
+        penalties = FinanceAction.objects.filter(
+            organization=self.org,
+            action_type='PENALTY',
+            student__isnull=True,
+            employee__isnull=True
+        )
+        self.assertEqual(penalties.count(), 2)
+
 
 
 

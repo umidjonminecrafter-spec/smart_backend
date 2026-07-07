@@ -397,7 +397,7 @@ class FinanceSettingIntegrationTests(APITestCase):
         self.manager = User.objects.create_user(
             username="+998901112277",
             password="securepassword",
-            role="manager",
+            role="admin",
             is_staff=True,
             organization=self.org
         )
@@ -590,6 +590,49 @@ class FinanceSettingIntegrationTests(APITestCase):
         tx = Transaction.objects.filter(student=student, description__contains="Davomat").first()
         self.assertIsNotNone(tx)
         self.assertEqual(float(tx.amount), 10000.00)
+
+    def test_teacher_salary_percentage_fallback(self):
+        from finance.models import StaffSalaryPercent, TeacherSalaryCalculation
+        
+        # Create StaffSalaryPercent
+        percent_setting = StaffSalaryPercent.objects.create(
+            organization=self.org,
+            name="Senior Teacher",
+            percent=Decimal('45.00')
+        )
+        
+        # Create a teacher and link to percent_setting
+        teacher = User.objects.create_user(
+            username="+998901112288",
+            password="securepassword",
+            role="teacher",
+            salary_percentage=percent_setting,
+            organization=self.org
+        )
+        
+        # We need to compute their salary. They have no specific TeacherSalaryRule.
+        from academics.models import Course, Group, Student, StudentGroup
+        course = Course.objects.create(organization=self.org, name="Math", price=200000.00)
+        group = Group.objects.create(organization=self.org, name="Math-1", course=course, teacher=teacher)
+        student = Student.objects.create(organization=self.org, first_name="Eve", phone="+998901234567")
+        StudentGroup.objects.create(organization=self.org, student=student, group=group)
+        
+        # Calculate salary
+        url = reverse('teacher-salary-calculate')
+        data = {
+            "period": "2026-07",
+            "org_id": self.org.id
+        }
+        
+        response = self.client.post(f"{url}?org_id={self.org.id}", data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Since they have 45% percentage set:
+        # Total revenue: 200,000 UZS.
+        # Expected payout: 200,000 * 0.45 = 90,000 UZS
+        calc = TeacherSalaryCalculation.objects.get(teacher=teacher, period='2026-07')
+        self.assertEqual(float(calc.calculated_amount), 90000.00)
+
 
 
 

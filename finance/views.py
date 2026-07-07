@@ -745,8 +745,12 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
             ).first()
 
             if not rule:
+                # Use teacher's profile salary percentage if set
+                if teacher.salary_percentage:
+                    rule_type = 'percentage'
+                    rate = Decimal(str(teacher.salary_percentage.percent))
                 # Use default standard rule if available, otherwise static fallback
-                if std_rule:
+                elif std_rule:
                     rule_type = std_rule.rule_type
                     rate = std_rule.rate
                 else:

@@ -994,19 +994,28 @@ def sync_finance_setting_to_actions(sender, instance, created, **kwargs):
                     continue
                 active_bonus_names.append(name)
 
+                role_str = str(bt.get('role', '')).lower()
+                target_type = 'STUDENT' if role_str == 'student' else 'EMPLOYEE'
+
                 # Get or create FinanceAction by name/reason
                 action, action_created = FinanceAction.objects.get_or_create(
                     organization=instance.organization,
                     action_type='BONUS',
-                    target_type='EMPLOYEE',
                     reason=name,
                     student__isnull=True,
                     employee__isnull=True,
-                    defaults={'amount': amount}
+                    defaults={'amount': amount, 'target_type': target_type}
                 )
-                if not action_created and action.amount != amount:
-                    action.amount = amount
-                    action.save(update_fields=['amount'])
+                if not action_created:
+                    updated = False
+                    if action.amount != amount:
+                        action.amount = amount
+                        updated = True
+                    if action.target_type != target_type:
+                        action.target_type = target_type
+                        updated = True
+                    if updated:
+                        action.save(update_fields=['amount', 'target_type'])
 
         active_penalty_names = []
         if isinstance(instance.penalty_types, list):
@@ -1021,18 +1030,27 @@ def sync_finance_setting_to_actions(sender, instance, created, **kwargs):
                     continue
                 active_penalty_names.append(name)
 
+                role_str = str(pt.get('role', '')).lower()
+                target_type = 'STUDENT' if role_str == 'student' else 'EMPLOYEE'
+
                 action, action_created = FinanceAction.objects.get_or_create(
                     organization=instance.organization,
                     action_type='PENALTY',
-                    target_type='EMPLOYEE',
                     reason=name,
                     student__isnull=True,
                     employee__isnull=True,
-                    defaults={'amount': amount}
+                    defaults={'amount': amount, 'target_type': target_type}
                 )
-                if not action_created and action.amount != amount:
-                    action.amount = amount
-                    action.save(update_fields=['amount'])
+                if not action_created:
+                    updated = False
+                    if action.amount != amount:
+                        action.amount = amount
+                        updated = True
+                    if action.target_type != target_type:
+                        action.target_type = target_type
+                        updated = True
+                    if updated:
+                        action.save(update_fields=['amount', 'target_type'])
 
         # Delete any FinanceAction that was created from settings but is no longer in settings
         FinanceAction.objects.filter(

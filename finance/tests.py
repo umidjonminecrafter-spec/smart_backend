@@ -644,6 +644,8 @@ class FinanceSettingIntegrationTests(APITestCase):
             employee__isnull=True
         )
         self.assertEqual(bonuses.count(), 2)
+        for b in bonuses:
+            self.assertEqual(b.target_type, 'EMPLOYEE')  # default empty role is EMPLOYEE
         
         penalties = FinanceAction.objects.filter(
             organization=self.org,
@@ -652,14 +654,16 @@ class FinanceSettingIntegrationTests(APITestCase):
             employee__isnull=True
         )
         self.assertEqual(penalties.count(), 1)
+        self.assertEqual(penalties.first().target_type, 'EMPLOYEE')
         
-        # Modify settings to remove one bonus and add a new penalty
+        # Modify settings to remove one bonus, add a student bonus, and add a student penalty
         self.setting.bonus_types = [
-            {"id": 1, "name": "Buyurtma qo'shgani uchun bonus miqdori", "amount": "60000.00"}
+            {"id": 1, "name": "Buyurtma qo'shgani uchun bonus miqdori", "amount": "60000.00"},
+            {"id": 3, "name": "Talaba faollik bonusi", "amount": "10000.00", "role": "student"}
         ]
         self.setting.penalty_types = [
             {"id": 1, "name": "To'lov qilmasdan ketgani uchun jarima", "amount": "15000.00"},
-            {"id": 2, "name": "Yangi jarima", "amount": "25000.00"}
+            {"id": 2, "name": "Yangi jarima", "amount": "25000.00", "role": "student"}
         ]
         self.setting.save()
         
@@ -670,9 +674,17 @@ class FinanceSettingIntegrationTests(APITestCase):
             student__isnull=True,
             employee__isnull=True
         )
-        self.assertEqual(bonuses.count(), 1)
-        self.assertEqual(bonuses.first().reason, "Buyurtma qo'shgani uchun bonus miqdori")
-        self.assertEqual(bonuses.first().amount, Decimal('60000.00'))
+        self.assertEqual(bonuses.count(), 2)
+        
+        emp_bonus = bonuses.filter(reason="Buyurtma qo'shgani uchun bonus miqdori").first()
+        self.assertIsNotNone(emp_bonus)
+        self.assertEqual(emp_bonus.amount, Decimal('60000.00'))
+        self.assertEqual(emp_bonus.target_type, 'EMPLOYEE')
+
+        std_bonus = bonuses.filter(reason="Talaba faollik bonusi").first()
+        self.assertIsNotNone(std_bonus)
+        self.assertEqual(std_bonus.amount, Decimal('10000.00'))
+        self.assertEqual(std_bonus.target_type, 'STUDENT')
         
         penalties = FinanceAction.objects.filter(
             organization=self.org,
@@ -681,6 +693,15 @@ class FinanceSettingIntegrationTests(APITestCase):
             employee__isnull=True
         )
         self.assertEqual(penalties.count(), 2)
+        
+        emp_penalty = penalties.filter(reason="To'lov qilmasdan ketgani uchun jarima").first()
+        self.assertIsNotNone(emp_penalty)
+        self.assertEqual(emp_penalty.target_type, 'EMPLOYEE')
+
+        std_penalty = penalties.filter(reason="Yangi jarima").first()
+        self.assertIsNotNone(std_penalty)
+        self.assertEqual(std_penalty.target_type, 'STUDENT')
+        self.assertEqual(std_penalty.amount, Decimal('25000.00'))
 
     def test_debtor_payment_percent_bonus(self):
         from academics.models import Student

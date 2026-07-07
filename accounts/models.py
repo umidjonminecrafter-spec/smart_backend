@@ -36,6 +36,7 @@ class User(AbstractUser):
     gender = models.CharField(max_length=10, null=True, blank=True)
     photo = models.ImageField(upload_to='user_photos/', null=True, blank=True)
     telegram_chat_id = models.CharField(max_length=100, null=True, blank=True, verbose_name="Telegram Chat ID")
+    telegram_language = models.CharField(max_length=5, default='uz', choices=[('uz', "O'zbekcha"), ('ru', 'Русский')], verbose_name="Telegram tili")
 
     # 🚀 O'qituvchi xodim yaratilayotganda moliya foiz stavkasini biriktirish (1-rasm)
     salary_percentage = models.ForeignKey(

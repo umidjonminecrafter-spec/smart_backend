@@ -136,8 +136,12 @@ def handle_telegram_update(bot_type, token, update_data):
             users = User.objects.filter(phone=phone_normalized).exclude(role='student')
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
-                msg = f"<b>Muvaffaqiyatli bog'landi!</b> 💼\n\nSiz Xodimlar botidan muvaffaqiyatli ro'yxatdan o'tdingiz."
-                menu = get_reply_keyboard([["👤 Profilim", "📅 Kunlik dars jadvalim"], ["📊 Kunlik Hisobot"]])
+                msg = (
+                    "<b>Muvaffaqiyatli bog'landi! 💼</b>\n\n"
+                    "Iltimos, bot tilini tanlang:\n"
+                    "Пожалуйста, выберите язык бота:"
+                )
+                menu = get_reply_keyboard([["🇺🇿 O'zbekcha", "🇷🇺 Русский"]])
                 send_telegram_message(token, chat_id, msg, menu)
             else:
                 msg = f"Kechirasiz, <code>{phone_normalized}</code> telefon raqamli xodim topilmadi."
@@ -274,50 +278,98 @@ def handle_telegram_update(bot_type, token, update_data):
             send_telegram_message(token, chat_id, msg, get_contact_keyboard())
             return
 
-        if text == "👤 Profilim":
+        lang = getattr(user, 'telegram_language', 'uz') or 'uz'
+
+        if text == "🇺🇿 O'zbekcha":
+            user.telegram_language = 'uz'
+            user.save()
+            msg = "Til tanlandi: O'zbekcha! 🇺🇿"
+            menu = get_reply_keyboard([["👤 Profilim", "📅 Kunlik dars jadvalim"], ["📊 Kunlik Hisobot", "🌐 Tilni o'zgartirish"]])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
+
+        elif text == "🇷🇺 Русский":
+            user.telegram_language = 'ru'
+            user.save()
+            msg = "Язык выбран: Русский! 🇷🇺"
+            menu = get_reply_keyboard([["👤 Мой профиль", "📅 Мое расписание"], ["📊 Дневной отчет", "🌐 Сменить язык"]])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
+
+        elif text in ["🌐 Tilni o'zgartirish", "🌐 Сменить язык"]:
+            msg = "Tilni tanlang / Выберите язык:"
+            menu = get_reply_keyboard([["🇺🇿 O'zbekcha", "🇷🇺 Русский"]])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
+
+        elif text in ["👤 Profilim", "👤 Мой профиль"]:
             groups = StudentGroup.objects.filter(group__teacher=user, group__status='active').values('group__name',
                                                                                                      'group__course__name').distinct()
             groups_str = ", ".join(
-                [f"{g['group__name']} ({g['group__course__name']})" for g in groups]) or "Guruh biriktirilmagan"
-            res = (
-                f"<b>👤 Xodim profili</b>\n\n"
-                f"Ism: {user.get_full_name() or user.username}\n"
-                f"Lavozim: {user.get_role_display()}\n"
-                f"Telefon: {user.phone or 'Kiritilmagan'}\n"
-                f"O'qitadigan guruhlar: {groups_str}\n"
-            )
-            send_telegram_message(token, chat_id, res)
-
-        elif text == "📅 Kunlik dars jadvalim":
-            schedules = LessonSchedule.objects.filter(teacher=user).select_related('group', 'group__course')
-            if not schedules.exists():
-                send_telegram_message(token, chat_id, "Kunlik dars jadvallari topilmadi.")
-                return
-
-            res = "<b>📅 Sizning dars jadvalingiz:</b>\n\n"
-            for sch in schedules:
-                day_type_str = "Juft kunlar" if sch.day_type == 'even' else "Toq kunlar"
-                res += (
-                    f"📚 <b>{sch.group.name}</b> ({sch.group.course.name if sch.group.course else ''})\n"
-                    f"⏰ Vaqt: {sch.start_time.strftime('%H:%M')} - {sch.end_time.strftime('%H:%M')}\n"
-                    f"🗓 Kunlar: {day_type_str}\n"
-                    f"🚪 Xona: {sch.room_name}\n\n"
+                [f"{g['group__name']} ({g['group__course__name']})" for g in groups]) or ("Guruh biriktirilmagan" if lang == 'uz' else "Группы не привязаны")
+            if lang == 'ru':
+                res = (
+                    f"<b>👤 Профиль сотрудника</b>\n\n"
+                    f"Имя: {user.get_full_name() or user.username}\n"
+                    f"Должность: {user.get_role_display()}\n"
+                    f"Телефон: {user.phone or 'Не указан'}\n"
+                    f"Группы: {groups_str}\n"
+                )
+            else:
+                res = (
+                    f"<b>👤 Xodim profili</b>\n\n"
+                    f"Ism: {user.get_full_name() or user.username}\n"
+                    f"Lavozim: {user.get_role_display()}\n"
+                    f"Telefon: {user.phone or 'Kiritilmagan'}\n"
+                    f"O'qitadigan guruhlar: {groups_str}\n"
                 )
             send_telegram_message(token, chat_id, res)
 
-        elif text == "📊 Kunlik Hisobot":
+        elif text in ["📅 Kunlik dars jadvalim", "📅 Мое расписание"]:
+            schedules = LessonSchedule.objects.filter(teacher=user).select_related('group', 'group__course')
+            if not schedules.exists():
+                err_msg = "Kunlik dars jadvallari topilmadi." if lang == 'uz' else "Расписание занятий не найдено."
+                send_telegram_message(token, chat_id, err_msg)
+                return
+
+            if lang == 'ru':
+                res = "<b>📅 Ваше расписание занятий:</b>\n\n"
+                for sch in schedules:
+                    day_type_str = "Четные дни" if sch.day_type == 'even' else "Нечетные дни"
+                    res += (
+                        f"📚 <b>{sch.group.name}</b> ({sch.group.course.name if sch.group.course else ''})\n"
+                        f"⏰ Время: {sch.start_time.strftime('%H:%M')} - {sch.end_time.strftime('%H:%M')}\n"
+                        f"🗓 Дни: {day_type_str}\n"
+                        f"🚪 Кабинет: {sch.room_name}\n\n"
+                    )
+            else:
+                res = "<b>📅 Sizning dars jadvalingiz:</b>\n\n"
+                for sch in schedules:
+                    day_type_str = "Juft kunlar" if sch.day_type == 'even' else "Toq kunlar"
+                    res += (
+                        f"📚 <b>{sch.group.name}</b> ({sch.group.course.name if sch.group.course else ''})\n"
+                        f"⏰ Vaqt: {sch.start_time.strftime('%H:%M')} - {sch.end_time.strftime('%H:%M')}\n"
+                        f"🗓 Kunlar: {day_type_str}\n"
+                        f"🚪 Xona: {sch.room_name}\n\n"
+                    )
+            send_telegram_message(token, chat_id, res)
+
+        elif text in ["📊 Kunlik Hisobot", "📊 Дневной отчет"]:
             from django.utils import timezone
             from datetime import timedelta
             from academics.tasks import generate_daily_report_message
             if user.organization:
                 yesterday = (timezone.now() - timedelta(days=1)).date()
                 try:
-                    report_msg = generate_daily_report_message(user.organization, yesterday)
+                    report_msg = generate_daily_report_message(user.organization, yesterday, lang=lang)
                     send_telegram_message(token, chat_id, report_msg)
                 except Exception as e:
-                    send_telegram_message(token, chat_id, f"Hisobot shakllantirishda xatolik: {str(e)}")
+                    err_msg = f"Hisobot shakllantirishda xatolik: {str(e)}" if lang == 'uz' else f"Ошибка формирования отчета: {str(e)}"
+                    send_telegram_message(token, chat_id, err_msg)
             else:
-                send_telegram_message(token, chat_id, "Tashkilotingiz aniqlanmadi.")
+                err_msg = "Tashkilotingiz aniqlanmadi." if lang == 'uz' else "Ваша организация не определена."
+                send_telegram_message(token, chat_id, err_msg)
 
         else:
-            send_telegram_message(token, chat_id, "Noma'lum buyruq. Iltimos menyudan foydalaning.")
+            err_msg = "Noma'lum buyruq. Iltimos menyudan foydalaning." if lang == 'uz' else "Неизвестная команда. Пожалуйста, используйте меню."
+            send_telegram_message(token, chat_id, err_msg)

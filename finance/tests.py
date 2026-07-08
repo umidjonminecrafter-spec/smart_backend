@@ -954,6 +954,49 @@ class FinanceSettingIntegrationTests(APITestCase):
         self.assertIn("Долги", report_msg_ru)
         self.assertIn("Выдано долгов: 50 000", report_msg_ru)
 
+    def test_bonus_and_fine_filters(self):
+        from finance.models import Bonus, Fine
+        from datetime import date
+        
+        # Authenticate
+        self.client.force_authenticate(user=self.manager)
+        
+        # Create some bonuses
+        b1 = Bonus.objects.create(
+            organization=self.org,
+            employee=self.manager,
+            amount=Decimal('10000.00'),
+            date=date(2026, 7, 1),
+            reason="Good job"
+        )
+        b2 = Bonus.objects.create(
+            organization=self.org,
+            employee=self.manager,
+            amount=Decimal('15000.00'),
+            date=date(2026, 7, 5),
+            reason="Excellent effort"
+        )
+        
+        # Test filtering by employee
+        response = self.client.get('/api/v1/finance/bonuses/', {'employee': self.manager.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 2)
+        
+        # Test filtering by date range (gte / lte)
+        response = self.client.get('/api/v1/finance/bonuses/', {
+            'date__gte': '2026-07-02',
+            'date__lte': '2026-07-06'
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['id'], b2.id)
+        
+        # Test searching
+        response = self.client.get('/api/v1/finance/bonuses/', {'search': 'excellent'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['id'], b2.id)
+
 
 
 

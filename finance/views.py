@@ -355,16 +355,24 @@ class BonusViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Ish haqi'
     queryset = Bonus.objects.all()
     serializer_class = BonusSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['employee']
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = {
+        'employee': ['exact'],
+        'date': ['exact', 'gte', 'lte'],
+    }
+    search_fields = ['reason', 'employee__first_name', 'employee__last_name']
 
 
 class FineViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Ish haqi'
     queryset = Fine.objects.all()
     serializer_class = FineSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['employee']
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = {
+        'employee': ['exact'],
+        'date': ['exact', 'gte', 'lte'],
+    }
+    search_fields = ['reason', 'employee__first_name', 'employee__last_name']
 
 
 class SalaryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):

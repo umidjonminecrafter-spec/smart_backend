@@ -69,11 +69,15 @@ class SaleAdmin(admin.ModelAdmin):
 @admin.register(Bonus)
 class BonusAdmin(admin.ModelAdmin):
     list_display = ('id', 'employee', 'amount', 'date', 'organization')
+    list_filter = ('date', 'organization')
+    search_fields = ('employee__first_name', 'employee__last_name', 'reason')
 
 
 @admin.register(Fine)
 class FineAdmin(admin.ModelAdmin):
     list_display = ('id', 'employee', 'amount', 'date', 'organization')
+    list_filter = ('date', 'organization')
+    search_fields = ('employee__first_name', 'employee__last_name', 'reason')
 
 
 @admin.register(Salary)

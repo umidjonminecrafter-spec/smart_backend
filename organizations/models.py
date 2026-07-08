@@ -177,10 +177,10 @@ class TelegramNotificationSetting(BaseModel):
     bot_token = models.CharField(max_length=255, null=True, blank=True)
     chat_ids = models.TextField(null=True, blank=True, help_text="Vergul bilan ajratilgan chat ID'lar")
 
-    student_payments = models.BooleanField(default=False)
-    teacher_salaries = models.BooleanField(default=False)
-    expenses = models.BooleanField(default=False)
-    other_payments = models.BooleanField(default=False)
+    student_payments = models.BooleanField(default=True)
+    teacher_salaries = models.BooleanField(default=True)
+    expenses = models.BooleanField(default=True)
+    other_payments = models.BooleanField(default=True)
 
     # 4 ta yangi botlar uchun token va usernames
     verification_bot_token = models.CharField(max_length=255, null=True, blank=True)

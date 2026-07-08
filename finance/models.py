@@ -248,7 +248,12 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
     try:
         from organizations.models import TelegramNotificationSetting
         setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
-        if not setting or not setting.is_active or not setting.bot_token or not setting.chat_ids:
+        if not setting or not setting.is_active:
+            return
+
+        # Find the token to use
+        token = setting.bot_token or setting.staff_bot_token
+        if not token:
             return
 
         # Xabarnoma turi yoqilganligini tekshiramiz
@@ -258,13 +263,32 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
         import urllib.request
         import json
         import threading
+        from accounts.models import User
 
-        chat_ids_list = [cid.strip() for cid in setting.chat_ids.replace(',', ' ').split() if cid.strip()]
+        # Gather all chat IDs to send to
+        chat_ids_set = set()
+        if setting.chat_ids:
+            for cid in setting.chat_ids.replace(',', ' ').split():
+                if cid.strip():
+                    chat_ids_set.add(cid.strip())
+
+        # Also send to all registered staff members of this organization if using staff_bot_token
+        if token == setting.staff_bot_token:
+            staff_chats = User.objects.filter(
+                organization=organization,
+                telegram_chat_id__isnull=False
+            ).exclude(role='student').values_list('telegram_chat_id', flat=True)
+            for cid in staff_chats:
+                if cid:
+                    chat_ids_set.add(str(cid))
+
+        if not chat_ids_set:
+            return
 
         def worker():
-            for chat_id in chat_ids_list:
+            for chat_id in chat_ids_set:
                 try:
-                    url = f"https://api.telegram.org/bot{setting.bot_token}/sendMessage"
+                    url = f"https://api.telegram.org/bot{token}/sendMessage"
                     payload = {
                         'chat_id': chat_id,
                         'text': message_text,
@@ -347,6 +371,7 @@ def payment_telegram_notification(sender, instance, created, **kwargs):
             f"👤 <b>Mijoz:</b> {student_name}\n"
             f"🧑‍💼 <b>Qabul qiluvchi:</b> {employee_name}\n"
             f"💰 <b>Tranzaksiya summasi:</b> {amount_formatted} UZS\n"
+            f"💳 <b>To'lov usuli:</b> {instance.payment_method}\n"
             f"💵 <b>Naqd pul:</b> {cash_formatted} UZS\n"
             f"💳 <b>Plastik/Terminal:</b> {card_formatted} UZS\n"
             f"📚 <b>Fanga to'lovlar soni:</b> {courses_count} ta\n\n"

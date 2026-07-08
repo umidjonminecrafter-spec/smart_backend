@@ -81,7 +81,7 @@ class TenantViewSetMixin:
                     strict_models = [
                         'Group', 'Room', 'LessonSchedule', 'Payment', 'Expense', 
                         'Sale', 'Bonus', 'Fine', 'Salary', 'TeacherSalaryPayment',
-                        'StudentGroup'
+                        'StudentGroup', 'FinanceAction', 'Cashbox', 'Transaction'
                     ]
                     if model.__name__ in strict_models:
                         queryset = queryset.filter(branch_id=branch_id)

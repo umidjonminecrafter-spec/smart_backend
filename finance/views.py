@@ -1831,44 +1831,26 @@ class FinanceActionViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         with transaction.atomic():
             branch_id = self.get_branch_id()
-            instance = serializer.save(
-                organization=self.request.user.organization,
-                branch_id=branch_id
-            )
+            cashbox_id = self.request.data.get('cashbox')
+            
+            validated_data = serializer.validated_data.copy()
+            validated_data.pop('cashbox', None)
+            
+            instance = FinanceAction(**validated_data)
+            instance.organization = self.request.user.organization
+            instance.branch_id = branch_id
+            if cashbox_id:
+                instance._cashbox_id = cashbox_id
+            instance.save()
+            serializer.instance = instance
 
-            # 1. AGAR BONUS BO'LSA (Kassadan pul chiqadi)
-            if instance.action_type == 'BONUS':
-                cashbox_id = self.request.data.get('cashbox')
-                if cashbox_id:
-                    cashbox = Cashbox.objects.get(id=cashbox_id)
-
-                    # TO'G'RILANDI: category='BONUS' qilib belgilandi va
-                    # student/employee to'g'ri bog'landi (hisobotlarda ko'rinishi uchun)
-                    t = Transaction.objects.create(
-                        organization=self.request.user.organization,
-                        branch_id=branch_id,
-                        cashbox=cashbox,
-                        amount=instance.amount,
-                        type='EXPENSE',
-                        category='BONUS',
-                        student=instance.student,
-                        employee=instance.employee,
-                        description=f"{instance.get_target_type_display()} uchun bonus: {instance.reason}"
-                    )
-
-                    # TO'G'RILANDI: Kassa balansini bu yerda QO'LDA kamaytirmaymiz!
-                    # Yuqoridagi Transaction.objects.create() chaqirilganda
-                    # `recompute_cashbox_balance` signali (models.py) kassa balansini
-                    # AVTOMATIK va TO'G'RI qayta hisoblaydi.
-
-                    instance.transaction = t
-                    instance.save()
-
-            # 2. ✨ 2-XOLAT: AGAR JARIMA BO'LSA
-            elif instance.action_type == 'PENALTY':
-                # Kassadan pul yechilmaydi, shuning uchun cashbox tekshirilmaydi ham.
-                # Shunchaki o'tib ketadi.
-                pass
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            cashbox_id = self.request.data.get('cashbox')
+            instance = serializer.instance
+            if cashbox_id:
+                instance._cashbox_id = cashbox_id
+            serializer.save()
 
 
 from .filters import FinancialReportFilter

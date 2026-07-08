@@ -472,6 +472,25 @@ def sale_telegram_notification(sender, instance, created, **kwargs):
 
 @receiver(pre_save, sender=Payment)
 def payment_pre_save(sender, instance, **kwargs):
+    # Set default cashbox if not set
+    if not instance.cashbox:
+        from finance.models import Cashbox
+        branch_id = getattr(instance, 'branch_id', None)
+        cashbox = None
+        if branch_id:
+            cashbox = Cashbox.objects.filter(organization=instance.organization, branch_id=branch_id, is_archived=False).first()
+        if not cashbox:
+            cashbox = Cashbox.objects.filter(organization=instance.organization, is_archived=False).first()
+        if not cashbox:
+            cashbox = Cashbox.objects.filter(organization=instance.organization).first()
+        if not cashbox:
+            cashbox = Cashbox.objects.create(
+                organization=instance.organization,
+                branch_id=branch_id,
+                name="Asosiy kassa"
+            )
+        instance.cashbox = cashbox
+
     if instance.pk:
         try:
             old_payment = Payment.objects.get(pk=instance.pk)
@@ -770,8 +789,7 @@ def track_lead_bonus(sender, instance, created, **kwargs):
         return
 
     try:
-        from finance.models import FinanceSetting, Cashbox, Transaction, FinanceAction, Bonus
-        from django.utils import timezone
+        from finance.models import FinanceSetting, Cashbox, FinanceAction
         from decimal import Decimal
 
         # Get settings
@@ -790,45 +808,32 @@ def track_lead_bonus(sender, instance, created, **kwargs):
         if bonus_amount <= 0:
             return
 
-        # Find Cashbox
-        cashbox = Cashbox.objects.filter(organization=instance.organization, is_archived=False).first()
+        # Find Cashbox (preferring the Lead's branch)
+        branch_id = getattr(instance, 'branch_id', None)
+        cashbox = None
+        if branch_id:
+            cashbox = Cashbox.objects.filter(organization=instance.organization, branch_id=branch_id, is_archived=False).first()
+        if not cashbox:
+            cashbox = Cashbox.objects.filter(organization=instance.organization, is_archived=False).first()
         if not cashbox:
             cashbox = Cashbox.objects.filter(organization=instance.organization).first()
         if not cashbox:
-            cashbox = Cashbox.objects.create(organization=instance.organization, name="Asosiy kassa")
+            cashbox = Cashbox.objects.create(organization=instance.organization, name="Asosiy kassa", branch_id=branch_id)
 
         reason = f"Buyurtma qo'shilganligi uchun bonus (Lid: {instance.name})"
 
-        # Create Transaction
-        tx = Transaction.objects.create(
+        # Create FinanceAction (which will automatically handle Transaction and Bonus creation)
+        action = FinanceAction(
             organization=instance.organization,
-            cashbox=cashbox,
-            amount=bonus_amount,
-            type='EXPENSE',
-            category='BONUS',
-            employee=instance.created_by,
-            description=reason
-        )
-
-        # Create FinanceAction
-        FinanceAction.objects.create(
-            organization=instance.organization,
+            branch_id=branch_id,
             action_type='BONUS',
             target_type='EMPLOYEE',
             employee=instance.created_by,
             amount=bonus_amount,
-            reason=reason,
-            transaction=tx
+            reason=reason
         )
-
-        # Create Bonus
-        Bonus.objects.create(
-            organization=instance.organization,
-            employee=instance.created_by,
-            amount=bonus_amount,
-            reason=reason,
-            date=timezone.now().date()
-        )
+        action._cashbox_id = cashbox.id
+        action.save()
 
     except Exception as e:
         print(f"Error tracking lead bonus: {str(e)}")
@@ -840,9 +845,8 @@ def payment_bonuses_sync(sender, instance, created, **kwargs):
         return
 
     try:
-        from finance.models import FinanceSetting, Cashbox, Transaction, FinanceAction, Bonus
+        from finance.models import FinanceSetting, Cashbox, FinanceAction
         from django.contrib.auth import get_user_model
-        from django.utils import timezone
         from decimal import Decimal
 
         User = get_user_model()
@@ -852,11 +856,15 @@ def payment_bonuses_sync(sender, instance, created, **kwargs):
 
         cashbox = instance.cashbox
         if not cashbox:
-            cashbox = Cashbox.objects.filter(organization=instance.organization, is_archived=False).first()
-        if not cashbox:
-            cashbox = Cashbox.objects.filter(organization=instance.organization).first()
-        if not cashbox:
-            cashbox = Cashbox.objects.create(organization=instance.organization, name="Asosiy kassa")
+            branch_id = getattr(instance, 'branch_id', None)
+            if branch_id:
+                cashbox = Cashbox.objects.filter(organization=instance.organization, branch_id=branch_id, is_archived=False).first()
+            if not cashbox:
+                cashbox = Cashbox.objects.filter(organization=instance.organization, is_archived=False).first()
+            if not cashbox:
+                cashbox = Cashbox.objects.filter(organization=instance.organization).first()
+            if not cashbox:
+                cashbox = Cashbox.objects.create(organization=instance.organization, name="Asosiy kassa", branch_id=branch_id)
 
         # 1. First Payment Bonus for Moderator
         if instance.student and instance.student.moderator:
@@ -874,35 +882,18 @@ def payment_bonuses_sync(sender, instance, created, **kwargs):
                     if first_pay_bonus > 0:
                         reason = f"Birinchi to'lov uchun bonus (Talaba: {instance.student.full_name})"
                         
-                        tx = Transaction.objects.create(
+                        action = FinanceAction(
                             organization=instance.organization,
-                            cashbox=cashbox,
-                            amount=first_pay_bonus,
-                            type='EXPENSE',
-                            category='BONUS',
-                            employee=moderator_user,
-                            student=instance.student,
-                            description=reason
-                        )
-
-                        FinanceAction.objects.create(
-                            organization=instance.organization,
+                            branch_id=instance.branch_id,
                             action_type='BONUS',
                             target_type='EMPLOYEE',
                             employee=moderator_user,
                             student=instance.student,
                             amount=first_pay_bonus,
-                            reason=reason,
-                            transaction=tx
+                            reason=reason
                         )
-
-                        Bonus.objects.create(
-                            organization=instance.organization,
-                            employee=moderator_user,
-                            amount=first_pay_bonus,
-                            reason=reason,
-                            date=timezone.now().date()
-                        )
+                        action._cashbox_id = cashbox.id
+                        action.save()
 
         # 2. Finance Staff Percentage Bonus for Payment Processor
         if instance.employee and setting.is_percent_bonus_enabled:
@@ -923,35 +914,18 @@ def payment_bonuses_sync(sender, instance, created, **kwargs):
                     desc_type = "qarzdorlik to'lovi" if was_debtor else "kirim to'lovi"
                     reason = f"Kirim to'lovi foiz bonusi ({desc_type} {payment_percent}%) - (Talaba: {student_name})"
 
-                    tx = Transaction.objects.create(
+                    action = FinanceAction(
                         organization=instance.organization,
-                        cashbox=cashbox,
-                        amount=bonus_amt,
-                        type='EXPENSE',
-                        category='BONUS',
-                        employee=instance.employee,
-                        student=instance.student,
-                        description=reason
-                    )
-
-                    FinanceAction.objects.create(
-                        organization=instance.organization,
+                        branch_id=instance.branch_id,
                         action_type='BONUS',
                         target_type='EMPLOYEE',
                         employee=instance.employee,
                         student=instance.student,
                         amount=bonus_amt,
-                        reason=reason,
-                        transaction=tx
+                        reason=reason
                     )
-
-                    Bonus.objects.create(
-                        organization=instance.organization,
-                        employee=instance.employee,
-                        amount=bonus_amt,
-                        reason=reason,
-                        date=timezone.now().date()
-                    )
+                    action._cashbox_id = cashbox.id
+                    action.save()
 
     except Exception as e:
         print(f"Error tracking payment bonuses: {str(e)}")
@@ -995,18 +969,10 @@ def track_leave_fine(sender, instance, created, **kwargs):
 
         reason = f"Talaba to'lov qilmasdan ketganligi uchun jarima (Talaba: {instance.student.full_name})"
 
-        # Create Fine
-        Fine.objects.create(
-            organization=instance.organization,
-            employee=moderator_user,
-            amount=penalty_amount,
-            reason=reason,
-            date=timezone.now().date()
-        )
-
-        # Create FinanceAction
+        # Create FinanceAction (which will automatically handle Fine creation)
         FinanceAction.objects.create(
             organization=instance.organization,
+            branch_id=instance.branch_id,
             action_type='PENALTY',
             target_type='EMPLOYEE',
             employee=moderator_user,

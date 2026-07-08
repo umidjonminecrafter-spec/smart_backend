@@ -1575,9 +1575,14 @@ class FinanceSettingAPIView(APIView):
             for u in User.objects.filter(organization=setting.organization)
         ]
         
+        branch_id = get_active_branch_id(self.request)
+        cashboxes_qs = Cashbox.objects.filter(organization=setting.organization, is_archived=False)
+        if branch_id:
+            cashboxes_qs = cashboxes_qs.filter(branch_id=branch_id)
+            
         cashboxes_data = [
             {"id": c.id, "name": c.name} 
-            for c in Cashbox.objects.filter(organization=setting.organization, is_archived=False)
+            for c in cashboxes_qs
         ]
         
         response_data = dict(serializer.data)
@@ -1616,15 +1621,24 @@ class CashboxListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Faqat foydalanuvchining tashkilotiga tegishli kassalarni olish
-        cashboxes = Cashbox.objects.filter(organization=request.user.organization, is_archived=False)
-        serializer = CashboxSerializer(cashboxes, many=True)
+        org_id = getattr(request.user, 'organization_id', None)
+        branch_id = get_active_branch_id(request)
+        
+        queryset = Cashbox.objects.filter(organization_id=org_id, is_archived=False)
+        if branch_id:
+            queryset = queryset.filter(branch_id=branch_id)
+            
+        serializer = CashboxSerializer(queryset, many=True)
         return Response(serializer.data)
 
     def post(self, request):
         serializer = CashboxSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(organization=request.user.organization)
+            branch_id = get_active_branch_id(request)
+            serializer.save(
+                organization=request.user.organization,
+                branch_id=branch_id
+            )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

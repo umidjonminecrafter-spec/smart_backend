@@ -944,12 +944,17 @@ def charge_attendance(student, group, date, attendance_id, organization):
     lesson_cost = monthly_price / Decimal(lessons_in_month)
     lesson_cost = round(lesson_cost, 2)
     
-    # Get or create Cashbox
-    cashbox = Cashbox.objects.filter(organization=organization, is_archived=False).first()
+    # Get or create Cashbox (preferring the group's branch)
+    group_branch_id = getattr(group, 'branch_id', None)
+    cashbox = None
+    if group_branch_id:
+        cashbox = Cashbox.objects.filter(organization=organization, branch_id=group_branch_id, is_archived=False).first()
+    if not cashbox:
+        cashbox = Cashbox.objects.filter(organization=organization, is_archived=False).first()
     if not cashbox:
         cashbox = Cashbox.objects.filter(organization=organization).first()
     if not cashbox:
-        cashbox = Cashbox.objects.create(organization=organization, name="Asosiy kassa")
+        cashbox = Cashbox.objects.create(organization=organization, name="Asosiy kassa", branch_id=group_branch_id)
         
     # Check if transaction already exists
     desc_prefix = f"Davomat #{attendance_id}:"
@@ -957,7 +962,6 @@ def charge_attendance(student, group, date, attendance_id, organization):
     
     if tx:
         old_amount = tx.amount
-        old_cashbox = tx.cashbox
         
         # Update transaction
         tx.amount = lesson_cost
@@ -969,20 +973,11 @@ def charge_attendance(student, group, date, attendance_id, organization):
         # Adjust student's balance
         student.balance = Decimal(str(student.balance)) - (lesson_cost - old_amount)
         student.save(update_fields=['balance'])
-        
-        # Adjust cashbox balance
-        if old_cashbox == cashbox:
-            cashbox.balance = Decimal(str(cashbox.balance)) + (lesson_cost - old_amount)
-            cashbox.save(update_fields=['balance'])
-        else:
-            old_cashbox.balance = Decimal(str(old_cashbox.balance)) - old_amount
-            old_cashbox.save(update_fields=['balance'])
-            cashbox.balance = Decimal(str(cashbox.balance)) + lesson_cost
-            cashbox.save(update_fields=['balance'])
     else:
         # Create new transaction
         Transaction.objects.create(
             organization=organization,
+            branch_id=group_branch_id,
             cashbox=cashbox,
             amount=lesson_cost,
             type='INCOME',
@@ -994,10 +989,6 @@ def charge_attendance(student, group, date, attendance_id, organization):
         # Deduct from student's balance
         student.balance = Decimal(str(student.balance)) - lesson_cost
         student.save(update_fields=['balance'])
-        
-        # Add to cashbox balance
-        cashbox.balance = Decimal(str(cashbox.balance)) + lesson_cost
-        cashbox.save(update_fields=['balance'])
 
 
 def refund_attendance(student, group, date, attendance_id, organization):
@@ -1009,19 +1000,13 @@ def refund_attendance(student, group, date, attendance_id, organization):
     
     if tx:
         amount_to_refund = tx.amount
-        cashbox = tx.cashbox
         
-        # Delete transaction first
+        # Delete transaction first (signals will update cashbox balance automatically)
         tx.delete()
         
         # Refund student's balance
         student.balance = Decimal(str(student.balance)) + amount_to_refund
         student.save(update_fields=['balance'])
-        
-        # Deduct from cashbox balance
-        if cashbox:
-            cashbox.balance = Decimal(str(cashbox.balance)) - amount_to_refund
-            cashbox.save(update_fields=['balance'])
 
 
 @receiver(pre_save, sender=Attendance)

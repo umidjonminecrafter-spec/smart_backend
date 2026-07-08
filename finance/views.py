@@ -33,6 +33,7 @@ from finance.serializers import CashTransactionSerializer, CashTransferSerialize
 from organizations.models import TenantModel
 
 from .serializers import FinanceActionSerializer, TransactionSerializer, TransactionCategorySerializer
+from .filters import BonusFilter, FineFilter
 
 User = get_user_model()
 
@@ -353,25 +354,19 @@ class SaleViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
 
 class BonusViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Ish haqi'
-    queryset = Bonus.objects.all()
+    queryset = Bonus.objects.all().order_by('-id')
     serializer_class = BonusSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = {
-        'employee': ['exact'],
-        'date': ['exact', 'gte', 'lte'],
-    }
+    filterset_class = BonusFilter
     search_fields = ['reason', 'employee__first_name', 'employee__last_name']
 
 
 class FineViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Ish haqi'
-    queryset = Fine.objects.all()
+    queryset = Fine.objects.all().order_by('-id')
     serializer_class = FineSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = {
-        'employee': ['exact'],
-        'date': ['exact', 'gte', 'lte'],
-    }
+    filterset_class = FineFilter
     search_fields = ['reason', 'employee__first_name', 'employee__last_name']
 
 

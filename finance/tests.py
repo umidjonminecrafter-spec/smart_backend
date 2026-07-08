@@ -980,7 +980,7 @@ class FinanceSettingIntegrationTests(APITestCase):
         # Test filtering by employee
         response = self.client.get('/api/v1/finance/bonuses/', {'employee': self.manager.id})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(len(response.data['results']), 2)
         
         # Test filtering by date range (gte / lte)
         response = self.client.get('/api/v1/finance/bonuses/', {
@@ -988,14 +988,14 @@ class FinanceSettingIntegrationTests(APITestCase):
             'date__lte': '2026-07-06'
         })
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['id'], b2.id)
+        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(response.data['results'][0]['id'], b2.id)
         
         # Test searching
         response = self.client.get('/api/v1/finance/bonuses/', {'search': 'excellent'})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['id'], b2.id)
+        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(response.data['results'][0]['id'], b2.id)
 
 
 

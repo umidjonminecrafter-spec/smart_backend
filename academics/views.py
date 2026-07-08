@@ -933,18 +933,14 @@ class GroupAttendanceView(TenantViewSetMixin, APIView):
         return Response({"detail": f"Successfully deleted {count} attendance records."}, status=status.HTTP_200_OK)
 
 
-class LessonScheduleViewSet(viewsets.ModelViewSet):  # Agar mixiningiz bo'lsa: (TenantViewSetMixin, viewsets.ModelViewSet)
+class LessonScheduleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = LessonScheduleSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['group', 'teacher']
 
     def get_queryset(self):
-        org_id = getattr(self.request.user, 'organization_id', None)
-        if not org_id:
-            return LessonSchedule.objects.none()
-
-        queryset = LessonSchedule.objects.filter(organization_id=org_id).select_related(
+        queryset = super().get_queryset().select_related(
             'group', 'group__course', 'teacher'
         )
 

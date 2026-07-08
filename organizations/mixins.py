@@ -29,28 +29,32 @@ class TenantViewSetMixin:
 
     def get_branch_id(self):
         """
-        Get branch ID from X-Branch-ID header (set by frontend navbar),
+        Get branch ID from query parameters or headers (set by frontend navbar),
         falling back to the user's assigned branch.
         """
-        # 1. Check X-Branch-ID header (frontend sends this)
-        branch_id = self.request.META.get('HTTP_X_BRANCH_ID')
+        # 1. Check query parameters
+        branch_id = self.request.query_params.get('branch') or self.request.query_params.get('branch_id')
         
-        # 2. Fallback to user's branch
+        # 2. Check X-Branch-ID or x-branch-id headers
+        if not branch_id:
+            branch_id = self.request.headers.get('x-branch-id') or self.request.headers.get('X-Branch-ID')
+        if not branch_id:
+            branch_id = self.request.META.get('HTTP_X_BRANCH_ID')
+        
+        # 3. Fallback to user's branch
         if not branch_id and self.request.user and self.request.user.is_authenticated:
             branch_id = getattr(self.request.user, 'branch_id', None)
         
-        # 3. Validate branch belongs to user's organization
+        # 4. Validate branch belongs to user's organization
         if branch_id:
             org_id = self.get_organization_id()
             if org_id:
                 try:
                     branch = Branch.objects.get(id=branch_id, organization_id=org_id)
                     return branch.id
-                except Branch.DoesNotExist:
-                    # Branch doesn't belong to this org — ignore it
-                    pass
-            
-            # If no org validation possible, still return the branch_id
+                except (Branch.DoesNotExist, ValueError):
+                    # Branch doesn't belong to this org or is invalid
+                    return None
             return branch_id
         
         return None
@@ -67,14 +71,11 @@ class TenantViewSetMixin:
             else:
                 return queryset.none()
 
-        # === Branch filter ===
+        # === Branch filter (strict) ===
         if hasattr(model, 'branch'):
             branch_id = self.get_branch_id()
             if branch_id:
-                # Show records that match the branch OR have no branch set
-                queryset = queryset.filter(
-                    db_models.Q(branch_id=branch_id) | db_models.Q(branch__isnull=True)
-                )
+                queryset = queryset.filter(branch_id=branch_id)
 
         return queryset
 

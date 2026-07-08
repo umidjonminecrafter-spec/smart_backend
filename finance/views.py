@@ -64,24 +64,13 @@ from rest_framework.filters import SearchFilter
 from rest_framework import filters
 
 
-class TransactionViewSet(viewsets.ModelViewSet):
+class TransactionViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     serializer_class = TransactionSerializer
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
     filterset_fields = ['type', 'category', 'cashbox']
     search_fields = ['description', 'student__full_name', 'employee__username']
     ordering_fields = ['created_at', 'amount']
     ordering = ['-created_at']
-
-    def get_queryset(self):
-        return Transaction.objects.filter(cashbox__organization=self.request.user.organization)
-
-    def perform_create(self, serializer):
-        # TO'G'RILANDI 1: `organization` maydoni serializerda yo'q edi - qo'lda qo'shildi,
-        # aks holda ma'lumot bazasida NOT NULL xatoligi chiqishi mumkin edi.
-        # TO'G'RILANDI 2: Kassa balansini bu yerda QO'LDA o'zgartirmaymiz!
-        # Transaction modelidagi `recompute_cashbox_balance` signali (models.py)
-        # buni AVTOMATIK va TO'G'RI (yagona formula asosida) bajaradi.
-        serializer.save(organization=self.request.user.organization)
 
 
 class TransactionTypesView(APIView):
@@ -1834,15 +1823,18 @@ from .models import FinanceAction, Transaction, Cashbox
 from django.db import transaction
 
 
-class FinanceActionViewSet(viewsets.ModelViewSet):
+class FinanceActionViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     queryset = FinanceAction.objects.all()
 
     serializer_class = FinanceActionSerializer
 
     def perform_create(self, serializer):
         with transaction.atomic():
-            # ✨ 1-XOLAT YECHIMI: Tashkilotni request.user'dan avtomatik olib saqlaymiz
-            instance = serializer.save(organization=self.request.user.organization)
+            branch_id = self.get_branch_id()
+            instance = serializer.save(
+                organization=self.request.user.organization,
+                branch_id=branch_id
+            )
 
             # 1. AGAR BONUS BO'LSA (Kassadan pul chiqadi)
             if instance.action_type == 'BONUS':
@@ -1854,6 +1846,7 @@ class FinanceActionViewSet(viewsets.ModelViewSet):
                     # student/employee to'g'ri bog'landi (hisobotlarda ko'rinishi uchun)
                     t = Transaction.objects.create(
                         organization=self.request.user.organization,
+                        branch_id=branch_id,
                         cashbox=cashbox,
                         amount=instance.amount,
                         type='EXPENSE',
@@ -1886,9 +1879,12 @@ class FinancialAnalyticsView(APIView):
 
     def get(self, request):
         report_type = request.query_params.get('type', 'kirim').lower()
+        branch_id = get_active_branch_id(request)
 
-        # 🌟 TO'G'RILANDI: cashbox__tenant_id o'rniga model maydoningizga mos cashbox__organization_id qo'yildi
-        tx_queryset = Transaction.objects.filter(cashbox__organization_id=request.user.organization_id)
+        tx_filters = Q(cashbox__organization_id=request.user.organization_id)
+        if branch_id:
+            tx_filters &= Q(cashbox__branch_id=branch_id)
+        tx_queryset = Transaction.objects.filter(tx_filters)
 
         filtered_tx = FinancialReportFilter(request.GET, queryset=tx_queryset).qs
 
@@ -1919,6 +1915,8 @@ class FinancialAnalyticsView(APIView):
             actions = FinanceAction.objects.filter(action_type='BONUS')
             if hasattr(FinanceAction, 'organization_id'):
                 actions = actions.filter(organization_id=request.user.organization_id)
+            if branch_id:
+                actions = actions.filter(branch_id=branch_id)
 
             if request.GET.get('start_date'):
                 actions = actions.filter(created_at__gte=request.GET.get('start_date'))
@@ -2139,17 +2137,11 @@ class PnLReportView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class TransactionCategoryViewSet(viewsets.ModelViewSet):
+class TransactionCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     serializer_class = TransactionCategorySerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['type']
-
-    def get_queryset(self):
-        return TransactionCategory.objects.filter(organization_id=self.request.user.organization_id)
-
-    def perform_create(self, serializer):
-        serializer.save(organization_id=self.request.user.organization_id)
 
 
 class EmployeeFinanceBalanceReportView(APIView):

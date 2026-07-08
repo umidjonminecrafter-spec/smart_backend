@@ -71,11 +71,24 @@ class TenantViewSetMixin:
             else:
                 return queryset.none()
 
-        # === Branch filter (strict) ===
+        # === Branch filter ===
         if hasattr(model, 'branch'):
-            branch_id = self.get_branch_id()
-            if branch_id:
-                queryset = queryset.filter(branch_id=branch_id)
+            from organizations.models import Branch
+            if model is not Branch:
+                branch_id = self.get_branch_id()
+                if branch_id:
+                    # Model lists that must be strictly isolated to the branch
+                    strict_models = [
+                        'Group', 'Room', 'LessonSchedule', 'Payment', 'Expense', 
+                        'Sale', 'Bonus', 'Fine', 'Salary', 'TeacherSalaryPayment',
+                        'StudentGroup'
+                    ]
+                    if model.__name__ in strict_models:
+                        queryset = queryset.filter(branch_id=branch_id)
+                    else:
+                        queryset = queryset.filter(
+                            db_models.Q(branch_id=branch_id) | db_models.Q(branch__isnull=True)
+                        )
 
         return queryset
 

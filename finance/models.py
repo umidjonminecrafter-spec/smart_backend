@@ -643,6 +643,7 @@ def _sync_transaction_mirror(source_field_name, instance, tx_type, category, cas
 
     values = {
         'organization': instance.organization,
+        'branch_id': getattr(instance, 'branch_id', None),
         'cashbox': cashbox,
         'amount': instance.amount,
         'type': tx_type,

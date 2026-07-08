@@ -1964,8 +1964,14 @@ class FinancialReportsView(APIView):
         end_date_str = request.query_params.get('to_date')
         cashbox_id = request.query_params.get('kassa') or request.query_params.get('cashbox')
 
-        # 🌟 TO'G'RILANDI: cashbox__tenant_id o'rniga cashbox__organization_id ishlatildi
-        queryset = Transaction.objects.filter(cashbox__organization_id=request.user.organization_id)
+        branch_id = get_active_branch_id(request)
+        if hasattr(Transaction, 'organization'):
+            tx_filters = Q(organization_id=request.user.organization_id)
+        else:
+            tx_filters = Q(cashbox__organization_id=request.user.organization_id)
+        if branch_id:
+            tx_filters &= Q(branch_id=branch_id)
+        queryset = Transaction.objects.filter(tx_filters)
 
         if start_date_str:
             try:
@@ -2049,8 +2055,14 @@ class CashFlowReportView(APIView):
         to_date = request.query_params.get('to_date')
         cashbox_id = request.query_params.get('kassa') or request.query_params.get('cashbox')
 
-        # 1. 🌟 To'g'rilandi: Tashkilot bo'yicha filterlashni organization_id orqali qilamiz
-        queryset = Transaction.objects.filter(cashbox__organization_id=request.user.organization_id)
+        branch_id = get_active_branch_id(request)
+        if hasattr(Transaction, 'organization'):
+            tx_filters = Q(organization_id=request.user.organization_id)
+        else:
+            tx_filters = Q(cashbox__organization_id=request.user.organization_id)
+        if branch_id:
+            tx_filters &= Q(branch_id=branch_id)
+        queryset = Transaction.objects.filter(tx_filters)
 
         # 2. Sana filtri (Xavfsiz parsing bilan)
         if from_date:
@@ -2106,8 +2118,14 @@ class PnLReportView(APIView):
         from_date = request.query_params.get('from_date')
         to_date = request.query_params.get('to_date')
 
-        # Tashkilot bo'yicha boshlang'ich filter
-        queryset = Transaction.objects.filter(cashbox__organization_id=request.user.organization_id)
+        branch_id = get_active_branch_id(request)
+        if hasattr(Transaction, 'organization'):
+            tx_filters = Q(organization_id=request.user.organization_id)
+        else:
+            tx_filters = Q(cashbox__organization_id=request.user.organization_id)
+        if branch_id:
+            tx_filters &= Q(branch_id=branch_id)
+        queryset = Transaction.objects.filter(tx_filters)
 
         # Sanalar bo'yicha xavfsiz filterlash
         if from_date:

@@ -18,7 +18,7 @@ from datetime import datetime, time
 from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Expense, MonthlyIncome,
     Payment, Sale, Bonus, Fine, Salary, TeacherSalaryRule, TeacherSalaryCalculation, Cashbox, CashTransaction,
-    TransactionCategory
+    TransactionCategory, Transaction
 )
 from finance.serializers import (
     ExpenseCategorySerializer, ExpenseSubcategorySerializer, ExpenseSerializer,
@@ -65,6 +65,7 @@ from rest_framework import filters
 
 
 class TransactionViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    queryset = Transaction.objects.all()
     serializer_class = TransactionSerializer
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
     filterset_fields = ['type', 'category', 'cashbox']
@@ -2134,6 +2135,7 @@ class PnLReportView(APIView):
 
 
 class TransactionCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    queryset = TransactionCategory.objects.all()
     serializer_class = TransactionCategorySerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend]

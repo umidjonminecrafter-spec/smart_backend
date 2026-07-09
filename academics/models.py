@@ -209,6 +209,14 @@ class GroupTeacher(TenantModel):
     class Meta:
         unique_together = ('group', 'teacher')
 
+    def save(self, *args, **kwargs):
+        if self.group:
+            if not self.branch_id and self.group.branch_id:
+                self.branch_id = self.group.branch_id
+            if not self.organization_id and self.group.organization_id:
+                self.organization_id = self.group.organization_id
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.teacher} for {self.group}"
 
@@ -281,6 +289,12 @@ class LessonSchedule(TenantModel):
         Group.objects.filter(id=group_id).update(start_time=next_start_time)
 
     def save(self, *args, **kwargs):
+        if self.group:
+            if not self.branch_id and self.group.branch_id:
+                self.branch_id = self.group.branch_id
+            if not self.organization_id and self.group.organization_id:
+                self.organization_id = self.group.organization_id
+
         previous_group_id = None
         previous_organization_id = None
         if self.pk:
@@ -318,6 +332,14 @@ class Exam(TenantModel):
     date = models.DateField()
     min_score = models.IntegerField(default=60)
     max_score = models.IntegerField(default=100)
+
+    def save(self, *args, **kwargs):
+        if self.group:
+            if not self.branch_id and self.group.branch_id:
+                self.branch_id = self.group.branch_id
+            if not self.organization_id and self.group.organization_id:
+                self.organization_id = self.group.organization_id
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -358,6 +380,14 @@ class OnlineLesson(TenantModel):
 
     # 🛠️ Qaysi davomat kunidan ochilganini bilishimiz uchun bog'liqlik zanjiri:
     attendance_date = models.DateField(null=True, blank=True, verbose_name="Bog'langan dars sanasi")
+
+    def save(self, *args, **kwargs):
+        if self.group:
+            if not self.branch_id and self.group.branch_id:
+                self.branch_id = self.group.branch_id
+            if not self.organization_id and self.group.organization_id:
+                self.organization_id = self.group.organization_id
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.title
@@ -472,6 +502,14 @@ class Homework(TenantModel):
         blank=True,
         related_name="group_homeworks_created",
     )
+
+    def save(self, *args, **kwargs):
+        if self.group:
+            if not self.branch_id and self.group.branch_id:
+                self.branch_id = self.group.branch_id
+            if not self.organization_id and self.group.organization_id:
+                self.organization_id = self.group.organization_id
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.group.name} - {self.title}"

@@ -45,6 +45,7 @@ router.register(r'transactions', TransactionViewSet, basename='transactions')
 
 urlpatterns = [
     path('teacher-salary/calculate/', TeacherSalaryCalculateView.as_view(), name='teacher-salary-calculate'),
+    path('salary/calculate/', TeacherSalaryCalculateView.as_view(), name='salary-calculate'),
     path('report/', FinanceReportView.as_view(), name='finance-report'),
     path('profit-chart/', CompanyProfitChartView.as_view(), name='company-profit-chart'),
     path('settings/', FinanceSettingAPIView.as_view(), name='finance-settings'),

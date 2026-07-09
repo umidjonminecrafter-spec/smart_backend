@@ -13,7 +13,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ('id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'position', 'organization',
                   'organization_name', 'branch', 'branch_name', 'photo', 'salary_percentage')
-        read_only_fields = ('id', 'role')
+        read_only_fields = ('id', 'role', 'organization', 'branch')
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -131,6 +131,29 @@ class EmployeeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 "salary_percentage": "O'qituvchi yaratish uchun ish haqi foizini yuborish majburiy!"
             })
+
+        # Xavfsizlik qoidalari:
+        request = self.context.get('request')
+        if request and request.user:
+            current_user = request.user
+            
+            # 1. Tahrirlanayotgan xodim Owner bo'lsa va joriy foydalanuvchi Owner yoki Superuser bo'lmasa:
+            if self.instance and self.instance.role == 'owner' and not (current_user.is_superuser or current_user.role == 'owner'):
+                raise serializers.ValidationError({"detail": "Tashkilot egasi (Owner) ma'lumotlarini o'zgartirish huquqingiz yo'q!"})
+
+            # 2. Hech kim o'zining rolini o'zi o'zgartira olmaydi (o'zini tahrirlayotgan bo'lsa)
+            if self.instance and self.instance == current_user and 'role' in attrs:
+                if attrs['role'] != self.instance.role:
+                    raise serializers.ValidationError({"role": "O'z rolingizni o'zingiz o'zgartira olmaysiz!"})
+
+            # 3. Owner roliga faqat amaldagi Owner yoki Superuser tayinlay oladi
+            if role == 'owner' and not (current_user.is_superuser or current_user.role == 'owner'):
+                raise serializers.ValidationError({"role": "Faqat tashkilot egasi (Owner) yangi Owner tayinlay oladi!"})
+
+            # 4. Admin roliga faqat Owner yoki Superuser (yoki amaldagi Admin) tayinlay oladi
+            if role == 'admin' and not (current_user.is_superuser or current_user.role in ['owner', 'admin']):
+                raise serializers.ValidationError({"role": "Ushbu rolni berish uchun huquqingiz yetarli emas!"})
+
         return attrs
 
     def to_internal_value(self, data):
@@ -152,7 +175,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
             data['last_name'] = parts[1] if len(parts) > 1 else ''
 
         position = data.get('position')
-        if position and not data.get('role'):
+        # BUGFIX: Faqat yangi yaratilayotganda (create) position bo'yicha rolni avtomatik aniqlaymiz.
+        # Mavjud foydalanuvchini tahrirlayotganda (update) rolni o'zgartirmaymiz.
+        if position and not data.get('role') and not self.instance:
             pos = position.lower()
             if 'teacher' in pos or "o'qituvchi" in pos or "oʻqituvchi" in pos or "o’qituvchi" in pos or "o`qituvchi" in pos:
                 data['role'] = 'teacher'

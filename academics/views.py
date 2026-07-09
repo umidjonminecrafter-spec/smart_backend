@@ -935,6 +935,7 @@ class GroupAttendanceView(TenantViewSetMixin, APIView):
 
 class LessonScheduleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    queryset = LessonSchedule.objects.all()
     serializer_class = LessonScheduleSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['group', 'teacher']

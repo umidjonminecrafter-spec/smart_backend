@@ -188,6 +188,14 @@ class StudentGroup(TenantModel):
         # Guruhdagi kursning joriy narxini muzlatib saqlaymiz (agar narx berilmagan bo'lsa)
         if self.price is None and self.group and self.group.course:
             self.price = self.group.course.price
+        
+        # Guruhning filialini va tashkilotini StudentGroup'ga ham o'rnatamiz
+        if self.group:
+            if not self.branch_id and self.group.branch_id:
+                self.branch_id = self.group.branch_id
+            if not self.organization_id and self.group.organization_id:
+                self.organization_id = self.group.organization_id
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -231,6 +239,14 @@ class Attendance(TenantModel):
     class Meta:
         # unique_together cheklovi olib tashlandi, chunki student NULL bo'lsa baza konflikt beradi.
         pass
+
+    def save(self, *args, **kwargs):
+        if self.group:
+            if not self.branch_id and self.group.branch_id:
+                self.branch_id = self.group.branch_id
+            if not self.organization_id and self.group.organization_id:
+                self.organization_id = self.group.organization_id
+        super().save(*args, **kwargs)
 
     def __str__(self):
         student_name = self.student if self.student else "O'chirilgan Talaba"

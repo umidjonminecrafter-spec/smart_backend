@@ -509,7 +509,21 @@ def handle_telegram_update(bot_type, token, update_data):
                 )
             send_telegram_message(token, chat_id, res, menu)
 
-
+        elif text in ["📊 Kunlik Hisobot", "📊 Дневной отчет"]:
+            from django.utils import timezone
+            from datetime import timedelta
+            from academics.tasks import generate_daily_report_message
+            if user.organization:
+                yesterday = (timezone.now() - timedelta(days=1)).date()
+                try:
+                    report_msg = generate_daily_report_message(user.organization, yesterday, lang=lang)
+                    send_telegram_message(token, chat_id, report_msg, menu)
+                except Exception as e:
+                    err_msg = f"Hisobot shakllantirishda xatolik: {str(e)}" if lang == 'uz' else f"Ошибка формирования отчета: {str(e)}"
+                    send_telegram_message(token, chat_id, err_msg, menu)
+            else:
+                err_msg = "Tashkilotingiz aniqlanmadi." if lang == 'uz' else "Ваша организация не определена."
+                send_telegram_message(token, chat_id, err_msg, menu)
 
         else:
             err_msg = "Noma'lum buyruq. Iltimos menyudan foydalaning." if lang == 'uz' else "Неизвестная команда. Пожалуйста, используйте меню."

@@ -777,7 +777,9 @@ def teacher_salary_payment_transaction_sync(sender, instance, created, **kwargs)
     if not cashbox:
         return
 
-    teacher_name = f"{instance.teacher.first_name} {instance.teacher.last_name or ''}".strip() or instance.teacher.username
+    teacher_name = "Noma'lum"
+    if instance.teacher:
+        teacher_name = f"{instance.teacher.first_name} {instance.teacher.last_name or ''}".strip() or instance.teacher.username
     desc = f"O'qituvchi maosh to'lovi: {teacher_name} (SglID: {instance.id})"
 
     tx = Transaction.objects.filter(

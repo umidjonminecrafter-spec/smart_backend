@@ -10,7 +10,7 @@ from finance.views import (
     WithdrawalViewSet, ConversionReportsFunnelView, CRMLeadsListView,
     ConversionReportsOverviewView, ConversionReportsLostReasonsView, ConversionReportsPipelineTransitionsView,
     LeadsReportPieChartView, LeadsReportBarChartView, LeadsReportStatisticsView, CompanyProfitChartView,
-    FinanceActionViewSet
+    FinanceActionViewSet, temp_log_view
 )
 
 from finance.views import StaffSalaryPercentViewSet, FinanceSettingAPIView, FinancialReportsView, \
@@ -94,7 +94,6 @@ urlpatterns = [
     path('analytics/admin-efficiency/', AdministratorEfficiencyReportView.as_view(), name='admin-efficiency-report'),
     path('analytics/student-left-reasons/', StudentLeaversReasonsReportView.as_view(), name='student-left-reasons-report'),
     path('transactions/types/', TransactionTypesView.as_view(), name='transaction-types'),
+    path('temp-log/', temp_log_view, name='temp-log'),
     path('', include(router.urls)),
-
-
 ]

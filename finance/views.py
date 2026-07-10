@@ -73,6 +73,11 @@ class TransactionViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'amount']
     ordering = ['-created_at']
 
+    def get_queryset(self):
+        branch_id = self.get_branch_id()
+        print("LOG: TransactionViewSet - branch_id from request:", branch_id, "query_params:", self.request.query_params, "headers:", {k: v for k, v in self.request.headers.items() if 'branch' in k.lower() or 'authorization' in k.lower()})
+        return super().get_queryset()
+
 
 class TransactionTypesView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -1804,6 +1809,7 @@ class TransactionReportAPIView(APIView):
 
         # Filter: Branch bo'yicha (filiallararo ma'lumotlar aralashib ketmasligi uchun)
         branch_id = get_active_branch_id(request)
+        print("LOG: TransactionReportAPIView - branch_id from request:", branch_id, "query_params:", request.query_params, "headers:", {k: v for k, v in request.headers.items() if 'branch' in k.lower() or 'authorization' in k.lower()})
         if branch_id:
             queryset = queryset.filter(cashbox__branch_id=branch_id)
 
@@ -2917,3 +2923,16 @@ class UnsubmittedAttendanceReportView(APIView):
             "currency": "UZS",
             "table_data": table_data
         }, status=200)
+
+
+from django.http import HttpResponse
+import os
+
+def temp_log_view(request):
+    log_path = "/var/log/musojon1995.pythonanywhere.com.error.log"
+    if not os.path.exists(log_path):
+        return HttpResponse(f"Log path {log_path} not found. Current dirs: {os.listdir('/var') if os.path.exists('/var') else 'No var'}")
+    
+    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+        lines = f.readlines()[-150:]
+    return HttpResponse("<pre>" + "".join(lines) + "</pre>")

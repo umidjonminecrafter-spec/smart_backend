@@ -376,14 +376,90 @@ class TransactionSerializer(serializers.ModelSerializer):
     cashbox_name = serializers.CharField(source='cashbox.name', read_only=True)
     student_name = serializers.CharField(source='student.full_name', read_only=True, default=None)
     employee_name = serializers.CharField(source='employee.username', read_only=True, default=None)
+    
+    # 🌟 Dinamik ravishda frontend kutayotgan maydonlarni to'ldiramiz
+    payment_method = serializers.SerializerMethodField()
+    category_name = serializers.SerializerMethodField()
+    comment = serializers.SerializerMethodField()
+    group_name = serializers.SerializerMethodField()
+    group = serializers.SerializerMethodField()
+    lesson_date = serializers.SerializerMethodField()
+    dars_sanasi = serializers.SerializerMethodField()
+    old_balance = serializers.SerializerMethodField()
+    new_balance = serializers.SerializerMethodField()
 
     class Meta:
         model = Transaction
         fields = [
             'id', 'cashbox', 'cashbox_name', 'amount', 'type',
             'category', 'student', 'student_name', 'employee',
-            'employee_name', 'description', 'created_at'
+            'employee_name', 'description', 'created_at',
+            'payment_method', 'category_name', 'comment',
+            'group_name', 'group', 'lesson_date', 'dars_sanasi',
+            'old_balance', 'new_balance'
         ]
+
+    def get_payment_method(self, obj):
+        if obj.source_payment:
+            return obj.source_payment.payment_method
+        if obj.source_cashtransaction:
+            return obj.source_cashtransaction.payment_method
+        return "naqd"  # Chiqimlar yoki boshqa tranzaksiyalar uchun default
+
+    def get_category_name(self, obj):
+        if obj.source_expense:
+            return obj.source_expense.category.name if obj.source_expense.category else "Xarajat"
+        if obj.source_cashtransaction:
+            return obj.source_cashtransaction.category_name
+        if obj.source_payment:
+            return "O'quvchi to'lovi"
+        return obj.category
+
+    def get_comment(self, obj):
+        if obj.source_payment:
+            return obj.source_payment.comment
+        if obj.source_expense:
+            return obj.source_expense.description
+        if obj.source_cashtransaction:
+            return obj.source_cashtransaction.comment
+        return obj.description
+
+    def get_group_name(self, obj):
+        if obj.student:
+            first_group = obj.student.student_groups.filter(group__status='active').first()
+            if first_group:
+                return first_group.group.name
+        return None
+
+    def get_group(self, obj):
+        return self.get_group_name(obj)
+
+    def get_lesson_date(self, obj):
+        if obj.student:
+            return str(obj.student.payment_date) if obj.student.payment_date else None
+        return None
+
+    def get_dars_sanasi(self, obj):
+        return self.get_lesson_date(obj)
+
+    def get_old_balance(self, obj):
+        if obj.student:
+            try:
+                # Tranzaksiyadan oldingi balansni hisoblash
+                amount = obj.amount or 0
+                current_balance = obj.student.balance or 0
+                if obj.type == 'INCOME':
+                    return float(current_balance - amount)
+                else:
+                    return float(current_balance + amount)
+            except Exception:
+                return 0.0
+        return 0.0
+
+    def get_new_balance(self, obj):
+        if obj.student:
+            return float(obj.student.balance or 0)
+        return 0.0
 
     def validate(self, attrs):
         tx_type = attrs.get('type')

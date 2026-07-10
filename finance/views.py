@@ -1657,6 +1657,11 @@ class AdvancedPaymentReportAPIView(APIView):
         org_id = getattr(request.user, 'organization_id', None)
         queryset = Payment.objects.filter(organization_id=org_id).select_related('student', 'cashbox', 'employee')
 
+        # Filter: Branch bo'yicha (filiallararo ma'lumotlar aralashib ketmasligi uchun)
+        branch_id = get_active_branch_id(request)
+        if branch_id:
+            queryset = queryset.filter(branch_id=branch_id)
+
         # 1. Sana bo'yicha filter (Sana oralig'i)
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')

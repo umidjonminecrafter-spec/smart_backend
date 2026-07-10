@@ -2376,6 +2376,7 @@ class DiscountsAndBonusesReportView(APIView):
 
         org_id = request.user.organization_id
         branch_id = get_active_branch_id(request)
+        print("DEBUG DiscountsAndBonusesReportView: org_id:", org_id, "branch_id:", branch_id)
 
         # 1. Tashkilot va filial bo'yicha bazaviy filtr
         if hasattr(Transaction, 'organization'):
@@ -2383,8 +2384,16 @@ class DiscountsAndBonusesReportView(APIView):
         else:
             base_txs = Transaction.objects.filter(cashbox__organization_id=org_id)
 
+        print("DEBUG DiscountsAndBonusesReportView: Total transactions for org before branch filter:", base_txs.count())
+        for tx in base_txs[:10]:
+            print(f"DEBUG Tx ID: {tx.id}, category: {tx.category}, student: {tx.student_id}, cashbox_id: {tx.cashbox_id}, cashbox_branch: {tx.cashbox.branch_id if tx.cashbox else None}, tx_branch: {tx.branch_id}, desc: {tx.description}")
+
         if branch_id:
-            base_txs = base_txs.filter(cashbox__branch_id=branch_id)
+            if hasattr(Transaction, 'branch'):
+                base_txs = base_txs.filter(branch_id=branch_id)
+            else:
+                base_txs = base_txs.filter(cashbox__branch_id=branch_id)
+            print("DEBUG DiscountsAndBonusesReportView: After branch filter count:", base_txs.count())
 
         # 2. 🌟 FILTR KENGAYTIRILDI: Category 'DIRECT' bo'lsa ham izohida chegirma/bonus borlarni qidiradi
         discount_filter = (
@@ -2408,6 +2417,8 @@ class DiscountsAndBonusesReportView(APIView):
         bonus_txs = base_txs.filter(bonus_filter).select_related('student', 'source_payment').prefetch_related(
             'student__student_groups__group__course'
         )
+
+        print("DEBUG DiscountsAndBonusesReportView: discount_txs count:", discount_txs.count(), "bonus_txs count:", bonus_txs.count())
 
         rows = []
         index = 1

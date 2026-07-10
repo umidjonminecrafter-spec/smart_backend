@@ -56,7 +56,13 @@ class User(AbstractUser):
             })
 
     def save(self, *args, **kwargs):
-        # 🔥 self.full_clean() satrini olib tashladik, chunki u DRF serializer validatsiyasiga xalaqit beradi
+        if self.pk:
+            try:
+                orig = User.objects.get(pk=self.pk)
+                if orig.phone != self.phone:
+                    self.telegram_chat_id = None
+            except User.DoesNotExist:
+                pass
         super().save(*args, **kwargs)
 
     def __str__(self):

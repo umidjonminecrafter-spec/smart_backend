@@ -97,6 +97,20 @@ class Student(TenantModel):
             return f"{self.first_name} {self.last_name}"
         return self.first_name
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                orig = Student.objects.get(pk=self.pk)
+                if orig.phone != self.phone:
+                    self.telegram_chat_id = None
+                if orig.father_phone != self.father_phone:
+                    self.father_telegram_chat_id = None
+                if orig.mother_phone != self.mother_phone:
+                    self.mother_telegram_chat_id = None
+            except Student.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
+
 
 class StudentFieldSetting(TenantModel):
 

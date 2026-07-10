@@ -2461,13 +2461,20 @@ class DiscountsAndBonusesReportView(APIView):
                 st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
                 course_name, group_name = get_student_details(tx.student)
 
+            tx_branch_id = tx.branch_id or (tx.cashbox.branch_id if tx.cashbox else None)
+
             rows.append({
                 "id": index,
                 "name": st_name,
+                "student_name": st_name,
+                "student": st_name,
                 "course": course_name,
                 "group": group_name,
                 "total_discount": float(tx.amount),
-                "bonus": 0.0
+                "discount": float(tx.amount),
+                "bonus": 0.0,
+                "branch": tx_branch_id,
+                "branch_id": tx_branch_id,
             })
             index += 1
 
@@ -2480,13 +2487,20 @@ class DiscountsAndBonusesReportView(APIView):
                 st_name = f"{tx.student.first_name} {tx.student.last_name or ''}".strip()
                 course_name, group_name = get_student_details(tx.student)
 
+            tx_branch_id = tx.branch_id or (tx.cashbox.branch_id if tx.cashbox else None)
+
             rows.append({
                 "id": index,
                 "name": st_name,
+                "student_name": st_name,
+                "student": st_name,
                 "course": course_name,
                 "group": group_name,
                 "total_discount": 0.0,
-                "bonus": float(tx.amount)
+                "discount": 0.0,
+                "bonus": float(tx.amount),
+                "branch": tx_branch_id,
+                "branch_id": tx_branch_id,
             })
             index += 1
 
@@ -2495,6 +2509,8 @@ class DiscountsAndBonusesReportView(APIView):
         total_bonuses = sum(r['bonus'] for r in rows)
 
         return Response({
+            "total_bonuses": float(total_bonuses),
+            "total_discounts": float(total_discounts),
             "summary": {
                 "total_bonuses": float(total_bonuses),
                 "total_discounts": float(total_discounts)

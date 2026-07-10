@@ -21,6 +21,8 @@ class Command(BaseCommand):
 
                 active_bots = []
                 for s in settings:
+                    if s.bot_token:
+                        active_bots.append(('reports', s.bot_token))
                     if s.verification_bot_token:
                         active_bots.append(('verification', s.verification_bot_token))
                     if s.student_bot_token:

@@ -138,6 +138,22 @@ def handle_telegram_update(bot_type, token, update_data):
                 msg = f"Kechirasiz, <code>{phone_normalized}</code> telefon raqamli ota-ona tizimda topilmadi."
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
+        elif bot_type == 'reports':
+            users = User.objects.filter(phone=phone_normalized, role__in=['owner', 'admin'])
+            if users.exists():
+                users.update(telegram_chat_id=chat_id)
+                msg = (
+                    "<b>Muvaffaqiyatli bog'landi! 📊</b>\n\n"
+                    "Siz Hisobotlar botidan muvaffaqiyatli ro'yxatdan o'tdingiz.\n"
+                    "Iltimos, bot tilini tanlang:\n"
+                    "Пожалуйста, выберите язык бота:"
+                )
+                menu = get_reply_keyboard([["🇺🇿 O'zbekcha", "🇷🇺 Русский"]])
+                send_telegram_message(token, chat_id, msg, menu)
+            else:
+                msg = f"Kechirasiz, <code>{phone_normalized}</code> raqamli tashkilot rahbari/administrator topilmadi. Ushbu botga faqat rahbarlar kira oladi."
+                send_telegram_message(token, chat_id, msg, get_contact_keyboard())
+
         elif bot_type == 'staff':
             users = User.objects.filter(phone=phone_normalized).exclude(role='student')
             if users.exists():
@@ -169,6 +185,23 @@ def handle_telegram_update(bot_type, token, update_data):
             ])
             send_telegram_message(token, chat_id, msg, menu)
             return
+        elif bot_type == 'reports' and User.objects.filter(telegram_chat_id=chat_id, role__in=['owner', 'admin']).exists():
+            user = User.objects.filter(telegram_chat_id=chat_id).first()
+            lang = getattr(user, 'telegram_language', 'uz') or 'uz'
+            if lang == 'ru':
+                msg = f"Здравствуйте, {user.get_full_name() or user.username}! Добро пожаловать в бот отчетов."
+                menu = get_reply_keyboard([
+                    ["👤 Мой профиль", "📊 Дневной отчет"],
+                    ["🌐 Сменить язык"]
+                ])
+            else:
+                msg = f"Assalomu alaykum, {user.get_full_name() or user.username}! Hisobotlar botiga xush kelibsiz."
+                menu = get_reply_keyboard([
+                    ["👤 Profilim", "📊 Kunlik Hisobot"],
+                    ["🌐 Tilni o'zgartirish"]
+                ])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
         elif bot_type == 'staff' and User.objects.filter(telegram_chat_id=chat_id).exists():
             user = User.objects.filter(telegram_chat_id=chat_id).first()
             lang = getattr(user, 'telegram_language', 'uz') or 'uz'
@@ -177,16 +210,14 @@ def handle_telegram_update(bot_type, token, update_data):
                 menu = get_reply_keyboard([
                     ["👤 Мой профиль", "📅 Мое расписание"],
                     ["📋 Мои задачи", "💰 Зарплата и расчеты"],
-                    ["🔔 Уведомления", "📊 Дневной отчет"],
-                    ["🌐 Сменить язык"]
+                    ["🔔 Уведомления", "🌐 Сменить язык"]
                 ])
             else:
                 msg = f"Assalomu alaykum, {user.get_full_name() or user.username}! Xush kelibsiz."
                 menu = get_reply_keyboard([
                     ["👤 Profilim", "📅 Kunlik dars jadvalim"],
                     ["📋 Mening vazifalarim", "💰 Oylik va hisoblar"],
-                    ["🔔 Bildirishnomalar", "📊 Kunlik Hisobot"],
-                    ["🌐 Tilni o'zgartirish"]
+                    ["🔔 Bildirishnomalar", "🌐 Tilni o'zgartirish"]
                 ])
             send_telegram_message(token, chat_id, msg, menu)
             return
@@ -412,6 +443,78 @@ def handle_telegram_update(bot_type, token, update_data):
         else:
             send_telegram_message(token, chat_id, "Noma'lum buyruq. Iltimos menyudan foydalaning.", menu)
 
+    elif bot_type == 'reports':
+        user = User.objects.filter(telegram_chat_id=chat_id, role__in=['owner', 'admin']).first()
+        if not user:
+            msg = "Kechirasiz, ushbu botga faqat tashkilot rahbarlari kira oladi. Telefon raqamingizni yuboring:"
+            send_telegram_message(token, chat_id, msg, get_contact_keyboard())
+            return
+
+        lang = getattr(user, 'telegram_language', 'uz') or 'uz'
+
+        # Menyu
+        if lang == 'ru':
+            menu = get_reply_keyboard([
+                ["👤 Мой профиль", "📊 Дневной отчет"],
+                ["🌐 Сменить язык"]
+            ])
+        else:
+            menu = get_reply_keyboard([
+                ["👤 Profilim", "📊 Kunlik Hisobot"],
+                ["🌐 Tilni o'zgartirish"]
+            ])
+
+        if text == "🇺🇿 O'zbekcha":
+            user.telegram_language = 'uz'
+            user.save()
+            msg = "Til tanlandi: O'zbekcha! 🇺🇿"
+            menu = get_reply_keyboard([
+                ["👤 Profilim", "📊 Kunlik Hisobot"],
+                ["🌐 Tilni o'zgartirish"]
+            ])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
+
+        elif text == "🇷🇺 Русский":
+            user.telegram_language = 'ru'
+            user.save()
+            msg = "Язык выбран: Русский! 🇷🇺"
+            menu = get_reply_keyboard([
+                ["👤 Мой профиль", "📊 Дневной отчет"],
+                ["🌐 Сменить язык"]
+            ])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
+
+        elif text in ["🌐 Tilni o'zgartirish", "🌐 Сменить язык"]:
+            msg = "Tilni tanlang / Выберите язык:"
+            menu = get_reply_keyboard([["🇺🇿 O'zbekcha", "🇷🇺 Русский"]])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
+
+        elif text in ["👤 Profilim", "👤 Мой профиль"]:
+            if lang == 'ru':
+                res = (
+                    f"<b>👤 Профиль Администратора</b>\n\n"
+                    f"Имя: {user.get_full_name() or user.username}\n"
+                    f"Роль: {user.get_role_display()}\n"
+                    f"Телефон: {user.phone or 'Не указан'}\n"
+                )
+            else:
+                res = (
+                    f"<b>👤 Administrator profili</b>\n\n"
+                    f"Ism: {user.get_full_name() or user.username}\n"
+                    f"Lavozim: {user.get_role_display()}\n"
+                    f"Telefon: {user.phone or 'Kiritilmagan'}\n"
+                )
+            send_telegram_message(token, chat_id, res, menu)
+
+
+
+        else:
+            err_msg = "Noma'lum buyruq. Iltimos menyudan foydalaning." if lang == 'uz' else "Неизвестная команда. Пожалуйста, используйте меню."
+            send_telegram_message(token, chat_id, err_msg, menu)
+
     elif bot_type == 'staff':
         user = User.objects.filter(telegram_chat_id=chat_id).first()
         if not user:
@@ -426,15 +529,13 @@ def handle_telegram_update(bot_type, token, update_data):
             menu = get_reply_keyboard([
                 ["👤 Мой профиль", "📅 Мое расписание"],
                 ["📋 Мои задачи", "💰 Зарплата и расчеты"],
-                ["🔔 Уведомления", "📊 Дневной отчет"],
-                ["🌐 Сменить язык"]
+                ["🔔 Уведомления", "🌐 Сменить язык"]
             ])
         else:
             menu = get_reply_keyboard([
                 ["👤 Profilim", "📅 Kunlik dars jadvalim"],
                 ["📋 Mening vazifalarim", "💰 Oylik va hisoblar"],
-                ["🔔 Bildirishnomalar", "📊 Kunlik Hisobot"],
-                ["🌐 Tilni o'zgartirish"]
+                ["🔔 Bildirishnomalar", "🌐 Tilni o'zgartirish"]
             ])
 
         if text == "🇺🇿 O'zbekcha":
@@ -444,8 +545,7 @@ def handle_telegram_update(bot_type, token, update_data):
             menu = get_reply_keyboard([
                 ["👤 Profilim", "📅 Kunlik dars jadvalim"],
                 ["📋 Mening vazifalarim", "💰 Oylik va hisoblar"],
-                ["🔔 Bildirishnomalar", "📊 Kunlik Hisobot"],
-                ["🌐 Tilni o'zgartirish"]
+                ["🔔 Bildirishnomalar", "🌐 Tilni o'zgartirish"]
             ])
             send_telegram_message(token, chat_id, msg, menu)
             return
@@ -457,8 +557,7 @@ def handle_telegram_update(bot_type, token, update_data):
             menu = get_reply_keyboard([
                 ["👤 Мой профиль", "📅 Мое расписание"],
                 ["📋 Мои задачи", "💰 Зарплата и расчеты"],
-                ["🔔 Уведомления", "📊 Дневной отчет"],
-                ["🌐 Сменить язык"]
+                ["🔔 Уведомления", "🌐 Сменить язык"]
             ])
             send_telegram_message(token, chat_id, msg, menu)
             return
@@ -593,21 +692,7 @@ def handle_telegram_update(bot_type, token, update_data):
                         res += f"📅 {date_str}\n📌 <b>{n.title}</b>\n💬 {n.message}\n\n"
             send_telegram_message(token, chat_id, res, menu)
 
-        elif text in ["📊 Kunlik Hisobot", "📊 Дневной отчет"]:
-            from django.utils import timezone
-            from datetime import timedelta
-            from academics.tasks import generate_daily_report_message
-            if user.organization:
-                yesterday = (timezone.now() - timedelta(days=1)).date()
-                try:
-                    report_msg = generate_daily_report_message(user.organization, yesterday, lang=lang)
-                    send_telegram_message(token, chat_id, report_msg, menu)
-                except Exception as e:
-                    err_msg = f"Hisobot shakllantirishda xatolik: {str(e)}" if lang == 'uz' else f"Ошибка формирования отчета: {str(e)}"
-                    send_telegram_message(token, chat_id, err_msg, menu)
-            else:
-                err_msg = "Tashkilotingiz aniqlanmadi." if lang == 'uz' else "Ваша организация не определена."
-                send_telegram_message(token, chat_id, err_msg, menu)
+
 
         else:
             err_msg = "Noma'lum buyruq. Iltimos menyudan foydalaning." if lang == 'uz' else "Неизвестная команда. Пожалуйста, используйте меню."

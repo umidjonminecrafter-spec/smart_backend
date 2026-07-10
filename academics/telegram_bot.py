@@ -155,7 +155,7 @@ def handle_telegram_update(bot_type, token, update_data):
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'staff':
-            users = User.objects.filter(phone=phone_normalized).exclude(role='student')
+            users = User.objects.filter(phone=phone_normalized).exclude(role__in=['owner', 'admin', 'student'])
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
                 msg = (
@@ -202,7 +202,7 @@ def handle_telegram_update(bot_type, token, update_data):
                 ])
             send_telegram_message(token, chat_id, msg, menu)
             return
-        elif bot_type == 'staff' and User.objects.filter(telegram_chat_id=chat_id).exists():
+        elif bot_type == 'staff' and User.objects.filter(telegram_chat_id=chat_id).exclude(role__in=['owner', 'admin']).exists():
             user = User.objects.filter(telegram_chat_id=chat_id).first()
             lang = getattr(user, 'telegram_language', 'uz') or 'uz'
             if lang == 'ru':
@@ -530,7 +530,7 @@ def handle_telegram_update(bot_type, token, update_data):
             send_telegram_message(token, chat_id, err_msg, menu)
 
     elif bot_type == 'staff':
-        user = User.objects.filter(telegram_chat_id=chat_id).first()
+        user = User.objects.filter(telegram_chat_id=chat_id).exclude(role__in=['owner', 'admin']).first()
         if not user:
             msg = "Siz hali ro'yxatdan o'tmagansiz. Iltimos, telefon raqamingizni yuboring:"
             send_telegram_message(token, chat_id, msg, get_contact_keyboard())

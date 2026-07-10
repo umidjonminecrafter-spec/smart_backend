@@ -2395,6 +2395,40 @@ class DiscountsAndBonusesReportView(APIView):
                 base_txs = base_txs.filter(cashbox__branch_id=branch_id)
             print("DEBUG DiscountsAndBonusesReportView: After branch filter count:", base_txs.count())
 
+        # 1.1 Sana bo'yicha filter (start_date/end_date yoki from_date/to_date)
+        from datetime import datetime
+        start_date = request.query_params.get('start_date') or request.query_params.get('from_date')
+        end_date = request.query_params.get('end_date') or request.query_params.get('to_date')
+        if start_date:
+            try:
+                base_txs = base_txs.filter(created_at__date__gte=datetime.strptime(start_date.split('T')[0], '%Y-%m-%d').date())
+            except (ValueError, TypeError):
+                pass
+        if end_date:
+            try:
+                base_txs = base_txs.filter(created_at__date__lte=datetime.strptime(end_date.split('T')[0], '%Y-%m-%d').date())
+            except (ValueError, TypeError):
+                pass
+
+        # 1.2 O'quvchi ismi bo'yicha filter (search, student, student_name, name)
+        student_search = request.query_params.get('search') or request.query_params.get('student') or request.query_params.get('student_name') or request.query_params.get('name')
+        if student_search:
+            base_txs = base_txs.filter(
+                Q(student__first_name__icontains=student_search) |
+                Q(student__last_name__icontains=student_search) |
+                Q(description__icontains=student_search)
+            )
+
+        # 1.3 Guruh bo'yicha filter
+        group_id = request.query_params.get('group') or request.query_params.get('group_id')
+        if group_id and group_id != 'Barchasi':
+            base_txs = base_txs.filter(student__student_groups__group_id=group_id)
+
+        # 1.4 Kurs bo'yicha filter
+        course_id = request.query_params.get('course') or request.query_params.get('course_id')
+        if course_id and course_id != 'Barchasi':
+            base_txs = base_txs.filter(student__student_groups__group__course_id=course_id)
+
         # 2. 🌟 FILTR KENGAYTIRILDI: Category 'DIRECT' bo'lsa ham izohida chegirma/bonus borlarni qidiradi
         discount_filter = (
                 Q(category='VOUCHER') |

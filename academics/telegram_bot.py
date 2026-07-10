@@ -105,7 +105,13 @@ def handle_telegram_update(bot_type, token, update_data):
             if students.exists():
                 students.update(telegram_chat_id=chat_id)
                 msg = f"<b>Muvaffaqiyatli bog'landi!</b> 🎓\n\nSiz Student botidan muvaffaqiyatli ro'yxatdan o'tdingiz."
-                menu = get_reply_keyboard([["👤 Profilim", "💰 Balansim"], ["📅 Dars jadvalim"]])
+                menu = get_reply_keyboard([
+                    ["👤 Profilim", "💰 Balans & Qarz"],
+                    ["💳 Oxirgi to'lovlar", "🧾 Oxirgi to'lov cheki"],
+                    ["📅 Dars jadvalim", "📊 Davomatlarim"],
+                    ["🏆 Imtihon baholari", "📝 Uy vazifalarim"],
+                    ["✉️ Kelgan xabarlar"]
+                ])
                 send_telegram_message(token, chat_id, msg, menu)
             else:
                 msg = f"Kechirasiz, <code>{phone_normalized}</code> telefon raqamli talaba tizimda topilmadi."
@@ -150,6 +156,46 @@ def handle_telegram_update(bot_type, token, update_data):
 
     # 2. Buyruqlar yoki menyu tugmalarini bosganda
     if text == "/start":
+        # 🌟 Yangi: Agar foydalanuvchi allaqachon bog'langan bo'lsa menyuni qayta yuborish
+        if bot_type == 'student' and Student.objects.filter(telegram_chat_id=chat_id).exists():
+            student = Student.objects.filter(telegram_chat_id=chat_id).first()
+            msg = f"Assalomu alaykum, {student.first_name}! Xush kelibsiz."
+            menu = get_reply_keyboard([
+                ["👤 Profilim", "💰 Balans & Qarz"],
+                ["💳 Oxirgi to'lovlar", "🧾 Oxirgi to'lov cheki"],
+                ["📅 Dars jadvalim", "📊 Davomatlarim"],
+                ["🏆 Imtihon baholari", "📝 Uy vazifalarim"],
+                ["✉️ Kelgan xabarlar"]
+            ])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
+        elif bot_type == 'staff' and User.objects.filter(telegram_chat_id=chat_id).exists():
+            user = User.objects.filter(telegram_chat_id=chat_id).first()
+            lang = getattr(user, 'telegram_language', 'uz') or 'uz'
+            if lang == 'ru':
+                msg = f"Здравствуйте, {user.get_full_name() or user.username}! Добро пожаловать."
+                menu = get_reply_keyboard([
+                    ["👤 Мой профиль", "📅 Мое расписание"],
+                    ["📋 Мои задачи", "💰 Зарплата и расчеты"],
+                    ["🔔 Уведомления", "📊 Дневной отчет"],
+                    ["🌐 Сменить язык"]
+                ])
+            else:
+                msg = f"Assalomu alaykum, {user.get_full_name() or user.username}! Xush kelibsiz."
+                menu = get_reply_keyboard([
+                    ["👤 Profilim", "📅 Kunlik dars jadvalim"],
+                    ["📋 Mening vazifalarim", "💰 Oylik va hisoblar"],
+                    ["🔔 Bildirishnomalar", "📊 Kunlik Hisobot"],
+                    ["🌐 Tilni o'zgartirish"]
+                ])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
+        elif bot_type == 'parent' and Student.objects.filter(Q(father_telegram_chat_id=chat_id) | Q(mother_telegram_chat_id=chat_id)).exists():
+            msg = "Assalomu alaykum! Xush kelibsiz."
+            menu = get_reply_keyboard([["👶 Farzandlarim", "📊 Davomat"], ["🏆 Baholar", "💳 To'lovlar"]])
+            send_telegram_message(token, chat_id, msg, menu)
+            return
+
         msg = "Assalomu alaykum! SmartTalim xizmatiga xush kelibsiz.\n\nBotdan foydalanish uchun telefon raqamingizni yuboring:"
         send_telegram_message(token, chat_id, msg, get_contact_keyboard())
         return
@@ -167,6 +213,14 @@ def handle_telegram_update(bot_type, token, update_data):
             send_telegram_message(token, chat_id, msg, get_contact_keyboard())
             return
 
+        menu = get_reply_keyboard([
+            ["👤 Profilim", "💰 Balans & Qarz"],
+            ["💳 Oxirgi to'lovlar", "🧾 Oxirgi to'lov cheki"],
+            ["📅 Dars jadvalim", "📊 Davomatlarim"],
+            ["🏆 Imtihon baholari", "📝 Uy vazifalarim"],
+            ["✉️ Kelgan xabarlar"]
+        ])
+
         if text == "👤 Profilim":
             active_groups = StudentGroup.objects.filter(student=student, group__status='active')
             groups_str = ", ".join([g.group.name for g in active_groups]) or "Guruh yo'q"
@@ -177,21 +231,56 @@ def handle_telegram_update(bot_type, token, update_data):
                 f"Guruhlar: {groups_str}\n"
                 f"Balans: {int(student.balance):,} UZS\n".replace(",", " ")
             )
-            send_telegram_message(token, chat_id, res)
+            send_telegram_message(token, chat_id, res, menu)
 
-        elif text == "💰 Balansim":
+        elif text in ["💰 Balansim", "💰 Balans & Qarz"]:
             status_emoji = "✅" if student.balance >= 0 else "⚠️"
+            debt = abs(student.balance) if student.balance < 0 else 0
             res = (
-                f"<b>💰 Balans holati</b>\n\n"
+                f"<b>💰 Balans va Qarz holati:</b>\n\n"
                 f"Joriy balans: <code>{int(student.balance):,} UZS</code> {status_emoji}\n"
+                f"Qarzdorlik: <code>{int(debt):,} UZS</code>\n"
                 f"To'lov kuni: {student.payment_date or 'Belgilanmagan'}"
             ).replace(",", " ")
-            send_telegram_message(token, chat_id, res)
+            send_telegram_message(token, chat_id, res, menu)
+
+        elif text == "💳 Oxirgi to'lovlar":
+            from finance.models import Payment
+            payments = Payment.objects.filter(student=student).order_by('-date')[:5]
+            if not payments.exists():
+                res = "Sizda to'lovlar tarixi topilmadi."
+            else:
+                res = "<b>💳 Oxirgi 5 ta to'lovingiz:</b>\n\n"
+                for p in payments:
+                    res += f"• {p.date}: <b>{int(p.amount):,} UZS</b> ({p.payment_method})\n"
+                res = res.replace(",", " ")
+            send_telegram_message(token, chat_id, res, menu)
+
+        elif text == "🧾 Oxirgi to'lov cheki":
+            from finance.models import Payment
+            p = Payment.objects.filter(student=student).order_by('-date').first()
+            if not p:
+                res = "Oxirgi to'lov cheki topilmadi."
+            else:
+                org_name = student.organization.name if student.organization else "SmartTalim"
+                employee_name = p.employee.get_full_name() or p.employee.username if p.employee else "Tizim"
+                res = (
+                    f"<b>🧾 To'lov Cheki #{p.id}</b>\n"
+                    f"🏢 Muassasa: <b>{org_name}</b>\n\n"
+                    f"👤 Talaba: {student.first_name} {student.last_name or ''}\n"
+                    f"💵 Summa: <code>{int(p.amount):,} UZS</code>\n"
+                    f"📅 Sana: {p.date}\n"
+                    f"💳 To'lov turi: {p.payment_method}\n"
+                    f"🧑‍💼 Qabul qildi: {employee_name}\n"
+                    f"💬 Izoh: {p.comment or '-'}\n\n"
+                    f"<i>SmartTalim tizimi orqali tasdiqlangan.</i>"
+                ).replace(",", " ")
+            send_telegram_message(token, chat_id, res, menu)
 
         elif text == "📅 Dars jadvalim":
             active_groups = StudentGroup.objects.filter(student=student, group__status='active')
             if not active_groups.exists():
-                send_telegram_message(token, chat_id, "Siz faol guruhlarda topilmadingiz.")
+                send_telegram_message(token, chat_id, "Siz faol guruhlarda topilmadingiz.", menu)
                 return
 
             res = "<b>📅 Sizning dars jadvalingiz:</b>\n\n"
@@ -205,10 +294,60 @@ def handle_telegram_update(bot_type, token, update_data):
                     f"🗓 Kunlar: {day_type_str}\n"
                     f"👤 O'qituvchi: {teacher_str}\n\n"
                 )
-            send_telegram_message(token, chat_id, res)
+            send_telegram_message(token, chat_id, res, menu)
+
+        elif text == "📊 Davomatlarim":
+            attendances = Attendance.objects.filter(student=student).order_by('-date')[:10]
+            if not attendances.exists():
+                res = "Davomat ma'lumotlari topilmadi."
+            else:
+                res = "<b>📊 Oxirgi 10 ta davomatingiz:</b>\n\n"
+                for att in attendances:
+                    status_text = "Keldi ✅" if att.status == 'present' else "Kelmadi ❌" if att.status == 'absent' else "Kechikdi ⚠️" if att.status == 'late' else "Sababli 📁"
+                    res += f"• {att.date}: {att.group.name} - <b>{status_text}</b>\n"
+            send_telegram_message(token, chat_id, res, menu)
+
+        elif text == "🏆 Imtihon baholari":
+            results = ExamResult.objects.filter(student=student).select_related('exam').order_by('-exam__date')[:10]
+            if not results.exists():
+                res = "Baholar topilmadi."
+            else:
+                res = "<b>🏆 Oxirgi imtihon baholaringiz:</b>\n\n"
+                for r in results:
+                    res += f"• {r.exam.name} ({r.exam.date}): <b>{int(r.score)} ball</b>\n"
+            send_telegram_message(token, chat_id, res, menu)
+
+        elif text == "📝 Uy vazifalarim":
+            from academics.models import Homework
+            active_groups = StudentGroup.objects.filter(student=student, group__status='active').values_list('group_id', flat=True)
+            homeworks = Homework.objects.filter(group_id__in=active_groups).order_by('-due_date')[:5]
+            if not homeworks.exists():
+                res = "Uy vazifalari topilmadi."
+            else:
+                res = "<b>📝 Uy vazifalari va topshiriqlar:</b>\n\n"
+                for hw in homeworks:
+                    due = hw.due_date.strftime("%d.%m.%Y") if hw.due_date else "Belgilanmagan"
+                    res += (
+                        f"📚 <b>{hw.group.name}</b>: <u>{hw.title}</u>\n"
+                        f"💬 Topshiriq: {hw.text or 'Matn kiritilmagan'}\n"
+                        f"📅 Muddat: <b>{due}</b>\n\n"
+                    )
+            send_telegram_message(token, chat_id, res, menu)
+
+        elif text == "✉️ Kelgan xabarlar":
+            from communication.models import SMSMessages
+            sms_list = SMSMessages.objects.filter(recipient=student.phone).order_by('-sent_at')[:5]
+            if not sms_list.exists():
+                res = "Sizga yuborilgan xabarlar topilmadi."
+            else:
+                res = "<b>✉️ Oxirgi 5 ta kelgan tizim xabarlari:</b>\n\n"
+                for sms in sms_list:
+                    date_str = sms.sent_at.strftime("%d.%m.%Y %H:%M")
+                    res += f"📅 {date_str}\n💬 {sms.message}\n\n"
+            send_telegram_message(token, chat_id, res, menu)
 
         else:
-            send_telegram_message(token, chat_id, "Noma'lum buyruq. Iltimos menyudan foydalaning.")
+            send_telegram_message(token, chat_id, "Noma'lum buyruq. Iltimos menyudan foydalaning.", menu)
 
     elif bot_type == 'parent':
         students = Student.objects.filter(Q(father_telegram_chat_id=chat_id) | Q(mother_telegram_chat_id=chat_id))
@@ -216,6 +355,8 @@ def handle_telegram_update(bot_type, token, update_data):
             msg = "Siz hali ro'yxatdan o'tmagansiz. Iltimos, telefon raqamingizni yuboring:"
             send_telegram_message(token, chat_id, msg, get_contact_keyboard())
             return
+
+        menu = get_reply_keyboard([["👶 Farzandlarim", "📊 Davomat"], ["🏆 Baholar", "💳 To'lovlar"]])
 
         if text == "👶 Farzandlarim":
             res = "<b>👶 Farzandlaringiz ro'yxati:</b>\n\n"
@@ -227,7 +368,7 @@ def handle_telegram_update(bot_type, token, update_data):
                     f"Balans: {int(s.balance):,} UZS\n"
                     f"Guruhlar: {groups_str}\n\n"
                 ).replace(",", " ")
-            send_telegram_message(token, chat_id, res)
+            send_telegram_message(token, chat_id, res, menu)
 
         elif text == "📊 Davomat":
             res = "<b>📊 Oxirgi darslardagi davomat:</b>\n\n"
@@ -241,7 +382,7 @@ def handle_telegram_update(bot_type, token, update_data):
                     status_text = "Keldi ✅" if att.status == 'present' else "Kelmadi ❌" if att.status == 'absent' else "Kechikdi ⚠️" if att.status == 'late' else "Sababli 📁"
                     res += f"  • {att.date}: {att.group.name} - <b>{status_text}</b>\n"
                 res += "\n"
-            send_telegram_message(token, chat_id, res)
+            send_telegram_message(token, chat_id, res, menu)
 
         elif text == "🏆 Baholar":
             res = "<b>🏆 Imtihon baholari:</b>\n\n"
@@ -254,7 +395,7 @@ def handle_telegram_update(bot_type, token, update_data):
                 for r in results:
                     res += f"  • {r.exam.name} ({r.exam.date}): <b>{int(r.score)} ball</b>\n"
                 res += "\n"
-            send_telegram_message(token, chat_id, res)
+            send_telegram_message(token, chat_id, res, menu)
 
         elif text == "💳 To'lovlar":
             res = "<b>💳 To'lovlar va balans holati:</b>\n\n"
@@ -266,10 +407,10 @@ def handle_telegram_update(bot_type, token, update_data):
                     f"  Holat: {status_text}\n"
                     f"  Keyingi to'lov sanasi: {s.payment_date or 'Belgilanmagan'}\n\n"
                 ).replace(",", " ")
-            send_telegram_message(token, chat_id, res)
+            send_telegram_message(token, chat_id, res, menu)
 
         else:
-            send_telegram_message(token, chat_id, "Noma'lum buyruq. Iltimos menyudan foydalaning.")
+            send_telegram_message(token, chat_id, "Noma'lum buyruq. Iltimos menyudan foydalaning.", menu)
 
     elif bot_type == 'staff':
         user = User.objects.filter(telegram_chat_id=chat_id).first()
@@ -280,11 +421,32 @@ def handle_telegram_update(bot_type, token, update_data):
 
         lang = getattr(user, 'telegram_language', 'uz') or 'uz'
 
+        # Defolt xodimlar menyusi
+        if lang == 'ru':
+            menu = get_reply_keyboard([
+                ["👤 Мой профиль", "📅 Мое расписание"],
+                ["📋 Мои задачи", "💰 Зарплата и расчеты"],
+                ["🔔 Уведомления", "📊 Дневной отчет"],
+                ["🌐 Сменить язык"]
+            ])
+        else:
+            menu = get_reply_keyboard([
+                ["👤 Profilim", "📅 Kunlik dars jadvalim"],
+                ["📋 Mening vazifalarim", "💰 Oylik va hisoblar"],
+                ["🔔 Bildirishnomalar", "📊 Kunlik Hisobot"],
+                ["🌐 Tilni o'zgartirish"]
+            ])
+
         if text == "🇺🇿 O'zbekcha":
             user.telegram_language = 'uz'
             user.save()
             msg = "Til tanlandi: O'zbekcha! 🇺🇿"
-            menu = get_reply_keyboard([["👤 Profilim", "📅 Kunlik dars jadvalim"], ["📊 Kunlik Hisobot", "🌐 Tilni o'zgartirish"]])
+            menu = get_reply_keyboard([
+                ["👤 Profilim", "📅 Kunlik dars jadvalim"],
+                ["📋 Mening vazifalarim", "💰 Oylik va hisoblar"],
+                ["🔔 Bildirishnomalar", "📊 Kunlik Hisobot"],
+                ["🌐 Tilni o'zgartirish"]
+            ])
             send_telegram_message(token, chat_id, msg, menu)
             return
 
@@ -292,7 +454,12 @@ def handle_telegram_update(bot_type, token, update_data):
             user.telegram_language = 'ru'
             user.save()
             msg = "Язык выбран: Русский! 🇷🇺"
-            menu = get_reply_keyboard([["👤 Мой профиль", "📅 Мое расписание"], ["📊 Дневной отчет", "🌐 Сменить язык"]])
+            menu = get_reply_keyboard([
+                ["👤 Мой профиль", "📅 Мое расписание"],
+                ["📋 Мои задачи", "💰 Зарплата и расчеты"],
+                ["🔔 Уведомления", "📊 Дневной отчет"],
+                ["🌐 Сменить язык"]
+            ])
             send_telegram_message(token, chat_id, msg, menu)
             return
 
@@ -323,13 +490,13 @@ def handle_telegram_update(bot_type, token, update_data):
                     f"Telefon: {user.phone or 'Kiritilmagan'}\n"
                     f"O'qitadigan guruhlar: {groups_str}\n"
                 )
-            send_telegram_message(token, chat_id, res)
+            send_telegram_message(token, chat_id, res, menu)
 
         elif text in ["📅 Kunlik dars jadvalim", "📅 Мое расписание"]:
             schedules = LessonSchedule.objects.filter(teacher=user).select_related('group', 'group__course')
             if not schedules.exists():
                 err_msg = "Kunlik dars jadvallari topilmadi." if lang == 'uz' else "Расписание занятий не найдено."
-                send_telegram_message(token, chat_id, err_msg)
+                send_telegram_message(token, chat_id, err_msg, menu)
                 return
 
             if lang == 'ru':
@@ -352,7 +519,79 @@ def handle_telegram_update(bot_type, token, update_data):
                         f"🗓 Kunlar: {day_type_str}\n"
                         f"🚪 Xona: {sch.room_name}\n\n"
                     )
-            send_telegram_message(token, chat_id, res)
+            send_telegram_message(token, chat_id, res, menu)
+
+        elif text in ["📋 Mening vazifalarim", "📋 Мои задачи"]:
+            from tasks.models import Item
+            tasks = Item.objects.filter(assigned_to=user, is_completed=False).order_by('due_date')[:10]
+            if not tasks.exists():
+                res = "Sizga yuklatilgan faol vazifalar topilmadi." if lang == 'uz' else "Активные задачи не найдены."
+            else:
+                if lang == 'ru':
+                    res = "<b>📋 Ваши активные задачи (до 10 шт):</b>\n\n"
+                    for t in tasks:
+                        due = t.due_date.strftime("%d.%m.%Y %H:%M") if t.due_date else "Не указан"
+                        res += f"📌 <b>{t.title}</b>\n💬 {t.description or '-'}\n📅 Срок: {due}\n\n"
+                else:
+                    res = "<b>📋 Sizning faol vazifalaringiz (10 tagacha):</b>\n\n"
+                    for t in tasks:
+                        due = t.due_date.strftime("%d.%m.%Y %H:%M") if t.due_date else "Kiritilmagan"
+                        res += f"📌 <b>{t.title}</b>\n💬 {t.description or '-'}\n📅 Muddat: {due}\n\n"
+            send_telegram_message(token, chat_id, res, menu)
+
+        elif text in ["💰 Oylik va hisoblar", "💰 Зарплата и расчеты"]:
+            from finance.models import Salary, TeacherSalaryCalculation
+            salaries = Salary.objects.filter(employee=user).order_by('-date')[:5]
+            calcs = TeacherSalaryCalculation.objects.filter(teacher=user).order_by('-created_at')[:5]
+            
+            if lang == 'ru':
+                res = "<b>💰 Зарплата и финансовые расчеты:</b>\n\n"
+                res += "💵 <b>Последние выплаты:</b>\n"
+                if not salaries.exists():
+                    res += "  Выплаты не найдены.\n"
+                for s in salaries:
+                    status = "Оплачено ✅" if s.status == 'paid' else "В ожидании ⏳"
+                    res += f"  • {s.date}: <code>{int(s.amount):,} UZS</code> - {status}\n"
+                
+                res += "\n📊 <b>Последние расчеты зарплаты:</b>\n"
+                if not calcs.exists():
+                    res += "  Расчеты не найдены.\n"
+                for c in calcs:
+                    res += f"  • Период: {c.period}\n    Начислено: <code>{int(c.calculated_amount):,}</code> | Бонус: {int(c.bonus):,} | Штраф: {int(c.penalty):,}\n"
+            else:
+                res = "<b>💰 Oylik va moliyaviy hisob-kitoblar:</b>\n\n"
+                res += "💵 <b>Oxirgi oylik to'lovlari:</b>\n"
+                if not salaries.exists():
+                    res += "  To'lovlar topilmadi.\n"
+                for s in salaries:
+                    status = "To'langan ✅" if s.status == 'paid' else "Kutilmoqda ⏳"
+                    res += f"  • {s.date}: <code>{int(s.amount):,} UZS</code> - {status}\n"
+                
+                res += "\n📊 <b>Oxirgi oylik hisob-kitoblari:</b>\n"
+                if not calcs.exists():
+                    res += "  Hisob-kitoblar topilmadi.\n"
+                for c in calcs:
+                    res += f"  • Davr: {c.period}\n    Hisoblandi: <code>{int(c.calculated_amount):,}</code> | Bonus: {int(c.bonus):,} | Jarima: {int(c.penalty):,}\n"
+            res = res.replace(",", " ")
+            send_telegram_message(token, chat_id, res, menu)
+
+        elif text in ["🔔 Bildirishnomalar", "🔔 Уведомления"]:
+            from communication.models import Notification
+            notifs = Notification.objects.filter(user=user).order_by('-created_at')[:10]
+            if not notifs.exists():
+                res = "Yangi bildirishnomalar mavjud emas." if lang == 'uz' else "Новые уведомления отсутствуют."
+            else:
+                if lang == 'ru':
+                    res = "<b>🔔 Ваши последние уведомления (до 10 шт):</b>\n\n"
+                    for n in notifs:
+                        date_str = n.created_at.strftime("%d.%m.%Y %H:%M")
+                        res += f"📅 {date_str}\n📌 <b>{n.title}</b>\n💬 {n.message}\n\n"
+                else:
+                    res = "<b>🔔 Sizning oxirgi bildirishnomalaringiz (10 tagacha):</b>\n\n"
+                    for n in notifs:
+                        date_str = n.created_at.strftime("%d.%m.%Y %H:%M")
+                        res += f"📅 {date_str}\n📌 <b>{n.title}</b>\n💬 {n.message}\n\n"
+            send_telegram_message(token, chat_id, res, menu)
 
         elif text in ["📊 Kunlik Hisobot", "📊 Дневной отчет"]:
             from django.utils import timezone
@@ -362,14 +601,14 @@ def handle_telegram_update(bot_type, token, update_data):
                 yesterday = (timezone.now() - timedelta(days=1)).date()
                 try:
                     report_msg = generate_daily_report_message(user.organization, yesterday, lang=lang)
-                    send_telegram_message(token, chat_id, report_msg)
+                    send_telegram_message(token, chat_id, report_msg, menu)
                 except Exception as e:
                     err_msg = f"Hisobot shakllantirishda xatolik: {str(e)}" if lang == 'uz' else f"Ошибка формирования отчета: {str(e)}"
-                    send_telegram_message(token, chat_id, err_msg)
+                    send_telegram_message(token, chat_id, err_msg, menu)
             else:
                 err_msg = "Tashkilotingiz aniqlanmadi." if lang == 'uz' else "Ваша организация не определена."
-                send_telegram_message(token, chat_id, err_msg)
+                send_telegram_message(token, chat_id, err_msg, menu)
 
         else:
             err_msg = "Noma'lum buyruq. Iltimos menyudan foydalaning." if lang == 'uz' else "Неизвестная команда. Пожалуйста, используйте меню."
-            send_telegram_message(token, chat_id, err_msg)
+            send_telegram_message(token, chat_id, err_msg, menu)

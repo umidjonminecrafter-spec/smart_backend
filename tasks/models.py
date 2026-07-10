@@ -101,3 +101,42 @@ class TaskHistory(TenantModel):
     def __str__(self):
         return f"{self.user} - {self.action} on {self.item.title} at {self.created_at}"
 
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+@receiver(post_save, sender=Item)
+def notify_task_assignment(sender, instance, created, **kwargs):
+    if created and instance.assigned_to and getattr(instance.assigned_to, 'telegram_chat_id', None):
+        try:
+            from organizations.models import TelegramNotificationSetting
+            from academics.telegram_bot import send_telegram_message
+            
+            setting = TelegramNotificationSetting.objects.filter(organization=instance.organization).first()
+            token = setting.staff_bot_token or setting.bot_token if setting else None
+            
+            if not token:
+                from django.conf import settings
+                token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
+                
+            lang = getattr(instance.assigned_to, 'telegram_language', 'uz') or 'uz'
+            due = instance.due_date.strftime("%d.%m.%Y %H:%M") if instance.due_date else "-"
+            
+            if lang == 'ru':
+                msg = (
+                    f"<b>📋 Новая задача назначена вам:</b>\n\n"
+                    f"📌 Заголовок: {instance.title}\n"
+                    f"💬 Описание: {instance.description or '-'}\n"
+                    f"📅 Срок выполнения: <b>{due}</b>"
+                )
+            else:
+                msg = (
+                    f"<b>📋 Sizga yangi vazifa yuklatildi:</b>\n\n"
+                    f"📌 Sarlavha: {instance.title}\n"
+                    f"💬 Tavsif: {instance.description or '-'}\n"
+                    f"📅 Muddat: <b>{due}</b>"
+                )
+            send_telegram_message(token, instance.assigned_to.telegram_chat_id, msg)
+        except Exception as e:
+            print(f"Error sending telegram task notification: {str(e)}")
+

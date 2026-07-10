@@ -2403,11 +2403,9 @@ class DiscountsAndBonusesReportView(APIView):
 
         # Munosabatlarni oldindan yuklaymiz (prefetch_related)
         discount_txs = base_txs.filter(discount_filter).select_related('student', 'source_payment').prefetch_related(
-            'student__group_students__group__course',
             'student__student_groups__group__course'
         )
         bonus_txs = base_txs.filter(bonus_filter).select_related('student', 'source_payment').prefetch_related(
-            'student__group_students__group__course',
             'student__student_groups__group__course'
         )
 

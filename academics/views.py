@@ -796,7 +796,11 @@ class StudentTransactionsView(TenantViewSetMixin, generics.ListAPIView):
         if branch_id:
             queryset = queryset.filter(Q(branch_id=branch_id) | Q(branch__isnull=True))
 
-        student_id = self.request.query_params.get('student')
+        student_id = (
+            self.request.query_params.get('student') or
+            self.request.query_params.get('student_id') or
+            self.request.query_params.get('id')
+        )
         if student_id:
             queryset = queryset.filter(student_id=student_id)
         return queryset

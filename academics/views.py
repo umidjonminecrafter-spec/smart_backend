@@ -185,6 +185,26 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         group_id = self.request.query_params.get('group') or self.request.query_params.get('group_id')
         if group_id:
             queryset = queryset.filter(student_groups__group_id=group_id)
+
+        # 🌟 Yangi: ID bo'yicha filterlash
+        student_id = self.request.query_params.get('id')
+        if student_id:
+            queryset = queryset.filter(id=student_id)
+
+        # 🌟 Yangi: Agar search param berilgan bo'lsa va u raqam (ID) bo'lsa, ID bo'yicha ham qidiramiz
+        search_param = self.request.query_params.get('search')
+        if search_param and search_param.isdigit():
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(id=int(search_param)) |
+                Q(first_name__icontains=search_param) |
+                Q(last_name__icontains=search_param) |
+                Q(phone__icontains=search_param) |
+                Q(email__icontains=search_param)
+            )
+            # Standart SearchFilter qaytadan ishlamasligi uchun search_fields ni vaqtincha tozalaymiz
+            self.search_fields = []
+
         return queryset
 
     def perform_create(self, serializer):

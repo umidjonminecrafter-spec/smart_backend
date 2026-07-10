@@ -1802,6 +1802,11 @@ class TransactionReportAPIView(APIView):
             organization=request.user.organization
         ).select_related('student', 'cashbox', 'employee').order_by('-date', '-id')
 
+        # Filter: Branch bo'yicha (filiallararo ma'lumotlar aralashib ketmasligi uchun)
+        branch_id = get_active_branch_id(request)
+        if branch_id:
+            queryset = queryset.filter(cashbox__branch_id=branch_id)
+
         # Filter: Kassa bo'yicha
         cashbox_id = request.query_params.get('cashbox_id')
         if cashbox_id:

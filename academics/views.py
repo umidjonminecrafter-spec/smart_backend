@@ -548,7 +548,10 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         })
 
         for gt in GroupTeacher.objects.filter(group=group).select_related('teacher'):
-            teacher_name = gt.teacher.get_full_name() or gt.teacher.username
+            if gt.teacher:
+                teacher_name = gt.teacher.get_full_name() or gt.teacher.username
+            else:
+                teacher_name = "Noma'lum o'qituvchi"
             gt_time = getattr(gt, 'created_at', timezone.now()) or timezone.now()
             logs.append({
                 "action": "O'qituvchi",
@@ -557,7 +560,10 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             })
 
         for sg in StudentGroup.objects.filter(group=group).select_related('student'):
-            student_name = f"{sg.student.first_name} {sg.student.last_name or ''}".strip()
+            if sg.student:
+                student_name = f"{sg.student.first_name} {sg.student.last_name or ''}".strip()
+            else:
+                student_name = "Noma'lum talaba"
             sg_time = getattr(sg, 'joined_at', timezone.now()) or timezone.now()
             logs.append({
                 "action": "Qo'shildi",
@@ -566,7 +572,10 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             })
 
         for sgl in StudentGroupLeave.objects.filter(group=group).select_related('student', 'leave_reason'):
-            student_name = f"{sgl.student.first_name} {sgl.student.last_name or ''}".strip()
+            if sgl.student:
+                student_name = f"{sgl.student.first_name} {sgl.student.last_name or ''}".strip()
+            else:
+                student_name = "Noma'lum talaba"
             reason = sgl.leave_reason.reason if sgl.leave_reason else "ko'rsatilmagan"
             sgl_time = getattr(sgl, 'leave_date', timezone.now()) or timezone.now()
             logs.append({

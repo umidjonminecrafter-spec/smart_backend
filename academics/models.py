@@ -620,6 +620,8 @@ class BotMessageTemplate(TenantModel):
     )
 
     TEMPLATE_TYPES = (
+        ('telegram', 'Telegram'),
+        ('sms', 'SMS'),
         # CRM (Lidlar) uchun shablonlar
         ('lead_marketing', 'Lid: Reklama/Aksiya xabari'),
         ('lead_holiday', 'Lid: Bayram tabrigi'),

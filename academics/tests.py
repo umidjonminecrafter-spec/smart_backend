@@ -686,6 +686,42 @@ class CourseMaterialAndOnlineLessonTests(APITestCase):
         calc.refresh_from_db()
         self.assertEqual(float(calc.calculated_amount), expected_teacher_share)
 
+    def test_archived_student_excluded_from_group(self):
+        """
+        Verify that archived students are not returned in group student list APIs or counts.
+        """
+        # Initially student1 is not archived, check they are included
+        self.client.force_authenticate(user=self.admin1)
+        
+        # Check GroupSerializer students list & count
+        group_url = reverse('group-detail', kwargs={'pk': self.group1.id})
+        response = self.client.get(f"{group_url}?org_id={self.org1.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['student_count'], 1)
+        self.assertEqual(len(response.data['students']), 1)
+        self.assertEqual(response.data['students'][0]['id'], self.student1.id)
+
+        # Check student-groups list API
+        sg_list_url = reverse('student-group-list')
+        sg_response = self.client.get(f"{sg_list_url}?org_id={self.org1.id}&group={self.group1.id}")
+        self.assertEqual(sg_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(sg_response.data), 1)
+
+        # Now archive student1
+        self.student1.is_archived = True
+        self.student1.save()
+
+        # Check GroupSerializer again -> count should be 0, student list empty
+        response2 = self.client.get(f"{group_url}?org_id={self.org1.id}")
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.data['student_count'], 0)
+        self.assertEqual(len(response2.data['students']), 0)
+
+        # Check student-groups list API again -> should be empty
+        sg_response2 = self.client.get(f"{sg_list_url}?org_id={self.org1.id}&group={self.group1.id}")
+        self.assertEqual(sg_response2.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(sg_response2.data), 0)
+
 
 
 

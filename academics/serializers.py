@@ -321,10 +321,10 @@ class GroupSerializer(serializers.ModelSerializer):
         return GroupTeacherSerializer(obj.group_teachers.all(), many=True).data
 
     def get_student_count(self, obj):
-        return obj.group_students.count()
+        return obj.group_students.filter(student__isnull=False, student__is_archived=False).count()
 
     def get_students_count(self, obj):
-        return obj.group_students.count()
+        return obj.group_students.filter(student__isnull=False, student__is_archived=False).count()
 
     def get_students(self, obj):
         request = self.context.get('request')
@@ -332,7 +332,7 @@ class GroupSerializer(serializers.ModelSerializer):
             return []
         students_list = []
         for sg in obj.group_students.select_related('student').all():
-            if sg.student:
+            if sg.student and not sg.student.is_archived:
                 students_list.append({
                     'id': sg.student.id,
                     'name': f"{sg.student.first_name} {sg.student.last_name or ''}".strip(),
@@ -415,12 +415,17 @@ class GroupSerializer(serializers.ModelSerializer):
 
 
 class StudentGroupSerializer(serializers.ModelSerializer):
-    student_name = serializers.CharField(source='student.__str__', read_only=True)
+    student_name = serializers.SerializerMethodField(read_only=True)
     group_name = serializers.CharField(source='group.name', read_only=True)
     course_name = serializers.CharField(source='group.course.name', read_only=True)
     teacher = serializers.SerializerMethodField(read_only=True)
     teacher_name = serializers.SerializerMethodField(read_only=True)
     price = serializers.SerializerMethodField(read_only=True)
+
+    def get_student_name(self, obj):
+        if obj.student:
+            return f"{obj.student.first_name} {obj.student.last_name or ''}".strip()
+        return "O'chirilgan Talaba"
 
     class Meta:
         model = StudentGroup

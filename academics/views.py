@@ -736,6 +736,10 @@ class StudentGroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     filterset_fields = ['group', 'student']
     pagination_class = None
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.filter(student__isnull=False, student__is_archived=False)
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         leave_reason_id = request.query_params.get('leave_reason_id') or request.query_params.get('leave_reason')

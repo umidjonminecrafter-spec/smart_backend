@@ -722,6 +722,89 @@ class CourseMaterialAndOnlineLessonTests(APITestCase):
         self.assertEqual(sg_response2.status_code, status.HTTP_200_OK)
         self.assertEqual(len(sg_response2.data), 0)
 
+    def test_import_excel_csv(self):
+        """
+        Verify that Excel/CSV student import API parses columns and creates students.
+        """
+        self.client.force_authenticate(user=self.admin1)
+        import_url = reverse('student-import-excel')
+
+        # 1. Test CSV Import
+        csv_content = (
+            "Ism,Familiya,Telefon,Balans,Tug'ilgan sana\n"
+            "Vali,Aliyev,+998909876543,-50000,10.05.2010\n"
+            "Sardor,Karimov,+998901234567,10000,2008-12-05\n"
+        )
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        csv_file = SimpleUploadedFile("students.csv", csv_content.encode('utf-8'), content_type="text/csv")
+
+        response = self.client.post(
+            f"{import_url}?org_id={self.org1.id}",
+            data={'file': csv_file},
+            format='multipart'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['success_count'], 2)
+        self.assertEqual(len(response.data['errors']), 0)
+
+        # Verify students created
+        from academics.models import Student
+        vali = Student.objects.get(phone="+998909876543", organization=self.org1)
+        self.assertEqual(vali.first_name, "Vali")
+        self.assertEqual(vali.last_name, "Aliyev")
+        self.assertEqual(float(vali.balance), -50000.00)
+        self.assertEqual(vali.birth_date.isoformat(), "2010-05-10")
+
+        sardor = Student.objects.get(phone="+998901234567", organization=self.org1)
+        self.assertEqual(sardor.first_name, "Sardor")
+        self.assertEqual(sardor.birth_date.isoformat(), "2008-12-05")
+
+        # 2. Test XLSX Import
+        import openpyxl
+        from io import BytesIO
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Ism", "Familiya", "Telefon", "Balans", "Tug'ilgan sana"])
+        ws.append(["Madina", "Rustamova", "+998901113344", "0", "15/08/2009"])
+        
+        excel_file = BytesIO()
+        wb.save(excel_file)
+        excel_file.seek(0)
+        
+        xlsx_file = SimpleUploadedFile("students.xlsx", excel_file.read(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        
+        response2 = self.client.post(
+            f"{import_url}?org_id={self.org1.id}",
+            data={'file': xlsx_file},
+            format='multipart'
+        )
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.data['success_count'], 1)
+
+        madina = Student.objects.get(phone="+998901113344", organization=self.org1)
+        self.assertEqual(madina.first_name, "Madina")
+        self.assertEqual(madina.birth_date.isoformat(), "2009-08-15")
+
+    def test_group_attendance_invalid_student(self):
+        """
+        Verify that posting attendance with a non-existent student ID returns 400 Bad Request
+        instead of throwing a 500 error.
+        """
+        self.client.force_authenticate(user=self.admin1)
+        attendance_url = reverse('group-attendance', kwargs={'group_id': self.group1.id})
+        
+        response = self.client.post(
+            f"{attendance_url}?org_id={self.org1.id}",
+            data=[{
+                "student": 999999,  # Non-existent student ID
+                "status": "present",
+                "date": "2026-07-11"
+            }],
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("bazada topilmadi", response.data['detail'])
+
 
 
 

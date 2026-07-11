@@ -1157,7 +1157,10 @@ def attendance_pre_save(sender, instance, **kwargs):
         try:
             old = Attendance.objects.get(pk=instance.pk)
             instance._old_status = old.status
-            instance._old_student = old.student
+            try:
+                instance._old_student = old.student
+            except Student.DoesNotExist:
+                instance._old_student = None
             instance._old_group = old.group
             instance._old_date = old.date
         except Attendance.DoesNotExist:
@@ -1174,8 +1177,13 @@ def attendance_pre_save(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Attendance)
 def attendance_post_save(sender, instance, created, **kwargs):
+    try:
+        student = instance.student
+    except Student.DoesNotExist:
+        student = None
+        
     # We only charge/refund if organization and student are valid
-    if not instance.student or not instance.group or not instance.organization:
+    if not student or not instance.group or not instance.organization:
         return
     
     # Check if the new state is billable
@@ -1196,7 +1204,7 @@ def attendance_post_save(sender, instance, created, **kwargs):
 
     # If student/group/date changed on update, we reverse the old billable state (if it was billable)
     # and apply the new billable state.
-    student_changed = old_student and old_student != instance.student
+    student_changed = old_student and old_student != student
     group_changed = old_group and old_group != instance.group
     date_changed = old_date and old_date != instance.date
     
@@ -1214,7 +1222,7 @@ def attendance_post_save(sender, instance, created, **kwargs):
         # Apply new billable state for the new student/group/date
         if new_is_billable:
             charge_attendance(
-                student=instance.student,
+                student=student,
                 group=instance.group,
                 date=instance.date,
                 attendance_id=instance.id,
@@ -1225,7 +1233,7 @@ def attendance_post_save(sender, instance, created, **kwargs):
         if old_is_billable and not new_is_billable:
             # Refund
             refund_attendance(
-                student=instance.student,
+                student=student,
                 group=instance.group,
                 date=instance.date,
                 attendance_id=instance.id,
@@ -1234,7 +1242,7 @@ def attendance_post_save(sender, instance, created, **kwargs):
         elif not old_is_billable and new_is_billable:
             # Charge
             charge_attendance(
-                student=instance.student,
+                student=student,
                 group=instance.group,
                 date=instance.date,
                 attendance_id=instance.id,
@@ -1243,7 +1251,7 @@ def attendance_post_save(sender, instance, created, **kwargs):
         elif old_is_billable and new_is_billable:
             # Re-charge / update transaction
             charge_attendance(
-                student=instance.student,
+                student=student,
                 group=instance.group,
                 date=instance.date,
                 attendance_id=instance.id,
@@ -1253,11 +1261,16 @@ def attendance_post_save(sender, instance, created, **kwargs):
 
 @receiver(post_delete, sender=Attendance)
 def attendance_post_delete(sender, instance, **kwargs):
-    if instance.student and instance.group and instance.organization:
+    try:
+        student = instance.student
+    except Student.DoesNotExist:
+        student = None
+        
+    if student and instance.group and instance.organization:
         was_billable = instance.status in ['present', 'late']
         if was_billable:
             refund_attendance(
-                student=instance.student,
+                student=student,
                 group=instance.group,
                 date=instance.date,
                 attendance_id=instance.id,

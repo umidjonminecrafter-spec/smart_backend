@@ -1035,7 +1035,7 @@ class StudentDebtsSummaryView(TenantViewSetMixin, APIView):
 
         from django.db.models import Q
         branch_id = self.get_branch_id()
-        base_filter = Q(organization_id=org_id, balance__lt=0, is_archived=False)
+        base_filter = Q(organization_id=org_id, balance__lt=0) & ~Q(is_archived=True)
         if branch_id:
             base_filter &= (Q(branch_id=branch_id) | Q(branch__isnull=True))
 

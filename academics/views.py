@@ -181,7 +181,7 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     pagination_class = None
 
     def get_queryset(self):
-        queryset = super().get_queryset().filter(is_archived=False)
+        queryset = super().get_queryset().exclude(is_archived=True)
         group_id = self.request.query_params.get('group') or self.request.query_params.get('group_id')
         if group_id:
             queryset = queryset.filter(student_groups__group_id=group_id)
@@ -738,7 +738,7 @@ class StudentGroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        return qs.filter(student__isnull=False, student__is_archived=False)
+        return qs.filter(student__isnull=False).exclude(student__is_archived=True)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

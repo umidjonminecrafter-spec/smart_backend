@@ -54,6 +54,16 @@ class LeadSerializer(serializers.ModelSerializer):
             data['phone'] = data['phone_number']
         return super().to_internal_value(data)
 
+    def validate(self, attrs):
+        phone = attrs.get('phone')
+        if phone:
+            from academics.models import Student
+            if Student.objects.filter(phone=phone, is_archived=True, balance__lt=0).exists():
+                raise serializers.ValidationError({
+                    "phone": "Ushbu telefon raqamli talaba arxivda qarzdorlik bilan turibdi. Uni lidga qaytarib bo'lmaydi!"
+                })
+        return attrs
+
     def to_representation(self, instance):
         rep = super().to_representation(instance)
         rep['full_name'] = instance.name

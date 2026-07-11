@@ -85,6 +85,7 @@ class Student(TenantModel):
                                      verbose_name="Qarzdorlik limiti")
     student_login = models.CharField(null=True, blank=True,)
     parent_login = models.CharField(null=True, blank=True,)
+    is_archived = models.BooleanField(default=False)
 
     def __str__(self):
         if self.last_name:

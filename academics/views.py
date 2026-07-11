@@ -181,7 +181,7 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     pagination_class = None
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().filter(is_archived=False)
         group_id = self.request.query_params.get('group') or self.request.query_params.get('group_id')
         if group_id:
             queryset = queryset.filter(student_groups__group_id=group_id)
@@ -236,6 +236,8 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         reason = request.query_params.get('reason') or request.data.get('reason') or "O'chirib tashlangan"
         comment = request.query_params.get('comment') or request.data.get('comment') or ""
+        
+        # Arxiv yozuvini yaratish
         StudentArchive.objects.create(
             organization=instance.organization,
             branch=instance.branch,
@@ -248,11 +250,20 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             comment=comment,
             archived_by=request.user.get_full_name() or request.user.username if request.user.is_authenticated else "Tizim"
         )
-        # Delete corresponding student user account to deactivate it and free up the phone number
+        
         from accounts.models import User
-        if instance.phone:
-            User.objects.filter(username=instance.phone, role='student').delete()
-        return super().destroy(request, *args, **kwargs)
+        if instance.balance < 0:
+            # Qarzdorligi bor: Soft delete qilinadi va User faqat bloklanadi
+            instance.is_archived = True
+            instance.save(update_fields=['is_archived'])
+            if instance.phone:
+                User.objects.filter(username=instance.phone, role='student').update(is_active=False)
+            return Response({"detail": "Qarzdorligi borligi sababli talaba yumshoq o'chirildi (arxivlandi).", "id": instance.id}, status=status.HTTP_200_OK)
+        else:
+            # Qarzdorligi yo'q: Butunlay o'chiriladi va User akkaunti ham o'chiriladi
+            if instance.phone:
+                User.objects.filter(username=instance.phone, role='student').delete()
+            return super().destroy(request, *args, **kwargs)
 
     @decorators.action(detail=True, methods=['post'], url_path='add-payment')
     def add_payment(self, request, pk=None):
@@ -1262,6 +1273,27 @@ class StudentArchiveViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter]
     search_fields = ['first_name', 'last_name', 'phone', 'email']
 
+    def destroy(self, request, *args, **kwargs):
+        from rest_framework import exceptions
+        archive_item = self.get_object()
+        
+        # Check if there is a corresponding archived student with active debt
+        archived_student = Student.objects.filter(phone=archive_item.phone, is_archived=True).first()
+        if archived_student and archived_student.balance < 0:
+            raise exceptions.ValidationError({
+                "detail": "Qarzdorligi bor talabani arxivdan o'chirib bo'lmaydi! Avval qarzi to'lanishi kerak."
+            })
+            
+        # Otherwise, perform hard deletion
+        if archived_student:
+            archived_student.delete()
+            
+        from accounts.models import User
+        username = archive_item.phone or archive_item.email or f"user_{archive_item.id}"
+        User.objects.filter(username=username, role='student').delete()
+        
+        return super().destroy(request, *args, **kwargs)
+
     @decorators.action(detail=True, methods=['post'])
     def restore(self, request, pk=None):
         archive_item = self.get_object()
@@ -1273,9 +1305,24 @@ class StudentArchiveViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
         if is_student:
             # Check if active student already exists
-            if Student.objects.filter(phone=archive_item.phone).exists():
+            if Student.objects.filter(phone=archive_item.phone, is_archived=False).exists():
                 return Response({"detail": "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."},
                                 status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if archived student exists in Student table
+            archived_student = Student.objects.filter(phone=archive_item.phone, is_archived=True).first()
+            if archived_student:
+                archived_student.is_archived = False
+                archived_student.save(update_fields=['is_archived'])
+                
+                # Reactivate user account
+                existing_user = User.objects.filter(username=username).first()
+                if existing_user:
+                    existing_user.is_active = True
+                    existing_user.save(update_fields=['is_active'])
+                
+                archive_item.delete()
+                return Response({"status": "success", "detail": "Restored successfully."}, status=status.HTTP_200_OK)
 
             existing_user = User.objects.filter(username=username).first()
             if existing_user:

@@ -520,6 +520,83 @@ class CourseMaterialAndOnlineLessonTests(APITestCase):
         self.assertEqual(att.grade, 5)
         self.assertEqual(att.reason, "Kasal bo'lib qoldi")
 
+    def test_debtor_student_archiving_flow(self):
+        """
+        Verify that a debtor student is soft-deleted, is retained in debtor list,
+        is excluded from total debt, blocked from lead, and blocked from archive deletion until debt is paid.
+        """
+        from accounts.models import User
+        from academics.models import StudentArchive
+        from crm.models import Lead
+
+        # Make student1 a debtor
+        self.student1.balance = -150000.00
+        self.student1.save()
+
+        self.client.force_authenticate(user=self.admin1)
+
+        # 1. Delete student1 -> Should soft delete and deactivate user
+        url = reverse('student-detail', kwargs={'pk': self.student1.id})
+        response = self.client.delete(f"{url}?org_id={self.org1.id}&reason=Qarzdor&comment=Uzilmadi")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Student should still exist in Student table (is_archived=True)
+        self.student1.refresh_from_db()
+        self.assertTrue(self.student1.is_archived)
+
+        # User is deactivated (is_active=False), not deleted
+        student_user = User.objects.get(username=self.student1.phone, role="student")
+        self.assertFalse(student_user.is_active)
+
+        # StudentArchive entry exists
+        archive = StudentArchive.objects.get(phone=self.student1.phone)
+        self.assertEqual(archive.reason, "Qarzdor")
+
+        # 2. Debtor students list still contains the student, but summary does not
+        debtors_url = reverse('student-debts-list')
+        debtors_response = self.client.get(f"{debtors_url}?org_id={self.org1.id}")
+        self.assertEqual(debtors_response.status_code, status.HTTP_200_OK)
+        # There should be our student in the response
+        if isinstance(debtors_response.data, dict) and 'results' in debtors_response.data:
+            student_ids = [d['id'] for d in debtors_response.data['results']]
+        else:
+            student_ids = [d['id'] for d in debtors_response.data]
+        self.assertIn(self.student1.id, student_ids)
+
+        # Summary total should exclude archived student
+        summary_url = reverse('student-debts-summary')
+        summary_response = self.client.get(f"{summary_url}?org_id={self.org1.id}")
+        self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(float(summary_response.data['total_student_debts']), 0.0)
+
+        # 3. CRM Lead creation/update with this phone number should be blocked
+        lead_url = reverse('lead-list')
+        lead_data = {
+            "name": "Arxivlangan Qarzdor Lead",
+            "phone": self.student1.phone
+        }
+        lead_response = self.client.post(f"{lead_url}?org_id={self.org1.id}", data=lead_data, format='json')
+        self.assertEqual(lead_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue("phone" in lead_response.data or "Telefon raqam" in lead_response.data)
+
+        # 4. Deleting archive entry from StudentArchiveViewSet should fail due to active debt
+        archive_detail_url = reverse('student-archive-detail', kwargs={'pk': archive.id})
+        archive_del_response = self.client.delete(f"{archive_detail_url}?org_id={self.org1.id}")
+        self.assertEqual(archive_del_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 5. Settle the debt -> should allow deletion
+        self.student1.balance = 0.00
+        self.student1.save()
+
+        # Delete archive entry again -> should succeed
+        archive_del_response2 = self.client.delete(f"{archive_detail_url}?org_id={self.org1.id}")
+        self.assertEqual(archive_del_response2.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Student and User should now be completely deleted from the database
+        self.assertFalse(Student.objects.filter(id=self.student1.id).exists())
+        self.assertFalse(User.objects.filter(username=self.student1.phone, role="student").exists())
+
+
 
 
 

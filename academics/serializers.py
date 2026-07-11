@@ -115,9 +115,14 @@ class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
         fields = [
-            'id', 'first_name', 'last_name', 'phone', 'balance',
+            'id', 'first_name', 'last_name', 'phone', 'email', 'balance',
             'referred_by', 'moderator', 'debt_limit',
-            'student_login', 'parent_login','password'
+            'student_login', 'parent_login', 'password',
+            'telegram_chat_id', 'category', 'birth_date', 'application',
+            'language', 'payment_date', 'address', 'target_university',
+            'father_name', 'father_phone', 'father_email', 'father_telegram_chat_id',
+            'mother_name', 'mother_phone', 'mother_email', 'mother_telegram_chat_id',
+            'is_archived'
         ]
         read_only_fields = ('organization', 'created_at', 'updated_at')
 

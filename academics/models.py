@@ -1061,6 +1061,52 @@ def charge_attendance(student, group, date, attendance_id, organization):
         student.balance = Decimal(str(student.balance)) - lesson_cost
         student.save(update_fields=['balance'])
 
+    # Update teacher salary calculation if they have a percentage rule
+    if group.teacher:
+        teacher = group.teacher
+        percentage = None
+        if teacher.salary_percentage:
+            percentage = Decimal(str(teacher.salary_percentage.percent))
+        else:
+            from finance.models import TeacherSalaryRule
+            period = f"{date.year:04d}-{date.month:02d}"
+            rule = TeacherSalaryRule.objects.filter(
+                organization=organization,
+                teacher=teacher,
+                period=period,
+                is_active=True
+            ).first()
+            if rule and rule.rule_type == 'percentage':
+                percentage = Decimal(str(rule.rate))
+        
+        if percentage is not None:
+            teacher_share = lesson_cost * (percentage / Decimal('100.00'))
+            teacher_share = round(teacher_share, 2)
+            
+            from finance.models import TeacherSalaryCalculation
+            period = f"{date.year:04d}-{date.month:02d}"
+            calc, _ = TeacherSalaryCalculation.objects.get_or_create(
+                organization=organization,
+                teacher=teacher,
+                period=period,
+                defaults={'calculated_amount': Decimal('0.00')}
+            )
+            
+            # Update details and calculate the new sum
+            details = calc.details or {}
+            attendance_charges = details.get('attendance_charges', {})
+            attendance_charges[str(attendance_id)] = str(teacher_share)
+            details['attendance_charges'] = attendance_charges
+            
+            # Recalculate sum of all charges
+            total_sum = Decimal('0.00')
+            for val in attendance_charges.values():
+                total_sum += Decimal(str(val))
+                
+            calc.details = details
+            calc.calculated_amount = total_sum
+            calc.save()
+
 
 def refund_attendance(student, group, date, attendance_id, organization):
     from decimal import Decimal
@@ -1078,6 +1124,31 @@ def refund_attendance(student, group, date, attendance_id, organization):
         # Refund student's balance
         student.balance = Decimal(str(student.balance)) + amount_to_refund
         student.save(update_fields=['balance'])
+
+    # Remove teacher salary calculation for this attendance
+    if group.teacher:
+        teacher = group.teacher
+        from finance.models import TeacherSalaryCalculation
+        period = f"{date.year:04d}-{date.month:02d}"
+        calc = TeacherSalaryCalculation.objects.filter(
+            organization=organization,
+            teacher=teacher,
+            period=period
+        ).first()
+        
+        if calc and calc.details and 'attendance_charges' in calc.details:
+            attendance_charges = calc.details['attendance_charges']
+            if str(attendance_id) in attendance_charges:
+                del attendance_charges[str(attendance_id)]
+                
+                # Recalculate sum of all charges
+                total_sum = Decimal('0.00')
+                for val in attendance_charges.values():
+                    total_sum += Decimal(str(val))
+                    
+                calc.details['attendance_charges'] = attendance_charges
+                calc.calculated_amount = total_sum
+                calc.save()
 
 
 @receiver(pre_save, sender=Attendance)

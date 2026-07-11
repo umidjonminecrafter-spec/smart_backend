@@ -836,37 +836,95 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
                     details['student_count'] = student_count
 
                 else:  # percentage
-                    total_revenue = Decimal('0.00')
+                    from academics.models import Attendance
+                    attendances = Attendance.objects.filter(
+                        group__teacher=teacher,
+                        organization_id=org_id,
+                        date__year=year,
+                        date__month=month,
+                        status__in=['present', 'late']
+                    ).select_related('student', 'group')
+                    
                     student_groups = StudentGroup.objects.filter(group__teacher=teacher,
-                                                                 organization_id=org_id).select_related('group',
-                                                                                                        'group__course')
+                                                                 organization_id=org_id)
                     student_count = student_groups.count()
+                    
+                    if attendances.exists():
+                        # Calculate based on lessons/attendances
+                        total_earned = Decimal('0.00')
+                        attendance_charges = {}
+                        
+                        for att in attendances:
+                            monthly_price = Decimal('0.00')
+                            sg = StudentGroup.objects.filter(student=att.student, group=att.group).first()
+                            if sg and sg.price is not None:
+                                monthly_price = sg.price
+                            elif att.group.course:
+                                monthly_price = att.group.course.price
+                                
+                            try:
+                                from finance.models import FinanceSetting
+                                setting = FinanceSetting.objects.filter(organization_id=org_id).first()
+                                if setting and setting.is_auto_discount_enabled:
+                                    groups_count = StudentGroup.objects.filter(student=att.student).count()
+                                    discount_percent = Decimal('0.00')
+                                    if groups_count == 2:
+                                        discount_percent = Decimal(str(setting.two_groups_discount_percent))
+                                    elif groups_count == 3:
+                                        discount_percent = Decimal(str(setting.three_groups_discount_percent))
+                                    elif groups_count >= 4:
+                                        discount_percent = Decimal(str(setting.four_groups_discount_percent))
+                                    
+                                    if discount_percent > 0:
+                                        monthly_price = monthly_price * (Decimal('1.00') - (discount_percent / Decimal('100.00')))
+                            except Exception as e:
+                                print(f"Error applying auto discount: {str(e)}")
+                                
+                            from academics.models import get_lessons_in_month
+                            lessons_in_month = get_lessons_in_month(att.group, att.date.year, att.date.month)
+                            lesson_cost = monthly_price / Decimal(lessons_in_month)
+                            lesson_cost = round(lesson_cost, 2)
+                            
+                            share = lesson_cost * (rate / Decimal('100.00'))
+                            share = round(share, 2)
+                            total_earned += share
+                            attendance_charges[str(att.id)] = str(share)
+                            
+                        calculated_amount = total_earned
+                        details['student_count'] = student_count
+                        details['attendance_charges'] = attendance_charges
+                        details['calculated_from_lessons'] = True
+                    else:
+                        # Fallback to monthly student pricing enrollment calculation
+                        total_revenue = Decimal('0.00')
+                        student_groups = StudentGroup.objects.filter(group__teacher=teacher,
+                                                                     organization_id=org_id).select_related('group',
+                                                                                                            'group__course')
+                        
+                        student_ids = [sg.student_id for sg in student_groups]
+                        course_ids = [sg.group.course_id for sg in student_groups if sg.group and sg.group.course]
 
-                    # N+1 so'rovlar muammosini oldini olish uchun barcha StudentPricing yozuvlarini bir so'rovda yuklaymiz
-                    student_ids = [sg.student_id for sg in student_groups]
-                    course_ids = [sg.group.course_id for sg in student_groups if sg.group and sg.group.course]
+                        pricings = StudentPricing.objects.filter(student_id__in=student_ids, course_id__in=course_ids)
+                        pricing_map = {(p.student_id, p.course_id): p.custom_price for p in pricings}
 
-                    pricings = StudentPricing.objects.filter(student_id__in=student_ids, course_id__in=course_ids)
-                    pricing_map = {(p.student_id, p.course_id): p.custom_price for p in pricings}
+                        for sg in student_groups:
+                            custom_price = None
+                            if sg.group and sg.group.course:
+                                custom_price = pricing_map.get((sg.student_id, sg.group.course_id))
 
-                    for sg in student_groups:
-                        custom_price = None
-                        if sg.group and sg.group.course:
-                            custom_price = pricing_map.get((sg.student_id, sg.group.course_id))
+                            if custom_price is not None:
+                                price = custom_price
+                            else:
+                                price = sg.price or getattr(sg.group, 'price', None) or (
+                                    sg.group.course.price if sg.group and sg.group.course else Decimal('0.00'))
 
-                        if custom_price is not None:
-                            price = custom_price
-                        else:
-                            price = sg.price or getattr(sg.group, 'price', None) or (
-                                sg.group.course.price if sg.group and sg.group.course else Decimal('0.00'))
+                            total_revenue += price * student_discount
 
-                        total_revenue += price * student_discount
-
-                    calculated_amount = total_revenue * (rate / Decimal('100.00'))
-                    details['student_count'] = student_count
-                    details['total_revenue'] = str(total_revenue)
-                    if stud_holiday_days > 0:
-                        details['student_holiday_days'] = stud_holiday_days
+                        calculated_amount = total_revenue * (rate / Decimal('100.00'))
+                        details['student_count'] = student_count
+                        details['total_revenue'] = str(total_revenue)
+                        if stud_holiday_days > 0:
+                            details['student_holiday_days'] = stud_holiday_days
 
             elif rule_type == 'per_hour':
                 from academics.models import LessonSchedule

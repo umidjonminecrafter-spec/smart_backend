@@ -596,6 +596,97 @@ class CourseMaterialAndOnlineLessonTests(APITestCase):
         self.assertFalse(Student.objects.filter(id=self.student1.id).exists())
         self.assertFalse(User.objects.filter(username=self.student1.phone, role="student").exists())
 
+    def test_teacher_daily_percentage_salary(self):
+        """
+        Verify that marking student attendance present/late calculates and records
+        the teacher's percentage share daily, and updates TeacherSalaryCalculation.
+        """
+        from finance.models import StaffSalaryPercent, TeacherSalaryCalculation
+        from academics.models import Attendance
+        import datetime
+
+        # 1. Create a teacher with 30% salary percent
+        percent = StaffSalaryPercent.objects.create(
+            organization=self.org1,
+            name="30%",
+            percent=30.00
+        )
+        teacher = User.objects.create_user(
+            username="teacher_test_salary",
+            password="password123",
+            role="teacher",
+            organization=self.org1,
+            salary_percentage=percent
+        )
+
+        # 2. Assign teacher to group1
+        self.group1.teacher = teacher
+        self.group1.save()
+
+        # Set course price to 800,000 UZS
+        self.course1.price = 800000.00
+        self.course1.save()
+        
+        # Update existing StudentGroup price to 800,000 UZS
+        from academics.models import StudentGroup
+        sg = StudentGroup.objects.filter(student=self.student1, group=self.group1).first()
+        if sg:
+            sg.price = 800000.00
+            sg.save()
+
+        # 3. Create attendance -> should trigger charge_attendance
+        self.client.force_authenticate(user=self.admin1)
+        url = reverse('group-attendance', kwargs={'group_id': self.group1.id})
+        data = {
+            "student": self.student1.id,
+            "date": "2026-07-11",
+            "status": "present"
+        }
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data=data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Get the attendance id and lesson cost
+        att_id = response.data['id']
+        att = Attendance.objects.get(id=att_id)
+        from academics.models import get_lessons_in_month
+        lessons_count = get_lessons_in_month(self.group1, 2026, 7)
+        expected_lesson_cost = round(800000.00 / lessons_count, 2)
+        expected_teacher_share = round(expected_lesson_cost * 0.30, 2)
+
+        # 4. Check that TeacherSalaryCalculation has correct teacher share
+        calc = TeacherSalaryCalculation.objects.get(teacher=teacher, period="2026-07")
+        self.assertEqual(float(calc.calculated_amount), expected_teacher_share)
+        self.assertEqual(calc.details['attendance_charges'][str(att_id)], str(expected_teacher_share))
+
+        # 5. Update attendance to absent -> should refund
+        update_url = reverse('attendance-detail', kwargs={'pk': att_id})
+        update_data = {
+            "status": "absent"
+        }
+        update_response = self.client.patch(f"{update_url}?org_id={self.org1.id}", data=update_data, format='json')
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Calculation amount should now be 0.00 (refunded)
+        calc.refresh_from_db()
+        self.assertEqual(float(calc.calculated_amount), 0.00)
+        self.assertNotIn(str(att_id), calc.details.get('attendance_charges', {}))
+
+        # 6. Mark present again, and verify that TeacherSalaryCalculateView recalculates correctly
+        # Mark present
+        self.client.patch(f"{update_url}?org_id={self.org1.id}", data={"status": "present"}, format='json')
+        calc.refresh_from_db()
+        self.assertEqual(float(calc.calculated_amount), expected_teacher_share)
+
+        # Call TeacherSalaryCalculateView
+        calc_view_url = reverse('teacher-salary-calculate')
+        calc_view_response = self.client.post(f"{calc_view_url}?org_id={self.org1.id}", data={"period": "2026-07"}, format='json')
+        self.assertEqual(calc_view_response.status_code, status.HTTP_201_CREATED)
+
+        # Verify that recalculation matches the expected share
+        calc.refresh_from_db()
+        self.assertEqual(float(calc.calculated_amount), expected_teacher_share)
+
+
 
 
 

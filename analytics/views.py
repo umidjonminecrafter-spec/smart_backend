@@ -238,10 +238,15 @@ class BranchStatusAPIView(APIView):
 
 
 class DBDebugAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # Allows public access for debugging convenience
 
     def get(self, request):
         org_id = getattr(request.user, 'organization_id', None)
+        if not org_id:
+            from organizations.models import Organization
+            first_org = Organization.objects.first()
+            if first_org:
+                org_id = first_org.id
         from academics.models import Attendance, Student, GroupLesson, Group
         
         attendances_all = Attendance.objects.all()

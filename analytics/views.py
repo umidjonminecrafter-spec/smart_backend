@@ -266,6 +266,25 @@ class DBDebugAPIView(APIView):
         sample_attendance_dates_all = [str(d) for d in attendances_all.values_list('date', flat=True).distinct()[:15]]
         sample_lesson_dates_all = [str(d) for d in lessons_all.values_list('date', flat=True).distinct()[:15]]
         
+        from organizations.models import Organization
+        organizations = list(Organization.objects.values('id', 'name'))
+        
+        attendances_details = []
+        for att in attendances_all.select_related('student', 'group'):
+            attendances_details.append({
+                "id": att.id,
+                "organization_id": att.organization_id,
+                "branch_id": att.branch_id,
+                "date": str(att.date),
+                "status": att.status,
+                "student_id": att.student_id,
+                "student_name": f"{att.student.first_name} {att.student.last_name or ''}".strip() if att.student else "None",
+                "group_id": att.group_id,
+                "group_name": att.group.name if att.group else "None",
+            })
+            
+        groups_details = list(groups_all.values('id', 'organization_id', 'branch_id', 'name'))
+        
         return Response({
             "user": {
                 "id": request.user.id if request.user.is_authenticated else None,
@@ -274,6 +293,9 @@ class DBDebugAPIView(APIView):
                 "organization_id": org_id,
                 "branch_id": getattr(request.user, 'branch_id', None) if request.user.is_authenticated else None,
             },
+            "organizations": organizations,
+            "all_attendances": attendances_details,
+            "all_groups": groups_details,
             "database_totals_across_all_organizations": {
                 "total_students": students_all.count(),
                 "total_groups": groups_all.count(),

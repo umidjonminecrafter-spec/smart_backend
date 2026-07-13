@@ -138,6 +138,15 @@ class PaymentSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
+    def to_internal_value(self, data):
+        # Copy to avoid modifying original querydict/dict if immutable
+        data = data.copy() if hasattr(data, 'copy') else data
+        if 'student_id' in data and 'student' not in data:
+            data['student'] = data['student_id']
+        elif 'student' in data and isinstance(data['student'], dict) and 'id' in data['student']:
+            data['student'] = data['student']['id']
+        return super().to_internal_value(data)
+
     def get_student_name(self, obj):
         if obj.student:
             first = getattr(obj.student, 'first_name', '')

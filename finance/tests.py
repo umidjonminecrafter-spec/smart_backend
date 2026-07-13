@@ -997,6 +997,45 @@ class FinanceSettingIntegrationTests(APITestCase):
         self.assertEqual(len(response.data['results']), 1)
         self.assertEqual(response.data['results'][0]['id'], b2.id)
 
+    def test_payment_serializer_student_mapping(self):
+        """
+        Verify that PaymentSerializer resolves student_id or student nested dict correctly.
+        """
+        from finance.serializers import PaymentSerializer
+        from finance.models import Cashbox
+        from academics.models import Student
+        student = Student.objects.create(organization=self.org, first_name="Ali", last_name="Valiyev", phone="+998909876543")
+        cashbox = Cashbox.objects.create(organization=self.org, name="Kassa")
+        
+        # 1. Test student_id
+        data1 = {
+            "student_id": student.id,
+            "amount": "100000.00",
+            "date": "2026-07-13",
+            "cashbox": cashbox.id,
+            "payment_method": "naqd",
+            "comment": "Test payment 1"
+        }
+        serializer1 = PaymentSerializer(data=data1)
+        self.assertTrue(serializer1.is_valid(), serializer1.errors)
+        payment1 = serializer1.save(organization=self.org)
+        self.assertEqual(payment1.student_id, student.id)
+        self.assertEqual(serializer1.data['student_name'], f"{student.first_name} {student.last_name}")
+
+        # 2. Test student nested dict
+        data2 = {
+            "student": {"id": student.id},
+            "amount": "50000.00",
+            "date": "2026-07-13",
+            "cashbox": cashbox.id,
+            "payment_method": "click",
+            "comment": "Test payment 2"
+        }
+        serializer2 = PaymentSerializer(data=data2)
+        self.assertTrue(serializer2.is_valid(), serializer2.errors)
+        payment2 = serializer2.save(organization=self.org)
+        self.assertEqual(payment2.student_id, student.id)
+
 
 
 

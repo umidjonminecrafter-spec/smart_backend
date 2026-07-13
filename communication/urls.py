@@ -1,7 +1,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from communication.views import (
-    SmsProviderViewSet, SMSMessagesViewSet, SmsSchedulesViewSet, SmsTemplatesViewSet, NotificationView, NotificationScheduleViewSet
+    SmsProviderViewSet, SMSMessagesViewSet, SmsSchedulesViewSet, SmsTemplatesViewSet,
+    NotificationView, NotificationScheduleViewSet, StudentSMSHistoryAPIView
 )
 
 router = DefaultRouter()
@@ -14,4 +15,5 @@ router.register(r'notification-schedules', NotificationScheduleViewSet, basename
 urlpatterns = [
     path('', include(router.urls)),
     path('notifications/', NotificationView.as_view(), name='notifications'),
+    path('student-sms-history/<int:student_id>/', StudentSMSHistoryAPIView.as_view(), name='student-sms-history'),
 ]

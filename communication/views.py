@@ -191,3 +191,59 @@ class NotificationView(APIView):
                 Q(user__isnull=True) | Q(user=request.user)
             ).delete()
             return Response({"detail": "Barcha bildirishnomalar o'chirildi."})
+
+
+class StudentSMSHistoryAPIView(APIView):
+    """
+    Bitta studentga yuborilgan barcha SMS xabarlarining tarixi.
+    URL: /api/v1/communication/student-sms-history/<student_id>/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, student_id):
+        from academics.models import Student
+
+        org_id = getattr(request.user, 'organization_id', None)
+        if not org_id:
+            return Response({"detail": "Tashkilot aniqlanmadi."}, status=400)
+
+        # Studentni topish
+        try:
+            student = Student.objects.get(id=student_id, organization_id=org_id)
+        except Student.DoesNotExist:
+            return Response({"detail": "Talaba topilmadi."}, status=404)
+
+        # Student telefon raqami va ota-ona raqamlari bo'yicha SMS xabarlarini qidirish
+        phone_numbers = [student.phone]
+        if student.father_phone:
+            phone_numbers.append(student.father_phone)
+        if student.mother_phone:
+            phone_numbers.append(student.mother_phone)
+
+        sms_messages = SMSMessages.objects.filter(
+            organization_id=org_id,
+            recipient__in=phone_numbers
+        ).order_by('-sent_at')
+
+        data = {
+            "student": {
+                "id": student.id,
+                "full_name": student.full_name,
+                "phone": student.phone,
+                "father_phone": student.father_phone,
+                "mother_phone": student.mother_phone,
+            },
+            "total_count": sms_messages.count(),
+            "sms_history": [
+                {
+                    "id": sms.id,
+                    "recipient": sms.recipient,
+                    "message": sms.message,
+                    "status": sms.status,
+                    "sent_at": sms.sent_at.isoformat() if sms.sent_at else None,
+                }
+                for sms in sms_messages
+            ]
+        }
+
+        return Response(data)

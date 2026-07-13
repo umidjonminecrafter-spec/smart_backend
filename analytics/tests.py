@@ -74,3 +74,26 @@ class AnalyticsTests(APITestCase):
         response2 = self.client.get(f"{url}?date=2026-06-18&attendance_status=sababli&org_id={self.org.id}")
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response2.data), 0)
+
+    def test_date_from_parameter_support(self):
+        """
+        Verify that global-attendance, attendance-stats, and unmarked-groups
+        views all correctly support date_from parameter instead of date.
+        """
+        # 1. global-attendance
+        url_global = reverse('global-attendance')
+        response = self.client.get(f"{url_global}?date_from=18/06/2026&org_id={self.org.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+
+        # 2. attendance-stats (AttendanceAnalyticsAPIView)
+        url_stats = reverse('attendance-stats')
+        response_stats = self.client.get(f"{url_stats}?date_from=18/06/2026&org_id={self.org.id}")
+        self.assertEqual(response_stats.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_stats.data['summary']['kelganlar'], 1)
+        self.assertEqual(response_stats.data['summary']['birinchi dars'], 0)
+
+        # 3. unmarked-groups
+        url_unmarked = reverse('unmarked-groups')
+        response_unmarked = self.client.get(f"{url_unmarked}?date_from=18/06/2026&org_id={self.org.id}")
+        self.assertEqual(response_unmarked.status_code, status.HTTP_200_OK)

@@ -17,7 +17,7 @@ class GlobalAttendanceAPIView(APIView):
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
         # Frontenddan (Abdulmajid) kelayotgan filter parametrlari
-        date_param = request.query_params.get('date', timezone.now().date().isoformat())
+        date_param = request.query_params.get('date') or request.query_params.get('date_from') or timezone.now().date().isoformat()
         # Normalize date format if needed (e.g. DD/MM/YYYY or DD-MM-YYYY to YYYY-MM-DD)
         if date_param:
             import re
@@ -90,7 +90,7 @@ class AttendanceAnalyticsAPIView(APIView):
         if not org_id:
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
-        date_param = request.query_params.get('date', timezone.now().date().isoformat())
+        date_param = request.query_params.get('date') or request.query_params.get('date_from') or timezone.now().date().isoformat()
         if date_param:
             import re
             if re.match(r'^\d{2}/\d{2}/\d{4}$', date_param):
@@ -124,6 +124,7 @@ class AttendanceAnalyticsAPIView(APIView):
                 "sababli": stats['sababli'] or 0,
                 "sababsiz": stats['sababsiz'] or 0,
                 "birinchi_dars": first_lesson_count,  # Lead modelidan aniq keldi!
+                "birinchi dars": first_lesson_count,  # Space version to support all frontend variants
                 "muzlatilgan": 0,  # Loyihada talaba statusi qo'shilganda integratsiya qilinadi
                 "davomat_qilinmagan": davomat_qilinmagan_guruhlar
             }
@@ -138,7 +139,7 @@ class UnmarkedGroupsAPIView(APIView):
         if not org_id:
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
-        date_param = request.query_params.get('date', timezone.now().date().isoformat())
+        date_param = request.query_params.get('date') or request.query_params.get('date_from') or timezone.now().date().isoformat()
         if date_param:
             import re
             if re.match(r'^\d{2}/\d{2}/\d{4}$', date_param):

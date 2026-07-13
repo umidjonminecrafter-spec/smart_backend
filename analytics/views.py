@@ -18,9 +18,20 @@ class GlobalAttendanceAPIView(APIView):
 
         # Frontenddan (Abdulmajid) kelayotgan filter parametrlari
         date_param = request.query_params.get('date', timezone.now().date().isoformat())
+        # Normalize date format if needed (e.g. DD/MM/YYYY or DD-MM-YYYY to YYYY-MM-DD)
+        if date_param:
+            import re
+            if re.match(r'^\d{2}/\d{2}/\d{4}$', date_param):
+                parts = date_param.split('/')
+                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            elif re.match(r'^\d{2}-\d{2}-\d{4}$', date_param):
+                parts = date_param.split('-')
+                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
+
         attendance_status = request.query_params.get('attendance_status')  # present, absent, excused
         group_id = request.query_params.get('group_id')
         teacher_id = request.query_params.get('teacher_id')
+        branch_id = request.query_params.get('branch_id') or request.query_params.get('branch')
 
         # 🚀 Lead (CRM) bilan bog'liq filterlar
         pipeline_id = request.query_params.get('pipeline_id')  # Ranglar/Bosqichlar filtri (Lead Pipeline)
@@ -33,11 +44,25 @@ class GlobalAttendanceAPIView(APIView):
 
         # Dinamik filtrlash
         if attendance_status:
-            queryset = queryset.filter(status=attendance_status)
+            status_map = {
+                'keldi': 'present',
+                'kelmagan': 'absent',
+                'sababsiz': 'absent',
+                'kechikdi': 'late',
+                'sababli': 'excused',
+                'present': 'present',
+                'absent': 'absent',
+                'late': 'late',
+                'excused': 'excused'
+            }
+            mapped_status = status_map.get(attendance_status.lower(), attendance_status)
+            queryset = queryset.filter(status=mapped_status)
         if group_id:
             queryset = queryset.filter(group_id=group_id)
         if teacher_id:
             queryset = queryset.filter(group__teacher_id=teacher_id)
+        if branch_id:
+            queryset = queryset.filter(branch_id=branch_id)
 
         # 🚀 CRM Lead ma'lumotlari orqali filtrlash (Telefon raqami orqali bog'lanadi)
         if pipeline_id or lead_status:
@@ -66,6 +91,14 @@ class AttendanceAnalyticsAPIView(APIView):
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
         date_param = request.query_params.get('date', timezone.now().date().isoformat())
+        if date_param:
+            import re
+            if re.match(r'^\d{2}/\d{2}/\d{4}$', date_param):
+                parts = date_param.split('/')
+                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            elif re.match(r'^\d{2}-\d{2}-\d{4}$', date_param):
+                parts = date_param.split('-')
+                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
 
         # Davomat statistikasi
         stats = Attendance.objects.filter(organization_id=org_id, date=date_param).aggregate(
@@ -106,6 +139,14 @@ class UnmarkedGroupsAPIView(APIView):
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
         date_param = request.query_params.get('date', timezone.now().date().isoformat())
+        if date_param:
+            import re
+            if re.match(r'^\d{2}/\d{2}/\d{4}$', date_param):
+                parts = date_param.split('/')
+                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            elif re.match(r'^\d{2}-\d{2}-\d{4}$', date_param):
+                parts = date_param.split('-')
+                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
 
         # Bugun kalendarda darsi bor guruhlar
         today_lessons = GroupLesson.objects.filter(organization_id=org_id, date=date_param).select_related('group',

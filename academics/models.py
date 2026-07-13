@@ -987,9 +987,9 @@ def charge_attendance(student, group, date, attendance_id, organization):
     monthly_price = Decimal('0.00')
     sg = StudentGroup.objects.filter(student=student, group=group).first()
     if sg and sg.price is not None:
-        monthly_price = sg.price
+        monthly_price = Decimal(str(sg.price))
     elif group.course:
-        monthly_price = group.course.price
+        monthly_price = Decimal(str(group.course.price))
 
     # Apply Auto-Discount from settings if enabled
     try:

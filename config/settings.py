@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     'billing',
     'drf_spectacular',
     'analytics',
+    'support',
 ]
 
 MIDDLEWARE = [

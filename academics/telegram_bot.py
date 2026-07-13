@@ -227,6 +227,10 @@ def handle_telegram_update(bot_type, token, update_data):
             menu = get_reply_keyboard([["👶 Farzandlarim", "📊 Davomat"], ["🏆 Baholar", "💳 To'lovlar"]])
             send_telegram_message(token, chat_id, msg, menu)
             return
+        elif bot_type == 'support':
+            msg = "Assalomu alaykum! Yordam markazi botiga xush kelibsiz. Savolingizni yozib qoldirishingiz mumkin:"
+            send_telegram_message(token, chat_id, msg)
+            return
 
         msg = "Assalomu alaykum! SmartTalim xizmatiga xush kelibsiz.\n\nBotdan foydalanish uchun telefon raqamingizni yuboring:"
         send_telegram_message(token, chat_id, msg, get_contact_keyboard())
@@ -237,6 +241,22 @@ def handle_telegram_update(bot_type, token, update_data):
         # Verifikatsiya botida menyu yo'q, faqat telefon so'rash bo'ladi
         msg = "Siz botdan muvaffaqiyatli ro'yxatdan o'tgan ekansiz. Parolni tiklash kodi kerak bo'lganda shu yerga yuboriladi. 🔐"
         send_telegram_message(token, chat_id, msg)
+
+    elif bot_type == 'support':
+        from organizations.models import TelegramNotificationSetting
+        setting = TelegramNotificationSetting.objects.filter(support_bot_token=token).first()
+        if not setting:
+            setting = TelegramNotificationSetting.objects.first()
+            
+        if setting:
+            org_id = setting.organization_id
+            from support.services.chat import AIChatService
+            reply = AIChatService.handle_telegram_chat(
+                chat_id=str(chat_id),
+                message=text,
+                organization_id=org_id
+            )
+            send_telegram_message(token, chat_id, reply)
 
     elif bot_type == 'student':
         student = Student.objects.filter(telegram_chat_id=chat_id).first()

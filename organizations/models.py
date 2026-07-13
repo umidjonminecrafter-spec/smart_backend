@@ -195,6 +195,9 @@ class TelegramNotificationSetting(BaseModel):
     staff_bot_token = models.CharField(max_length=255, null=True, blank=True)
     staff_bot_username = models.CharField(max_length=255, null=True, blank=True)
 
+    support_bot_token = models.CharField(max_length=255, null=True, blank=True)
+    support_bot_username = models.CharField(max_length=255, null=True, blank=True)
+
     is_active = models.BooleanField(default=False)
 
     def __str__(self):
@@ -207,6 +210,7 @@ class TelegramNotificationSetting(BaseModel):
             ('student_bot_token', 'student_bot_username'),
             ('parent_bot_token', 'parent_bot_username'),
             ('staff_bot_token', 'staff_bot_username'),
+            ('support_bot_token', 'support_bot_username'),
         ]
 
         for token_field, username_field in bot_fields:

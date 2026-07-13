@@ -50,6 +50,7 @@ urlpatterns = [
     path('api/v1/communication/', include('communication.urls')),
     path('api/v1/billing/', include('billing.urls')),
     path('api/v1/analytics/', include('analytics.urls')),
+    path('api/v1/support/', include('support.urls')),
 ]
 
 if settings.DEBUG:

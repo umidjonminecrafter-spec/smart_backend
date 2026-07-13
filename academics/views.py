@@ -1880,13 +1880,22 @@ class TelegramWebhookView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, bot_type, token):
-        from .telegram_bot import handle_telegram_update
+        from .telegram_bot import handle_telegram_update, send_telegram_message
         try:
             update_data = request.data
             handle_telegram_update(bot_type, token, update_data)
             return Response({"status": "ok"}, status=status.HTTP_200_OK)
         except Exception as e:
-            print(f"Error handling webhook for {bot_type}: {str(e)}")
+            import traceback
+            tb = traceback.format_exc()
+            print(f"Error handling webhook for {bot_type}: {tb}")
+            try:
+                chat_id = request.data.get("message", {}).get("chat", {}).get("id")
+                if chat_id:
+                    tb_safe = tb.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    send_telegram_message(token, chat_id, f"<b>⚠️ Xatolik yuz berdi ({bot_type}):</b>\n<pre>{tb_safe}</pre>")
+            except Exception as e_inner:
+                print(f"Failed to send error traceback to telegram: {str(e_inner)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 

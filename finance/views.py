@@ -2350,7 +2350,7 @@ class UnpaidLessonsReportView(APIView):
         branch_id = get_active_branch_id(request)
 
         # Balansi minusda bo'lgan o'quvchilarni olamiz
-        students_qs = Student.objects.filter(organization_id=org_id, balance__lt=0)
+        students_qs = Student.objects.filter(organization_id=org_id, balance__lt=0).prefetch_related('student_groups__group')
         if branch_id:
             students_qs = students_qs.filter(branch_id=branch_id)
 
@@ -2358,10 +2358,11 @@ class UnpaidLessonsReportView(APIView):
         for index, student in enumerate(students_qs, start=1):
             balance_val = abs(float(student.balance))
 
-            # Guruhlarni chiqarish (agar m2m bog'liqlik bo'lsa)
+            # Guruhlarni chiqarish (StudentGroup orqali bog'langan guruhlar)
             groups_str = "-"
-            if hasattr(student, 'groups'):
-                groups_str = ", ".join([g.name for g in student.groups.all()])
+            active_groups = [sg.group.name for sg in student.student_groups.all() if sg.group]
+            if active_groups:
+                groups_str = ", ".join(active_groups)
 
             # DIQQAT: bitta dars narxi hozircha 60 000 so'm deb QAT'IY (hardcoded) olingan.
             # Bu haqiqiy kurs narxi emas - shuning uchun "unpaid_lessons_count" noaniq bo'lishi mumkin.

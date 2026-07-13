@@ -367,8 +367,22 @@ class AnalyticsEndpointsTests(APITestCase):
 
     def test_unpaid_payments_report(self):
         url = reverse('report-unpaid-payments')
-        response = self.client.get(f"{url}?branch=1&start_date=2026-06-01")
+        # Create student with negative balance
+        student = Student.objects.create(
+            organization=self.org,
+            first_name="Bob",
+            last_name="Smith",
+            phone="+998901234599",
+            balance=-120000.00
+        )
+        course = Course.objects.create(organization=self.org, name="Science", price=150000.00)
+        group = Group.objects.create(organization=self.org, name="Science-1", course=course)
+        StudentGroup.objects.create(organization=self.org, student=student, group=group)
+
+        response = self.client.get(f"{url}?org_id={self.org.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        table_data = response.data['table_data']
+        self.assertTrue(any(row['name'] == "Bob Smith" and row['groups'] == "Science-1" for row in table_data))
 
     def test_cancelled_payments_report(self):
         url = reverse('report-cancelled-payments')

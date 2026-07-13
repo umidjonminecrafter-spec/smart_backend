@@ -325,3 +325,101 @@ class StudentSMSHistoryAPITests(APITestCase):
         response = self.client.get(f"{url}?org_id={self.org2.id}")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_sms_telegram_bot_routing(self):
+        """
+        Verify that SMSMessages forwarding routes to the correct bot token
+        based on the recipient type (student, father/mother, staff, or admin).
+        """
+        from organizations.models import TelegramNotificationSetting
+        from communication.models import SMSMessages
+        from unittest.mock import patch
+        
+        # Set Telegram settings
+        setting = TelegramNotificationSetting.objects.create(
+            organization=self.org1,
+            bot_token="TOKEN_GEN",
+            student_bot_token="TOKEN_STUDENT",
+            parent_bot_token="TOKEN_PARENT",
+            staff_bot_token="TOKEN_STAFF"
+        )
+        
+        # Set chat IDs
+        self.student1.telegram_chat_id = "STUDENT_CHAT"
+        self.student1.father_telegram_chat_id = "FATHER_CHAT"
+        self.student1.mother_telegram_chat_id = "MOTHER_CHAT"
+        self.student1.save()
+        
+        # Create a teacher user
+        teacher = User.objects.create_user(
+            username="+998901119900",
+            password="password",
+            phone="+998901119900",
+            role="teacher",
+            telegram_chat_id="TEACHER_CHAT",
+            organization=self.org1
+        )
+
+        # Mock send_telegram_message function
+        with patch('academics.telegram_bot.send_telegram_message') as mock_send:
+            # 1. Send to Student -> should use student_bot_token
+            SMSMessages.objects.create(
+                organization=self.org1,
+                recipient=self.student1.phone,
+                message="To Student"
+            )
+            self.assertTrue(mock_send.called)
+            self.assertEqual(mock_send.call_args[0][0], "TOKEN_STUDENT")
+            self.assertEqual(mock_send.call_args[0][1], "STUDENT_CHAT")
+            
+            mock_send.reset_mock()
+
+            # 2. Send to Father -> should use parent_bot_token
+            SMSMessages.objects.create(
+                organization=self.org1,
+                recipient=self.student1.father_phone,
+                message="To Father"
+            )
+            self.assertTrue(mock_send.called)
+            self.assertEqual(mock_send.call_args[0][0], "TOKEN_PARENT")
+            self.assertEqual(mock_send.call_args[0][1], "FATHER_CHAT")
+
+            mock_send.reset_mock()
+
+            # 3. Send to Mother -> should use parent_bot_token
+            SMSMessages.objects.create(
+                organization=self.org1,
+                recipient=self.student1.mother_phone,
+                message="To Mother"
+            )
+            self.assertTrue(mock_send.called)
+            self.assertEqual(mock_send.call_args[0][0], "TOKEN_PARENT")
+            self.assertEqual(mock_send.call_args[0][1], "MOTHER_CHAT")
+
+            mock_send.reset_mock()
+
+            # 4. Send to Teacher -> should use staff_bot_token
+            SMSMessages.objects.create(
+                organization=self.org1,
+                recipient=teacher.phone,
+                message="To Teacher"
+            )
+            self.assertTrue(mock_send.called)
+            self.assertEqual(mock_send.call_args[0][0], "TOKEN_STAFF")
+            self.assertEqual(mock_send.call_args[0][1], "TEACHER_CHAT")
+
+            mock_send.reset_mock()
+
+            # 5. Send to Admin -> should use bot_token (TOKEN_GEN)
+            self.admin1.telegram_chat_id = "ADMIN_CHAT"
+            self.admin1.save()
+            
+            SMSMessages.objects.create(
+                organization=self.org1,
+                recipient=self.admin1.phone,
+                message="To Admin"
+            )
+            self.assertTrue(mock_send.called)
+            self.assertEqual(mock_send.call_args[0][0], "TOKEN_GEN")
+            self.assertEqual(mock_send.call_args[0][1], "ADMIN_CHAT")
+
+

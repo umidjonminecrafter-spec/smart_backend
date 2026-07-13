@@ -225,22 +225,48 @@ def send_sms_to_telegram(sender, instance, created, **kwargs):
             
             chat_id = None
             org = None
+            bot_token_field = 'bot_token'
             
-            # Find student first
+            # Find recipient and determine bot type
             student = Student.objects.filter(phone=instance.recipient).first()
             if student and student.telegram_chat_id:
                 chat_id = student.telegram_chat_id
                 org = student.organization
+                bot_token_field = 'student_bot_token'
             else:
-                # Try user (staff/parent)
-                user = User.objects.filter(phone=instance.recipient).first()
-                if user and user.telegram_chat_id:
-                    chat_id = user.telegram_chat_id
-                    org = user.organization
-                    
+                # Check if father_phone
+                student_father = Student.objects.filter(father_phone=instance.recipient).first()
+                if student_father and student_father.father_telegram_chat_id:
+                    chat_id = student_father.father_telegram_chat_id
+                    org = student_father.organization
+                    bot_token_field = 'parent_bot_token'
+                else:
+                    # Check if mother_phone
+                    student_mother = Student.objects.filter(mother_phone=instance.recipient).first()
+                    if student_mother and student_mother.mother_telegram_chat_id:
+                        chat_id = student_mother.mother_telegram_chat_id
+                        org = student_mother.organization
+                        bot_token_field = 'parent_bot_token'
+                    else:
+                        # Check user (staff/owner/admin)
+                        user = User.objects.filter(phone=instance.recipient).first()
+                        if user and user.telegram_chat_id:
+                            chat_id = user.telegram_chat_id
+                            org = user.organization
+                            if user.role in ('owner', 'admin'):
+                                bot_token_field = 'bot_token'
+                            else:
+                                bot_token_field = 'staff_bot_token'
+                                
             if chat_id and org:
                 setting = TelegramNotificationSetting.objects.filter(organization=org).first()
-                token = setting.bot_token or setting.staff_bot_token if setting else None
+                token = None
+                if setting:
+                    # Get the preferred token, e.g. student_bot_token, parent_bot_token, etc.
+                    token = getattr(setting, bot_token_field, None)
+                    # If preferred token is empty, fall back to general bot_token
+                    if not token:
+                        token = setting.bot_token
                 
                 if not token:
                     from django.conf import settings

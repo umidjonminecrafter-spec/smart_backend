@@ -139,4 +139,8 @@ class TelegramNotificationSettingAdmin(admin.ModelAdmin):
         ('Verification Bot (Tasdiqlash)', {
             'fields': ('verification_bot_token', 'verification_bot_username'),
         }),
+        ('Support Bot (Qo\'llab-quvvatlash)', {
+            'fields': ('support_bot_token', 'support_bot_username'),
+            'description': 'Yordam markazi boti — savol-javoblar uchun'
+        }),
     )

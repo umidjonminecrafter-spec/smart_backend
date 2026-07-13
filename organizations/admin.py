@@ -44,14 +44,19 @@ def send_notification_to_organizations(modeladmin, request, queryset):
             notification_type = form.cleaned_data['notification_type']
 
             count = 0
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
             for org in queryset:
-                Notification.objects.create(
-                    organization=org,
-                    title=title,
-                    message=message,
-                    notification_type=notification_type
-                )
-                count += 1
+                owners = User.objects.filter(organization=org, role='owner')
+                for owner in owners:
+                    Notification.objects.create(
+                        organization=org,
+                        user=owner,
+                        title=title,
+                        message=message,
+                        type=notification_type
+                    )
+                    count += 1
 
             modeladmin.message_user(
                 request, 

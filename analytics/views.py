@@ -268,11 +268,11 @@ class DBDebugAPIView(APIView):
         
         return Response({
             "user": {
-                "id": request.user.id,
-                "username": request.user.username,
-                "role": request.user.role,
+                "id": request.user.id if request.user.is_authenticated else None,
+                "username": request.user.username if request.user.is_authenticated else "Anonymous",
+                "role": getattr(request.user, 'role', None) if request.user.is_authenticated else None,
                 "organization_id": org_id,
-                "branch_id": getattr(request.user, 'branch_id', None),
+                "branch_id": getattr(request.user, 'branch_id', None) if request.user.is_authenticated else None,
             },
             "database_totals_across_all_organizations": {
                 "total_students": students_all.count(),

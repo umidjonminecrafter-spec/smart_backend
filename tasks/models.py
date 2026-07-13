@@ -139,7 +139,9 @@ def notify_task_assignment(sender, instance, created, **kwargs):
                 token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
                 
             lang = getattr(instance.assigned_to, 'telegram_language', 'uz') or 'uz'
-            due = instance.due_date.strftime("%d.%m.%Y %H:%M") if instance.due_date else "-"
+            from django.utils import timezone as django_timezone
+            local_due = django_timezone.localtime(instance.due_date) if instance.due_date else None
+            due = local_due.strftime("%d.%m.%Y %H:%M") if local_due else "-"
             
             if lang == 'ru':
                 msg = (

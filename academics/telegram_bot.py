@@ -104,6 +104,8 @@ def handle_telegram_update(bot_type, token, update_data):
             students = Student.objects.filter(phone=phone_normalized)
             if students.exists():
                 students.update(telegram_chat_id=chat_id)
+                from accounts.models import User
+                User.objects.filter(username=phone_normalized, role='student').update(telegram_chat_id=chat_id)
                 msg = f"<b>Muvaffaqiyatli bog'landi!</b> 🎓\n\nSiz Student botidan muvaffaqiyatli ro'yxatdan o'tdingiz."
                 menu = get_reply_keyboard([
                     ["👤 Profilim", "💰 Balans & Qarz"],

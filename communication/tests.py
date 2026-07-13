@@ -171,7 +171,62 @@ class NotificationScheduleAPITests(APITestCase):
         self.assertEqual(notif.user, self.user) # owner role
         self.assertEqual(notif.organization, self.org)
 
-        # Employees or other users should NOT have a notification record created for them in database
         self.assertFalse(Notification.objects.filter(user=self.employee, title='System Maintenance').exists())
         self.assertFalse(Notification.objects.filter(user=self.teacher, title='System Maintenance').exists())
         self.assertFalse(Notification.objects.filter(user=self.student_user, title='System Maintenance').exists())
+
+    def test_sms_telegram_and_scheduling(self):
+        """
+        Verify that creating SMSMessages triggers send_telegram_message (forwarding to Telegram)
+        and that process_sms_schedules management command executes pending SmsSchedules.
+        """
+        from communication.models import SMSMessages, SmsSchedules
+        from django.core.management import call_command
+        
+        # Set student telegram_chat_id
+        self.student.telegram_chat_id = "987654321"
+        self.student.save()
+
+        # Mock send_telegram_message
+        from unittest.mock import patch
+        with patch('academics.telegram_bot.send_telegram_message') as mock_send:
+            # 1. Test automatic SMS forwarding to Telegram
+            SMSMessages.objects.create(
+                organization=self.org,
+                recipient=self.student.phone,
+                message="Salom, bu test xabari!"
+            )
+            self.assertTrue(mock_send.called)
+            self.assertEqual(mock_send.call_count, 1)
+            # Verify recipient check
+            self.assertEqual(mock_send.call_args[0][1], "987654321")
+            self.assertIn("Salom, bu test xabari!", mock_send.call_args[0][2])
+
+            mock_send.reset_mock()
+
+            # 2. Test scheduled SMS processing
+            import datetime
+            from django.utils import timezone
+            
+            # Create a scheduled SMS for the past (due to send)
+            schedule = SmsSchedules.objects.create(
+                organization=self.org,
+                recipient=self.student.phone,
+                message="Rejalashtirilgan xabar",
+                scheduled_time=timezone.now() - datetime.timedelta(minutes=5)
+            )
+
+            # Run management command
+            call_command('process_sms_schedules')
+
+            # Verify that it created a sent SMSMessage
+            self.assertTrue(SMSMessages.objects.filter(message="Rejalashtirilgan xabar", status='sent').exists())
+            # Verify that the schedule is marked as sent
+            schedule.refresh_from_db()
+            self.assertTrue(schedule.is_sent)
+
+            # Verify that it automatically forwarded to Telegram
+            self.assertTrue(mock_send.called)
+            self.assertEqual(mock_send.call_count, 1)
+            self.assertEqual(mock_send.call_args[0][1], "987654321")
+            self.assertIn("Rejalashtirilgan xabar", mock_send.call_args[0][2])

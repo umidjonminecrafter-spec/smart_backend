@@ -212,3 +212,41 @@ def send_notification_to_telegram(sender, instance, created, **kwargs):
             send_telegram_message(token, instance.user.telegram_chat_id, msg)
         except Exception as e:
             print(f"Error sending telegram notification: {str(e)}")
+
+
+@receiver(post_save, sender=SMSMessages)
+def send_sms_to_telegram(sender, instance, created, **kwargs):
+    if created:
+        try:
+            from academics.models import Student
+            from accounts.models import User
+            from academics.telegram_bot import send_telegram_message
+            from organizations.models import TelegramNotificationSetting
+            
+            chat_id = None
+            org = None
+            
+            # Find student first
+            student = Student.objects.filter(phone=instance.recipient).first()
+            if student and student.telegram_chat_id:
+                chat_id = student.telegram_chat_id
+                org = student.organization
+            else:
+                # Try user (staff/parent)
+                user = User.objects.filter(phone=instance.recipient).first()
+                if user and user.telegram_chat_id:
+                    chat_id = user.telegram_chat_id
+                    org = user.organization
+                    
+            if chat_id and org:
+                setting = TelegramNotificationSetting.objects.filter(organization=org).first()
+                token = setting.bot_token or setting.staff_bot_token if setting else None
+                
+                if not token:
+                    from django.conf import settings
+                    token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
+                    
+                msg = f"<b>✉️ Yangi xabar:</b>\n\n{instance.message}"
+                send_telegram_message(token, chat_id, msg)
+        except Exception as e:
+            print(f"Error sending SMS to telegram: {str(e)}")

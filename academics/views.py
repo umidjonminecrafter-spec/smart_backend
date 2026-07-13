@@ -387,10 +387,46 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "leads_matched": lead_data
         }, status=status.HTTP_200_OK)
 
-    @decorators.action(detail=True, methods=['post'], url_path='send-sms')
+    @decorators.action(detail=True, methods=['get', 'post'], url_path='send-sms')
     def send_sms(self, request, pk=None):
         student = self.get_object()
 
+        # GET: SMS tarixini qaytarish
+        if request.method == 'GET':
+            from communication.models import SMSMessages
+            org_id = self.get_organization_id()
+
+            phone_numbers = [student.phone]
+            if student.father_phone:
+                phone_numbers.append(student.father_phone)
+            if student.mother_phone:
+                phone_numbers.append(student.mother_phone)
+
+            sms_messages = SMSMessages.objects.filter(
+                organization_id=org_id,
+                recipient__in=phone_numbers
+            ).order_by('-sent_at')
+
+            return Response({
+                "student": {
+                    "id": student.id,
+                    "full_name": student.full_name,
+                    "phone": student.phone,
+                },
+                "total_count": sms_messages.count(),
+                "sms_history": [
+                    {
+                        "id": sms.id,
+                        "recipient": sms.recipient,
+                        "message": sms.message,
+                        "status": sms.status,
+                        "sent_at": sms.sent_at.isoformat() if sms.sent_at else None,
+                    }
+                    for sms in sms_messages
+                ]
+            }, status=status.HTTP_200_OK)
+
+        # POST: SMS yuborish
         # Enforce allow_teacher_sms check for teachers
         if getattr(request.user, 'role', None) == 'teacher':
             from organizations.models import Subscription
@@ -407,6 +443,16 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         message = request.data.get('message')
         if not message:
             return Response({"detail": "Message is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # SMSMessages jadvaliga yozish
+        from communication.models import SMSMessages as SMSModel
+        SMSModel.objects.create(
+            organization_id=self.get_organization_id(),
+            recipient=student.phone,
+            message=message,
+            status='sent'
+        )
+
         return Response({
             "status": "success",
             "message": f"SMS successfully sent to {student.phone}."

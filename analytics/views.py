@@ -237,5 +237,56 @@ class BranchStatusAPIView(APIView):
         return Response(branch_report)
 
 
+class DBDebugAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        org_id = getattr(request.user, 'organization_id', None)
+        from academics.models import Attendance, Student, GroupLesson, Group
+        
+        attendances_all = Attendance.objects.all()
+        students_all = Student.objects.all()
+        lessons_all = GroupLesson.objects.all()
+        groups_all = Group.objects.all()
+        
+        attendances_org = Attendance.objects.filter(organization_id=org_id)
+        students_org = Student.objects.filter(organization_id=org_id)
+        lessons_org = GroupLesson.objects.filter(organization_id=org_id)
+        groups_org = Group.objects.filter(organization_id=org_id)
+        
+        # Convert date to string format for JSON serialization
+        sample_attendance_dates = [str(d) for d in attendances_org.values_list('date', flat=True).distinct()[:15]]
+        sample_lesson_dates = [str(d) for d in lessons_org.values_list('date', flat=True).distinct()[:15]]
+        
+        sample_attendance_dates_all = [str(d) for d in attendances_all.values_list('date', flat=True).distinct()[:15]]
+        sample_lesson_dates_all = [str(d) for d in lessons_all.values_list('date', flat=True).distinct()[:15]]
+        
+        return Response({
+            "user": {
+                "id": request.user.id,
+                "username": request.user.username,
+                "role": request.user.role,
+                "organization_id": org_id,
+                "branch_id": getattr(request.user, 'branch_id', None),
+            },
+            "database_totals_across_all_organizations": {
+                "total_students": students_all.count(),
+                "total_groups": groups_all.count(),
+                "total_attendances": attendances_all.count(),
+                "total_group_lessons": lessons_all.count(),
+                "sample_attendance_dates": sample_attendance_dates_all,
+                "sample_lesson_dates": sample_lesson_dates_all
+            },
+            "your_organization_totals": {
+                "total_students": students_org.count(),
+                "total_groups": groups_org.count(),
+                "total_attendances": attendances_org.count(),
+                "total_group_lessons": lessons_org.count(),
+                "sample_attendance_dates": sample_attendance_dates,
+                "sample_lesson_dates": sample_lesson_dates
+            }
+        })
+
+
 
 

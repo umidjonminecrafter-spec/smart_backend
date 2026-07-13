@@ -97,3 +97,23 @@ class AnalyticsTests(APITestCase):
         url_unmarked = reverse('unmarked-groups')
         response_unmarked = self.client.get(f"{url_unmarked}?date_from=18/06/2026&org_id={self.org.id}")
         self.assertEqual(response_unmarked.status_code, status.HTTP_200_OK)
+
+    def test_date_range_support(self):
+        """
+        Verify that analytics views support date ranges (date_from and date_to).
+        """
+        # Create another attendance on a different date in the range
+        Attendance.objects.create(
+            organization=self.org,
+            group=self.group,
+            student=self.student,
+            date=datetime.date(2026, 6, 20),
+            status="absent"
+        )
+
+        url_stats = reverse('attendance-stats')
+        response = self.client.get(f"{url_stats}?date_from=18/06/2026&date_to=22/06/2026&org_id={self.org.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should sum kelganlar=1 (from June 18) and sababsiz=1 (from June 20)
+        self.assertEqual(response.data['summary']['kelganlar'], 1)
+        self.assertEqual(response.data['summary']['sababsiz'], 1)

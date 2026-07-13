@@ -17,16 +17,24 @@ class GlobalAttendanceAPIView(APIView):
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
         # Frontenddan (Abdulmajid) kelayotgan filter parametrlari
-        date_param = request.query_params.get('date') or request.query_params.get('date_from') or timezone.now().date().isoformat()
-        # Normalize date format if needed (e.g. DD/MM/YYYY or DD-MM-YYYY to YYYY-MM-DD)
-        if date_param:
+        date_param = request.query_params.get('date')
+        date_from_param = request.query_params.get('date_from')
+        date_to_param = request.query_params.get('date_to')
+
+        def normalize_date(d_str):
+            if not d_str:
+                return None
             import re
-            if re.match(r'^\d{2}/\d{2}/\d{4}$', date_param):
-                parts = date_param.split('/')
-                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
-            elif re.match(r'^\d{2}-\d{2}-\d{4}$', date_param):
-                parts = date_param.split('-')
-                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            if re.match(r'^\d{2}/\d{2}/\d{4}$', d_str):
+                parts = d_str.split('/')
+                return f"{parts[2]}-{parts[1]}-{parts[0]}"
+            elif re.match(r'^\d{2}-\d{2}-\d{4}$', d_str):
+                parts = d_str.split('-')
+                return f"{parts[2]}-{parts[1]}-{parts[0]}"
+            return d_str
+
+        date_from = normalize_date(date_from_param or date_param)
+        date_to = normalize_date(date_to_param)
 
         attendance_status = request.query_params.get('attendance_status')  # present, absent, excused
         group_id = request.query_params.get('group_id')
@@ -38,9 +46,15 @@ class GlobalAttendanceAPIView(APIView):
         lead_status = request.query_params.get('lead_status')  # open, won, lost, first_lesson
 
         # Davomat uchun asosiy so'rov
-        queryset = Attendance.objects.filter(organization_id=org_id, date=date_param).select_related(
-            'student', 'group', 'group__teacher'
-        ).order_by('-id')
+        queryset = Attendance.objects.filter(organization_id=org_id)
+        if date_from and date_to:
+            queryset = queryset.filter(date__range=[date_from, date_to])
+        elif date_from:
+            queryset = queryset.filter(date=date_from)
+        else:
+            queryset = queryset.filter(date=timezone.now().date().isoformat())
+
+        queryset = queryset.select_related('student', 'group', 'group__teacher').order_by('-id')
 
         # Dinamik filtrlash
         if attendance_status:
@@ -90,18 +104,41 @@ class AttendanceAnalyticsAPIView(APIView):
         if not org_id:
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
-        date_param = request.query_params.get('date') or request.query_params.get('date_from') or timezone.now().date().isoformat()
-        if date_param:
+        date_param = request.query_params.get('date')
+        date_from_param = request.query_params.get('date_from')
+        date_to_param = request.query_params.get('date_to')
+
+        def normalize_date(d_str):
+            if not d_str:
+                return None
             import re
-            if re.match(r'^\d{2}/\d{2}/\d{4}$', date_param):
-                parts = date_param.split('/')
-                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
-            elif re.match(r'^\d{2}-\d{2}-\d{4}$', date_param):
-                parts = date_param.split('-')
-                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            if re.match(r'^\d{2}/\d{2}/\d{4}$', d_str):
+                parts = d_str.split('/')
+                return f"{parts[2]}-{parts[1]}-{parts[0]}"
+            elif re.match(r'^\d{2}-\d{2}-\d{4}$', d_str):
+                parts = d_str.split('-')
+                return f"{parts[2]}-{parts[1]}-{parts[0]}"
+            return d_str
+
+        date_from = normalize_date(date_from_param or date_param)
+        date_to = normalize_date(date_to_param)
+
+        attendance_query = Attendance.objects.filter(organization_id=org_id)
+        lesson_query = GroupLesson.objects.filter(organization_id=org_id)
+
+        if date_from and date_to:
+            attendance_query = attendance_query.filter(date__range=[date_from, date_to])
+            lesson_query = lesson_query.filter(date__range=[date_from, date_to])
+        elif date_from:
+            attendance_query = attendance_query.filter(date=date_from)
+            lesson_query = lesson_query.filter(date=date_from)
+        else:
+            today = timezone.now().date().isoformat()
+            attendance_query = attendance_query.filter(date=today)
+            lesson_query = lesson_query.filter(date=today)
 
         # Davomat statistikasi
-        stats = Attendance.objects.filter(organization_id=org_id, date=date_param).aggregate(
+        stats = attendance_query.aggregate(
             kelganlar=Count('id', filter=Q(status='present')),
             sababli=Count('id', filter=Q(status='excused')),
             sababsiz=Count('id', filter=Q(status='absent')),
@@ -112,10 +149,9 @@ class AttendanceAnalyticsAPIView(APIView):
                                                  is_archived=False).count()
 
         # Davomat qilinmagan guruhlar soni
-        today_lessons = GroupLesson.objects.filter(organization_id=org_id, date=date_param)
         davomat_qilinmagan_guruhlar = 0
-        for lesson in today_lessons:
-            if not Attendance.objects.filter(group=lesson.group, date=date_param).exists():
+        for lesson in lesson_query:
+            if not Attendance.objects.filter(group=lesson.group, date=lesson.date).exists():
                 davomat_qilinmagan_guruhlar += 1
 
         return Response({
@@ -139,25 +175,41 @@ class UnmarkedGroupsAPIView(APIView):
         if not org_id:
             return Response({"detail": "Tashkilot aniqlanmadi"}, status=400)
 
-        date_param = request.query_params.get('date') or request.query_params.get('date_from') or timezone.now().date().isoformat()
-        if date_param:
+        date_param = request.query_params.get('date')
+        date_from_param = request.query_params.get('date_from')
+        date_to_param = request.query_params.get('date_to')
+
+        def normalize_date(d_str):
+            if not d_str:
+                return None
             import re
-            if re.match(r'^\d{2}/\d{2}/\d{4}$', date_param):
-                parts = date_param.split('/')
-                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
-            elif re.match(r'^\d{2}-\d{2}-\d{4}$', date_param):
-                parts = date_param.split('-')
-                date_param = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            if re.match(r'^\d{2}/\d{2}/\d{4}$', d_str):
+                parts = d_str.split('/')
+                return f"{parts[2]}-{parts[1]}-{parts[0]}"
+            elif re.match(r'^\d{2}-\d{2}-\d{4}$', d_str):
+                parts = d_str.split('-')
+                return f"{parts[2]}-{parts[1]}-{parts[0]}"
+            return d_str
+
+        date_from = normalize_date(date_from_param or date_param)
+        date_to = normalize_date(date_to_param)
+
+        lesson_query = GroupLesson.objects.filter(organization_id=org_id)
+        if date_from and date_to:
+            lesson_query = lesson_query.filter(date__range=[date_from, date_to])
+        elif date_from:
+            lesson_query = lesson_query.filter(date=date_from)
+        else:
+            lesson_query = lesson_query.filter(date=timezone.now().date().isoformat())
 
         # Bugun kalendarda darsi bor guruhlar
-        today_lessons = GroupLesson.objects.filter(organization_id=org_id, date=date_param).select_related('group',
-                                                                                                           'group__teacher')
+        today_lessons = lesson_query.select_related('group', 'group__teacher')
 
         unmarked_groups = []
         for lesson in today_lessons:
             if not lesson.group:
                 continue
-            has_attendance = Attendance.objects.filter(group=lesson.group, date=date_param).exists()
+            has_attendance = Attendance.objects.filter(group=lesson.group, date=lesson.date).exists()
             if not has_attendance:
                 teacher = lesson.group.teacher
                 teacher_name = f"{teacher.first_name or ''} {teacher.last_name or ''}".strip() or teacher.username if teacher else "O'qituvchi yo'q"
@@ -166,7 +218,7 @@ class UnmarkedGroupsAPIView(APIView):
                     "group_id": lesson.group.id,
                     "group_name": lesson.group.name,
                     "teacher_name": teacher_name,
-                    "date": date_param
+                    "date": str(lesson.date)
                 })
 
         return Response(unmarked_groups)

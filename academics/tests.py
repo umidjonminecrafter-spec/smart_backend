@@ -805,6 +805,150 @@ class CourseMaterialAndOnlineLessonTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("bazada topilmadi", response.data['detail'])
 
+    def test_student_send_sms_post_success(self):
+        """
+        Verify that admin can send SMS to student and it gets saved in SMSMessages.
+        """
+        self.client.force_authenticate(user=self.admin1)
+        url = reverse('student-send-sms', kwargs={'pk': self.student1.id})
+        data = {"message": "Test SMS message for student"}
+        
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data=data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], "success")
+        self.assertIn("SMS successfully sent", response.data['message'])
+
+        # Verify SMS messages count in DB
+        from communication.models import SMSMessages
+        sms = SMSMessages.objects.filter(recipient=self.student1.phone, organization=self.org1).first()
+        self.assertIsNotNone(sms)
+        self.assertEqual(sms.message, "Test SMS message for student")
+        self.assertEqual(sms.status, "sent")
+
+    def test_student_send_sms_post_teacher_permission(self):
+        """
+        Verify that teacher can send SMS only if allow_teacher_sms is enabled in subscription.
+        """
+        from organizations.models import Subscription
+        # Get active subscription of Org 1
+        sub = Subscription.objects.filter(organization=self.org1, is_active=True).first()
+        self.assertIsNotNone(sub)
+        
+        # 1. By default, teacher cannot send SMS if allow_teacher_sms=False
+        sub.allow_teacher_sms = False
+        sub.save()
+
+        # Give teacher role permission to access 'Talabalar' page
+        self.org1.role_permissions = {
+            "teacher": {
+                "pages": {
+                    "Talabalar": {
+                        "create": True,
+                        "edit": True,
+                        "view": True,
+                        "delete": True
+                    }
+                }
+            }
+        }
+        self.org1.save()
+
+        # Create a teacher user
+        teacher = User.objects.create_user(
+            username="+998901112270",
+            password="securepassword",
+            phone="+998901112270",
+            role="teacher",
+            organization=self.org1
+        )
+        self.client.force_authenticate(user=teacher)
+        url = reverse('student-send-sms', kwargs={'pk': self.student1.id})
+        data = {"message": "Hello from teacher"}
+
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data=data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("O'qituvchilarga talabalarga SMS yuborishga ruxsat berilmagan", response.data['detail'])
+
+        # 2. If allow_teacher_sms is enabled, teacher can send SMS
+        sub.allow_teacher_sms = True
+        sub.save()
+
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data=data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], "success")
+
+    def test_student_send_sms_post_invalid(self):
+        """
+        Verify that sending SMS without a message returns 400 Bad Request.
+        """
+        self.client.force_authenticate(user=self.admin1)
+        url = reverse('student-send-sms', kwargs={'pk': self.student1.id})
+        
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data={}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], "Message is required.")
+
+    def test_student_send_sms_get_history(self):
+        """
+        Verify GET on student-send-sms returns correct history with tenant isolation.
+        """
+        from communication.models import SMSMessages
+        # Prepare parent phones
+        self.student1.father_phone = "+998909998811"
+        self.student1.mother_phone = "+998909998822"
+        self.student1.save()
+
+        # Create history messages
+        SMSMessages.objects.create(
+            organization=self.org1,
+            recipient=self.student1.phone,
+            message="Msg to student",
+            status='sent'
+        )
+        SMSMessages.objects.create(
+            organization=self.org1,
+            recipient=self.student1.father_phone,
+            message="Msg to father",
+            status='sent'
+        )
+        SMSMessages.objects.create(
+            organization=self.org1,
+            recipient=self.student1.mother_phone,
+            message="Msg to mother",
+            status='sent'
+        )
+        # Message for another recipient (should not be in Alice's history)
+        SMSMessages.objects.create(
+            organization=self.org1,
+            recipient="+998901110000",
+            message="Msg to other",
+            status='sent'
+        )
+        # Message for Alice's phone but in organization 2 (tenant isolation)
+        SMSMessages.objects.create(
+            organization=self.org2,
+            recipient=self.student1.phone,
+            message="Msg in Org 2",
+            status='sent'
+        )
+
+        self.client.force_authenticate(user=self.admin1)
+        url = reverse('student-send-sms', kwargs={'pk': self.student1.id})
+
+        response = self.client.get(f"{url}?org_id={self.org1.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['student']['id'], self.student1.id)
+        self.assertEqual(response.data['total_count'], 3)
+        
+        # Verify messages in response
+        messages = [item['message'] for item in response.data['sms_history']]
+        self.assertIn("Msg to student", messages)
+        self.assertIn("Msg to father", messages)
+        self.assertIn("Msg to mother", messages)
+        self.assertNotIn("Msg to other", messages)
+        self.assertNotIn("Msg in Org 2", messages)
+
+
 
 
 

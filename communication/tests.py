@@ -230,3 +230,98 @@ class NotificationScheduleAPITests(APITestCase):
             self.assertEqual(mock_send.call_count, 1)
             self.assertEqual(mock_send.call_args[0][1], "987654321")
             self.assertIn("Rejalashtirilgan xabar", mock_send.call_args[0][2])
+
+
+class StudentSMSHistoryAPITests(APITestCase):
+    def setUp(self):
+        self.org1 = Organization.objects.create(name="Org 1")
+        self.org2 = Organization.objects.create(name="Org 2")
+        
+        self.admin1 = User.objects.create_user(
+            username="+998901112250",
+            password="securepassword",
+            phone="+998901112250",
+            role="admin",
+            organization=self.org1
+        )
+        self.admin2 = User.objects.create_user(
+            username="+998901112251",
+            password="securepassword",
+            phone="+998901112251",
+            role="admin",
+            organization=self.org2
+        )
+        self.student1 = Student.objects.create(
+            first_name="John",
+            last_name="Doe",
+            phone="+998901110001",
+            father_phone="+998901110002",
+            mother_phone="+998901110003",
+            organization=self.org1
+        )
+        
+        self.client.force_authenticate(user=self.admin1)
+
+    def test_student_sms_history_api_success(self):
+        """
+        Verify that fetching history via StudentSMSHistoryAPIView GET method
+        returns all SMS sent to student's or parents' phones.
+        """
+        from communication.models import SMSMessages
+        SMSMessages.objects.create(
+            organization=self.org1,
+            recipient=self.student1.phone,
+            message="SMS 1",
+            status="sent"
+        )
+        SMSMessages.objects.create(
+            organization=self.org1,
+            recipient=self.student1.father_phone,
+            message="SMS 2",
+            status="sent"
+        )
+        SMSMessages.objects.create(
+            organization=self.org1,
+            recipient=self.student1.mother_phone,
+            message="SMS 3",
+            status="sent"
+        )
+        # Message for another recipient (should not be in history)
+        SMSMessages.objects.create(
+            organization=self.org1,
+            recipient="+998901119999",
+            message="SMS other",
+            status="sent"
+        )
+        # Message for student phone but different organization
+        SMSMessages.objects.create(
+            organization=self.org2,
+            recipient=self.student1.phone,
+            message="SMS org 2",
+            status="sent"
+        )
+
+        url = f"/api/v1/communication/student-sms-history/{self.student1.id}/"
+        response = self.client.get(f"{url}?org_id={self.org1.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['student']['id'], self.student1.id)
+        self.assertEqual(response.data['total_count'], 3)
+
+        messages = [item['message'] for item in response.data['sms_history']]
+        self.assertIn("SMS 1", messages)
+        self.assertIn("SMS 2", messages)
+        self.assertIn("SMS 3", messages)
+        self.assertNotIn("SMS other", messages)
+        self.assertNotIn("SMS org 2", messages)
+
+    def test_student_sms_history_api_not_found(self):
+        """
+        Verify that trying to retrieve SMS history of a student from another
+        organization returns 404 Not Found.
+        """
+        self.client.force_authenticate(user=self.admin2) # Admin of Org 2
+        url = f"/api/v1/communication/student-sms-history/{self.student1.id}/"
+        
+        response = self.client.get(f"{url}?org_id={self.org2.id}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+

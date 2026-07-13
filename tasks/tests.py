@@ -172,3 +172,43 @@ class TaskHistoryTests(APITestCase):
         results2 = response2.data.get('results') if isinstance(response2.data, dict) else response2.data
         self.assertEqual(len(results2), 1)
         self.assertEqual(results2[0]['details'], "Test yaratilish tarixi")
+
+    def test_task_assignment_notifications(self):
+        """
+        Verify that notify_task_assignment is triggered when a task is created or updated.
+        """
+        # Set user telegram_chat_id
+        self.user.telegram_chat_id = "123456789"
+        self.user.save()
+
+        # Mock send_telegram_message using unittest.mock
+        from unittest.mock import patch
+        with patch('academics.telegram_bot.send_telegram_message') as mock_send:
+            # 1. Create a task with assigned user
+            item = Item.objects.create(
+                board=self.board,
+                column=self.column1,
+                title="Sarlavha",
+                assigned_to=self.user,
+                organization=self.org,
+                branch=self.branch
+            )
+            self.assertTrue(mock_send.called)
+            self.assertEqual(mock_send.call_count, 1)
+
+            mock_send.reset_mock()
+
+            # 2. Update the task assignment (same user -> should NOT send again)
+            item.title = "Yangilangan Sarlavha"
+            item.save()
+            self.assertFalse(mock_send.called)
+
+            # 3. Change assignment (None -> user)
+            item.assigned_to = None
+            item.save()
+            mock_send.reset_mock()
+
+            item.assigned_to = self.user
+            item.save()
+            self.assertTrue(mock_send.called)
+            self.assertEqual(mock_send.call_count, 1)

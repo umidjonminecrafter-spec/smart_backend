@@ -102,12 +102,31 @@ class TaskHistory(TenantModel):
         return f"{self.user} - {self.action} on {self.item.title} at {self.created_at}"
 
 
-from django.db.models.signals import post_save
+from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
+
+@receiver(pre_save, sender=Item)
+def item_pre_save(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old = Item.objects.get(pk=instance.pk)
+            instance._old_assigned_to_id = old.assigned_to_id
+        except Item.DoesNotExist:
+            instance._old_assigned_to_id = None
+    else:
+        instance._old_assigned_to_id = None
 
 @receiver(post_save, sender=Item)
 def notify_task_assignment(sender, instance, created, **kwargs):
-    if created and instance.assigned_to and getattr(instance.assigned_to, 'telegram_chat_id', None):
+    old_assigned_to_id = getattr(instance, '_old_assigned_to_id', None)
+    should_send = False
+
+    if created and instance.assigned_to:
+        should_send = True
+    elif not created and instance.assigned_to and old_assigned_to_id != instance.assigned_to_id:
+        should_send = True
+
+    if should_send and getattr(instance.assigned_to, 'telegram_chat_id', None):
         try:
             from organizations.models import TelegramNotificationSetting
             from academics.telegram_bot import send_telegram_message

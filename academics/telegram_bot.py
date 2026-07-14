@@ -164,7 +164,7 @@ def seed_default_faqs(org_id):
             },
             {
                 "question": "Veb-sayt manzili qanday?",
-                "answer": "Platformamizning rasmiy manzili: smarttalim.uz. U yerda shaxsiy kabinetingizga kirishingiz mumkin.",
+                "answer": "Platformamizning rasmiy manzili: <a href='https://animated-malasada-239b8b.netlify.app/'>smarttalim.uz</a>. U yerda shaxsiy kabinetingizga kirishingiz mumkin.",
                 "keywords": ["sayt", "vebsayt", "havola", "manzil"]
             },
             {
@@ -175,7 +175,7 @@ def seed_default_faqs(org_id):
         ]
         
         for item in defaults:
-            FAQItem.objects.get_or_create(
+            FAQItem.objects.update_or_create(
                 question=item["question"],
                 organization_id=org_id,
                 defaults={

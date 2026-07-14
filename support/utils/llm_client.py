@@ -46,7 +46,7 @@ class LLMClient:
                     }
                 }
                 
-                response = requests.post(url, json=payload, headers=headers, timeout=10)
+                response = requests.post(url, json=payload, headers=headers, timeout=30)
                 if response.status_code == 200:
                     res_data = response.json()
                     raw_content = res_data['candidates'][0]['content']['parts'][0]['text']

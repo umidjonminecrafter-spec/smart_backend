@@ -62,6 +62,80 @@ def get_reply_keyboard(buttons):
     }
 
 
+def seed_default_faqs(org_id):
+    try:
+        from support.models import FAQCategory, FAQItem
+        category, _ = FAQCategory.objects.get_or_create(
+            name="Umumiy",
+            organization_id=org_id,
+            defaults={"is_active": True}
+        )
+        
+        defaults = [
+            {
+                "question": "Qanday ro'yxatdan o'taman?",
+                "answer": "Saytning bosh sahifasidagi 'Ro'yxatdan o'tish' tugmasini bosing va ma'lumotlaringizni kiriting. Shundan so'ng administrator hisobingizni faollashtiradi.",
+                "keywords": ["ro'yxatdan", "yangi", "akkaunt"]
+            },
+            {
+                "question": "Kurs narxlari va to'lov usullari qanday?",
+                "answer": "Kurs narxlari yo'nalishga qarab farq qiladi. To'lovlarni Click, Payme ilovalari orqali yoki administrator xonasida naqd ko'rinishda amalga oshirishingiz mumkin.",
+                "keywords": ["to'lov", "click", "payme", "narx", "kurs"]
+            },
+            {
+                "question": "Dars jadvalini qayerdan ko'raman?",
+                "answer": "Dars jadvalini o'quvchi botidagi 'Dars jadvalim' bo'limi orqali yoki shaxsiy kabinetingizga kirib ko'rishingiz mumkin.",
+                "keywords": ["jadval", "darslar", "qachon"]
+            },
+            {
+                "question": "Parol tiklash qanday bo'ladi?",
+                "answer": "Tizimga kirish sahifasida 'Parolni unutdingizmi?' tugmasini bosing va telefon raqamingizni kiriting. Tasdiqlash kodi SMS orqali yuboriladi.",
+                "keywords": ["parol", "tiklash", "unutdim"]
+            }
+        ]
+        
+        for item in defaults:
+            FAQItem.objects.get_or_create(
+                question=item["question"],
+                organization_id=org_id,
+                defaults={
+                    "category": category,
+                    "answer": item["answer"],
+                    "keywords": item["keywords"],
+                    "is_active": True
+                }
+            )
+    except Exception as e:
+        print(f"Error seeding FAQs: {str(e)}")
+
+
+def get_support_faq_keyboard(org_id):
+    from support.models import FAQItem
+    if FAQItem.objects.filter(organization_id=org_id).count() == 0:
+        seed_default_faqs(org_id)
+        
+    faqs = FAQItem.objects.filter(organization_id=org_id, is_active=True)
+    buttons = []
+    row = []
+    for faq in faqs:
+        row.append(faq.question)
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append(["ℹ️ To'liqroq javob olish"])
+    return get_reply_keyboard(buttons)
+
+
+def get_support_ai_keyboard():
+    return get_reply_keyboard([
+        ["⬅️ Asosiy menyuga qaytish"],
+        ["👤 Operator bilan bog'lanish"]
+    ])
+
+
+
 def handle_telegram_update(bot_type, token, update_data):
     """
     Stateless telegram update handler
@@ -234,20 +308,7 @@ def handle_telegram_update(bot_type, token, update_data):
                 setting = TelegramNotificationSetting.objects.first()
             
             org_id = setting.organization_id if setting else 1
-            
-            from support.models import FAQItem
-            faqs = FAQItem.objects.filter(organization_id=org_id, is_active=True)
-            buttons = []
-            row = []
-            for faq in faqs:
-                row.append(faq.question)
-                if len(row) == 2:
-                    buttons.append(row)
-                    row = []
-            if row:
-                buttons.append(row)
-            buttons.append(["👤 Operator bilan bog'lanish"])
-            menu = get_reply_keyboard(buttons)
+            menu = get_support_faq_keyboard(org_id)
             
             msg = "Assalomu alaykum! Yordam markazi botiga xush kelibsiz. Quyidagi savollardan birini tanlang yoki savolingizni yozib qoldiring:"
             send_telegram_message(token, chat_id, msg, menu)
@@ -271,29 +332,80 @@ def handle_telegram_update(bot_type, token, update_data):
             
         if setting:
             org_id = setting.organization_id
-            from support.services.chat import AIChatService
-            reply = AIChatService.handle_telegram_chat(
-                chat_id=str(chat_id),
-                message=text,
-                organization_id=org_id
-            )
             
-            # Fetch active FAQs for the menu
-            from support.models import FAQItem
-            faqs = FAQItem.objects.filter(organization_id=org_id, is_active=True)
-            buttons = []
-            row = []
-            for faq in faqs:
-                row.append(faq.question)
-                if len(row) == 2:
-                    buttons.append(row)
-                    row = []
-            if row:
-                buttons.append(row)
-            buttons.append(["👤 Operator bilan bog'lanish"])
-            menu = get_reply_keyboard(buttons)
+            # 1. Back to Main Menu
+            if text == "⬅️ Asosiy menyuga qaytish":
+                menu = get_support_faq_keyboard(org_id)
+                msg = "Asosiy menyuga qaytdingiz. Quyidagi savollardan birini tanlang yoki savolingizni yozing:"
+                send_telegram_message(token, chat_id, msg, menu)
+                return
+                
+            # 2. Get More Detailed Answer (Connect to AI)
+            elif text == "ℹ️ To'liqroq javob olish":
+                menu = get_support_ai_keyboard()
+                msg = "Siz sun'iy intellekt yordamchisiga ulandingiz. Savolingizni bot ichida yozib yuboring, u javob beradi."
+                send_telegram_message(token, chat_id, msg, menu)
+                return
+                
+            # 3. Connect to Live Operator
+            elif text == "👤 Operator bilan bog'lanish":
+                from support.services.chat import AIChatService
+                # Create chat session & ticket in the background
+                session = AIChatService.get_or_create_session(telegram_chat_id=str(chat_id), organization_id=org_id)
+                from support.services.ticket import TicketService
+                ticket = TicketService.auto_create_ticket(session, description="Foydalanuvchi operator bilan bog'lanish tugmasini bosdi.")
+                
+                contact_link = getattr(setting, 'support_contact_link', None)
+                if contact_link:
+                    username = contact_link.replace('@', '').strip()
+                    operator_url = f"https://t.me/{username}"
+                else:
+                    operator_url = "https://t.me/umidjonminecrafter" # Fallback
+                
+                reply = (
+                    f"Sizni operatorga ulayapman. Iltimos kuting...\n\n"
+                    f"[Tizim]: Sizning so'rovingiz bo'yicha operatorlarimiz uchun yordam chiptasi ochildi (Chipta #{ticket.id}).\n\n"
+                    f"Operator bilan to'g'ridan-to'g'ri bog'lanish uchun quyidagi havolani bosing:\n"
+                    f"👉 <a href='{operator_url}'>Operator bilan bog'lanish</a>"
+                )
+                menu = get_support_ai_keyboard()
+                send_telegram_message(token, chat_id, reply, menu)
+                return
             
-            send_telegram_message(token, chat_id, reply, menu)
+            # 4. Standard text messages processing
+            else:
+                # Check for exact FAQ question match first
+                from support.models import FAQItem
+                faq_match = FAQItem.objects.filter(
+                    organization_id=org_id,
+                    question__iexact=text.strip(),
+                    is_active=True
+                ).first()
+                
+                if faq_match:
+                    reply = faq_match.answer
+                    menu = get_support_faq_keyboard(org_id)
+                else:
+                    # Fallback to AI Chat pipeline
+                    from support.services.chat import AIChatService
+                    reply = AIChatService.handle_telegram_chat(
+                        chat_id=str(chat_id),
+                        message=text,
+                        organization_id=org_id
+                    )
+                    # If AI created a ticket due to low confidence, append operator contact link
+                    if "chiptasi ochildi" in reply:
+                        contact_link = getattr(setting, 'support_contact_link', None)
+                        if contact_link:
+                            username = contact_link.replace('@', '').strip()
+                            operator_url = f"https://t.me/{username}"
+                        else:
+                            operator_url = "https://t.me/umidjonminecrafter" # Fallback
+                        reply += f"\n\nTo'g'ridan-to'g'ri bog'lanish uchun:\n👉 <a href='{operator_url}'>Operator bilan bog'lanish (Telegram)</a>"
+                    
+                    menu = get_support_ai_keyboard()
+                
+                send_telegram_message(token, chat_id, reply, menu)
 
     elif bot_type == 'student':
         student = Student.objects.filter(telegram_chat_id=chat_id).first()

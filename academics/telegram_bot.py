@@ -228,8 +228,29 @@ def handle_telegram_update(bot_type, token, update_data):
             send_telegram_message(token, chat_id, msg, menu)
             return
         elif bot_type == 'support':
-            msg = "Assalomu alaykum! Yordam markazi botiga xush kelibsiz. Savolingizni yozib qoldirishingiz mumkin:"
-            send_telegram_message(token, chat_id, msg)
+            from organizations.models import TelegramNotificationSetting
+            setting = TelegramNotificationSetting.objects.filter(support_bot_token=token).first()
+            if not setting:
+                setting = TelegramNotificationSetting.objects.first()
+            
+            org_id = setting.organization_id if setting else 1
+            
+            from support.models import FAQItem
+            faqs = FAQItem.objects.filter(organization_id=org_id, is_active=True)
+            buttons = []
+            row = []
+            for faq in faqs:
+                row.append(faq.question)
+                if len(row) == 2:
+                    buttons.append(row)
+                    row = []
+            if row:
+                buttons.append(row)
+            buttons.append(["👤 Operator bilan bog'lanish"])
+            menu = get_reply_keyboard(buttons)
+            
+            msg = "Assalomu alaykum! Yordam markazi botiga xush kelibsiz. Quyidagi savollardan birini tanlang yoki savolingizni yozib qoldiring:"
+            send_telegram_message(token, chat_id, msg, menu)
             return
 
         msg = "Assalomu alaykum! SmartTalim xizmatiga xush kelibsiz.\n\nBotdan foydalanish uchun telefon raqamingizni yuboring:"
@@ -256,7 +277,23 @@ def handle_telegram_update(bot_type, token, update_data):
                 message=text,
                 organization_id=org_id
             )
-            send_telegram_message(token, chat_id, reply)
+            
+            # Fetch active FAQs for the menu
+            from support.models import FAQItem
+            faqs = FAQItem.objects.filter(organization_id=org_id, is_active=True)
+            buttons = []
+            row = []
+            for faq in faqs:
+                row.append(faq.question)
+                if len(row) == 2:
+                    buttons.append(row)
+                    row = []
+            if row:
+                buttons.append(row)
+            buttons.append(["👤 Operator bilan bog'lanish"])
+            menu = get_reply_keyboard(buttons)
+            
+            send_telegram_message(token, chat_id, reply, menu)
 
     elif bot_type == 'student':
         student = Student.objects.filter(telegram_chat_id=chat_id).first()

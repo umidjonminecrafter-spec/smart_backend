@@ -78,19 +78,99 @@ def seed_default_faqs(org_id):
                 "keywords": ["ro'yxatdan", "yangi", "akkaunt"]
             },
             {
-                "question": "Kurs narxlari va to'lov usullari qanday?",
-                "answer": "Kurs narxlari yo'nalishga qarab farq qiladi. To'lovlarni Click, Payme ilovalari orqali yoki administrator xonasida naqd ko'rinishda amalga oshirishingiz mumkin.",
-                "keywords": ["to'lov", "click", "payme", "narx", "kurs"]
+                "question": "Kurs narxlari qancha?",
+                "answer": "Kurs narxlari tanlangan yo'nalish va guruh turiga qarab farq qiladi. Narxlar haqida batafsil ma'lumotni 'Kurslar' bo'limidan olishingiz mumkin.",
+                "keywords": ["narx", "kurslar", "qancha", "qiymat"]
+            },
+            {
+                "question": "To'lov usullari qanday?",
+                "answer": "To'lovlarni Click, Payme ilovalari orqali masofadan turib yoki o'quv markazi administratorining huzurida naqd / karta orqali to'lashingiz mumkin.",
+                "keywords": ["to'lov", "click", "payme", "karta", "naqd"]
             },
             {
                 "question": "Dars jadvalini qayerdan ko'raman?",
-                "answer": "Dars jadvalini o'quvchi botidagi 'Dars jadvalim' bo'limi orqali yoki shaxsiy kabinetingizga kirib ko'rishingiz mumkin.",
+                "answer": "Dars jadvalini o'quvchi botidagi 'Dars jadvalim' bo'limidan yoki platformadagi shaxsiy kabinetingizga kirib ko'rishingiz mumkin.",
                 "keywords": ["jadval", "darslar", "qachon"]
             },
             {
                 "question": "Parol tiklash qanday bo'ladi?",
                 "answer": "Tizimga kirish sahifasida 'Parolni unutdingizmi?' tugmasini bosing va telefon raqamingizni kiriting. Tasdiqlash kodi SMS orqali yuboriladi.",
                 "keywords": ["parol", "tiklash", "unutdim"]
+            },
+            {
+                "question": "Telefon raqamni qanday o'zgartiraman?",
+                "answer": "Telefon raqamingizni o'zgartirish uchun o'quv markazi administratoriga murojaat qilishingiz kerak. Ular tizimda ma'lumotlaringizni yangilab berishadi.",
+                "keywords": ["telefon", "raqam", "o'zgartirish"]
+            },
+            {
+                "question": "Darslar qachon boshlanadi?",
+                "answer": "Guruh to'lishi bilan darslar boshlanadi. Darslar boshlanish sanasi haqida guruh rahbari yoki bot orqali bildirishnoma olasiz.",
+                "keywords": ["boshlanadi", "dars", "qachondan"]
+            },
+            {
+                "question": "Qoldirilgan darslar to'lovi nima bo'ladi?",
+                "answer": "Uzrli sabablarga ko'ra (kasallik varaqasi yoki shifokor ma'lumotnomasi bilan) qoldirilgan darslar uchun to'lov keyingi oyga ko'chiriladi.",
+                "keywords": ["qoldirilgan", "kasal", "to'lov"]
+            },
+            {
+                "question": "Sertifikat beriladimi?",
+                "answer": "Ha, kursni muvaffaqiyatli yakunlab, yakuniy imtihonlardan o'tgan barcha o'quvchilarga maxsus sertifikat topshiriladi.",
+                "keywords": ["sertifikat", "diplom", "hujjat"]
+            },
+            {
+                "question": "Mobil ilova bormi?",
+                "answer": "Hozirda platformaning to'liq funksional mobil versiyasi va Telegram botlari mavjud. Mobil ilova tez kunda ishga tushadi.",
+                "keywords": ["mobil", "ilova", "app", "android", "ios"]
+            },
+            {
+                "question": "Darslarni qayta ko'rish imkoni bormi?",
+                "answer": "Ha, agar onlayn dars bo'lsa, dars yozib olinadi va shaxsiy kabinetingizda 1 oy davomida ko'rish uchun faol bo'ladi.",
+                "keywords": ["qayta", "yozib", "video", "ko'rish"]
+            },
+            {
+                "question": "Guruhni o'zgartirsa bo'ladimi?",
+                "answer": "Ha, boshqa guruhda bo'sh joy mavjud bo'lsa, administrator bilan bog'lanib, guruhni almashtirishingiz mumkin.",
+                "keywords": ["guruh", "o'zgartirish", "almashtirish"]
+            },
+            {
+                "question": "O'quvchi reytingini qanday ko'raman?",
+                "answer": "O'quvchi botidagi '🏆 Baholar' bo'limi orqali joriy baholar va guruhdagi umumiy reytingni kuzatib borishingiz mumkin.",
+                "keywords": ["reyting", "baholar", "o'rin"]
+            },
+            {
+                "question": "Davomatni qanday tekshiraman?",
+                "answer": "O'quvchi yoki ota-ona botidagi '📊 Davomat' menyusi orqali barcha darslarga qatnashganlik holatini ko'rishingiz mumkin.",
+                "keywords": ["davomat", "keldi", "kelmadi"]
+            },
+            {
+                "question": "Onlayn va oflayn farqi nimada?",
+                "answer": "Oflayn darslar o'quv markazimiz binosida, onlayn darslar esa platformamiz orqali jonli efir va video-darslar shaklida o'tiladi.",
+                "keywords": ["onlayn", "oflayn", "farq", "masofaviy"]
+            },
+            {
+                "question": "Bonus va chegirmalar bormi?",
+                "answer": "Ha, bir vaqtning o'zida ikkita kursga qatnashganlar yoki bir oiladan bir necha kishi o'qiyotganlar uchun chegirmalar tizimi mavjud.",
+                "keywords": ["chegirma", "bonus", "aksiyalar"]
+            },
+            {
+                "question": "Ota-onalar uchun nazorat bormi?",
+                "answer": "Ha, ota-onalar maxsus 'Ota-ona boti' orqali farzandlarining davomati, baholari va to'lovlarini to'liq nazorat qila oladilar.",
+                "keywords": ["ota-ona", "nazorat", "farzand"]
+            },
+            {
+                "question": "Sinov darslari bormi?",
+                "answer": "Ha, har bir yo'nalish bo'yicha birinchi dars bepul sinov darsi hisoblanadi. Unda qatnashib, dars sifatini baholashingiz mumkin.",
+                "keywords": ["sinov", "bepul", "birinchi", "dars"]
+            },
+            {
+                "question": "Veb-sayt manzili qanday?",
+                "answer": "Platformamizning rasmiy manzili: smarttalim.uz. U yerda shaxsiy kabinetingizga kirishingiz mumkin.",
+                "keywords": ["sayt", "vebsayt", "havola", "manzil"]
+            },
+            {
+                "question": "Qo'shimcha darslar bormi?",
+                "answer": "Ha, mavzuni o'zlashtirishda qiynalgan o'quvchilar uchun haftada bir marta bepul qo'shimcha konsultatsiya darslari tashkil etiladi.",
+                "keywords": ["qo'shimcha", "konsultatsiya", "yordam"]
             }
         ]
         
@@ -111,7 +191,7 @@ def seed_default_faqs(org_id):
 
 def get_support_faq_keyboard(org_id):
     from support.models import FAQItem
-    if FAQItem.objects.filter(organization_id=org_id).count() == 0:
+    if FAQItem.objects.filter(organization_id=org_id).count() < 10:
         seed_default_faqs(org_id)
         
     faqs = FAQItem.objects.filter(organization_id=org_id, is_active=True)

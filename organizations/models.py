@@ -197,6 +197,12 @@ class TelegramNotificationSetting(BaseModel):
 
     support_bot_token = models.CharField(max_length=255, null=True, blank=True)
     support_bot_username = models.CharField(max_length=255, null=True, blank=True)
+    support_contact_link = models.CharField(
+        max_length=255, 
+        null=True, 
+        blank=True, 
+        help_text="Operator Telegram lichkasi (username, masalan: @username)"
+    )
 
     is_active = models.BooleanField(default=False)
 

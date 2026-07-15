@@ -147,6 +147,10 @@ class IsSameBranch(permissions.BasePermission):
         if not obj_branch_id:
             return True
 
+        # If user has multiple branches assigned, check if object's branch is in user's branches
+        if request.user.role != 'student' and request.user.branches.exists():
+            return request.user.branches.filter(id=obj_branch_id).exists()
+
         # If user has no branch assigned, allow (org-level user)
         user_branch_id = getattr(request.user, 'branch_id', None)
         if not user_branch_id:

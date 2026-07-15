@@ -84,3 +84,29 @@ class AccountsAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(response.data['photo'])
 
+    def test_employee_multi_branch_assignment(self):
+        """
+        Ensure staff can be assigned to multiple branches and it's reflected correctly.
+        """
+        org = Organization.objects.create(name="Multi Branch Test Org")
+        from organizations.models import Branch
+        branch1 = Branch.objects.create(name="Branch 1", organization=org)
+        branch2 = Branch.objects.create(name="Branch 2", organization=org)
+        
+        staff = User.objects.create_user(
+            username="+998901112299",
+            password="securepassword",
+            email="staff@talim.com",
+            phone="+998901112299",
+            role="admin",
+            organization=org
+        )
+        
+        staff.branches.set([branch1, branch2])
+        staff.branch = branch1
+        staff.save()
+        
+        self.assertEqual(staff.branches.count(), 2)
+        self.assertIn(branch1, staff.branches.all())
+        self.assertIn(branch2, staff.branches.all())
+

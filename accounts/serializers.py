@@ -8,11 +8,20 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     organization_name = serializers.CharField(source='organization.name', read_only=True)
     branch_name = serializers.CharField(source='branch.name', read_only=True)
+    branches = serializers.PrimaryKeyRelatedField(
+        queryset=Branch.objects.all(),
+        many=True,
+        required=False
+    )
+    branches_detail = serializers.SerializerMethodField(read_only=True)
+
+    def get_branches_detail(self, obj):
+        return [{"id": b.id, "name": b.name} for b in obj.branches.all()]
 
     class Meta:
         model = User
         fields = ('id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'position', 'organization',
-                  'organization_name', 'branch', 'branch_name', 'photo', 'salary_percentage')
+                  'organization_name', 'branch', 'branch_name', 'photo', 'salary_percentage', 'branches', 'branches_detail')
         read_only_fields = ('id', 'role', 'organization', 'branch')
 
 
@@ -113,12 +122,21 @@ class EmployeeSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
+    branches = serializers.PrimaryKeyRelatedField(
+        queryset=Branch.objects.all(),
+        many=True,
+        required=False
+    )
+    branches_detail = serializers.SerializerMethodField(read_only=True)
+
+    def get_branches_detail(self, obj):
+        return [{"id": b.id, "name": b.name} for b in obj.branches.all()]
 
     class Meta:
         model = User
         fields = ('id', 'username', 'password', 'email', 'first_name', 'last_name', 'phone', 'role', 'position',
                   'organization', 'branch', 'birth_date', 'gender', 'photo', 'salary_percentage',
-                  'salary_percentage_detail')
+                  'salary_percentage_detail', 'branches', 'branches_detail')
         read_only_fields = ('id', 'organization', 'branch')
 
     # 🚀 1-YANGILIK: Abdulmajidga xatolik chiroyli "400 Bad Request" bo'lib borishi uchun:
@@ -196,6 +214,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop('password', None) or 'smarttalim123'
         salary_percentage = validated_data.pop('salary_percentage', None)  # alohida sug'urib olamiz
+        branches = validated_data.pop('branches', [])
 
         if not validated_data.get('username'):
             validated_data['username'] = validated_data.get('phone', '')
@@ -209,16 +228,33 @@ class EmployeeSerializer(serializers.ModelSerializer):
         # Foizni majburiy ravishda bog'lab saqlaymiz
         if salary_percentage:
             user.salary_percentage = salary_percentage
-            user.save()
-
+            
+        if branches:
+            user.branches.set(branches)
+            user.branch = branches[0]
+        elif validated_data.get('branch'):
+            user.branches.set([validated_data.get('branch')])
+            
+        user.save()
         return user
 
     def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
+        branches = validated_data.pop('branches', None)
+        
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+            
         if password:
             instance.set_password(password)
+            
+        if branches is not None:
+            instance.branches.set(branches)
+            if branches:
+                instance.branch = branches[0]
+            else:
+                instance.branch = None
+                
         instance.save()
         return instance
 

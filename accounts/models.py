@@ -29,6 +29,12 @@ class User(AbstractUser):
         null=True,
         blank=True
     )
+    branches = models.ManyToManyField(
+        'organizations.Branch',
+        related_name="assigned_users",
+        blank=True,
+        verbose_name="Biriktirilgan filiallar"
+    )
     phone = models.CharField(max_length=50, null=True, blank=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='employee')
     position = models.CharField(max_length=100, null=True, blank=True)

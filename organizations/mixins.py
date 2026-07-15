@@ -77,18 +77,28 @@ class TenantViewSetMixin:
             if model is not Branch:
                 branch_id = self.get_branch_id()
                 if branch_id:
-                    # Model lists that must be strictly isolated to the branch
-                    strict_models = [
-                        'Group', 'Room', 'LessonSchedule', 'Payment', 'Expense', 
-                        'Sale', 'Bonus', 'Fine', 'Salary', 'TeacherSalaryPayment',
-                        'StudentGroup', 'FinanceAction', 'Cashbox', 'Transaction'
-                    ]
-                    if model.__name__ in strict_models:
-                        queryset = queryset.filter(branch_id=branch_id)
-                    else:
+                    if model.__name__ == 'User':
+                        # User (Employee/Teacher/Staff) can be assigned to multiple branches
+                        # Owners should be visible in all branches
                         queryset = queryset.filter(
-                            db_models.Q(branch_id=branch_id) | db_models.Q(branch__isnull=True)
-                        )
+                            db_models.Q(branches=branch_id) |
+                            db_models.Q(branch_id=branch_id) |
+                            db_models.Q(role='owner') |
+                            db_models.Q(branch__isnull=True, branches__isnull=True)
+                        ).distinct()
+                    else:
+                        # Model lists that must be strictly isolated to the branch
+                        strict_models = [
+                            'Group', 'Room', 'LessonSchedule', 'Payment', 'Expense', 
+                            'Sale', 'Bonus', 'Fine', 'Salary', 'TeacherSalaryPayment',
+                            'StudentGroup', 'FinanceAction', 'Cashbox', 'Transaction'
+                        ]
+                        if model.__name__ in strict_models:
+                            queryset = queryset.filter(branch_id=branch_id)
+                        else:
+                            queryset = queryset.filter(
+                                db_models.Q(branch_id=branch_id) | db_models.Q(branch__isnull=True)
+                            )
 
         return queryset
 

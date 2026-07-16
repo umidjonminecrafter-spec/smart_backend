@@ -150,6 +150,17 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 "salary_percentage": "O'qituvchi yaratish uchun ish haqi foizini yuborish majburiy!"
             })
 
+        # Telefon raqam takrorlanmasligini qo'lda tekshiramiz (frontedga xato 'phone' maydonida borishi uchun)
+        phone = attrs.get('phone')
+        if phone:
+            qs = User.objects.filter(username=phone)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError({
+                    "phone": "Ushbu telefon raqamli xodim tizimda allaqachon ro'yxatdan o'tgan."
+                })
+
         # Xavfsizlik qoidalari:
         request = self.context.get('request')
         if request and request.user:
@@ -175,16 +186,20 @@ class EmployeeSerializer(serializers.ModelSerializer):
         return attrs
 
     def to_internal_value(self, data):
-        # Sizning mavjud to_internal_value kodingiz (o'zgarishsiz qoladi)
+        # Telefon raqamini to'liq tozalab, standart formatga keltiramiz (+998XXXXXXXXX)
         data = data.copy() if hasattr(data, 'copy') else dict(data)
         phone = data.get('phone') or data.get('phone_number')
         if phone:
-            phone = phone.strip()
-            if phone.startswith('998') and not phone.startswith('+'):
-                phone = '+' + phone
-            data['phone'] = phone
-            if not data.get('username'):
-                data['username'] = phone
+            cleaned = ''.join(c for c in str(phone) if c.isdigit())
+            if len(cleaned) == 9:
+                cleaned = '998' + cleaned
+            if cleaned.startswith('998') and len(cleaned) == 12:
+                formatted_phone = '+' + cleaned
+            else:
+                formatted_phone = '+' + cleaned if cleaned else phone
+            
+            data['phone'] = formatted_phone
+            data['username'] = formatted_phone
 
         full_name = data.get('full_name')
         if full_name and not (data.get('first_name') or data.get('last_name')):

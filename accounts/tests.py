@@ -110,3 +110,29 @@ class AccountsAPITests(APITestCase):
         self.assertIn(branch1, staff.branches.all())
         self.assertIn(branch2, staff.branches.all())
 
+    def test_employee_unique_phone_validation(self):
+        """
+        Verify that creating an employee with an existing phone number returns a 400 validation error
+        specifically under the 'phone' key (not the hidden 'username' key).
+        """
+        from accounts.serializers import EmployeeSerializer
+        org = Organization.objects.create(name="Unique Phone Org")
+        User.objects.create_user(
+            username="+998901112288",
+            password="password123",
+            phone="+998901112288",
+            role="employee",
+            organization=org
+        )
+        
+        serializer = EmployeeSerializer(data={
+            "first_name": "Bob",
+            "phone": "+998901112288",
+            "role": "employee",
+            "position": "Manager"
+        })
+        
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("phone", serializer.errors)
+        self.assertEqual(serializer.errors["phone"][0], "Ushbu telefon raqamli xodim tizimda allaqachon ro'yxatdan o'tgan.")
+

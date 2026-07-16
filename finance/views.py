@@ -3053,20 +3053,17 @@ import os
 
 def temp_log_view(request):
     try:
-        from academics.models import Group, GroupTeacher
+        from accounts.serializers import EmployeeSerializer
         from accounts.models import User
         
-        users_info = [(u.id, u.username, u.role) for u in User.objects.all()]
-        groups_info = [(g.id, g.name, g.teacher_id, g.assistant_teacher_id, g.organization_id) for g in Group.objects.all()]
-        gt_info = [(gt.id, gt.group_id, gt.teacher_id) for gt in GroupTeacher.objects.all()]
+        user3 = User.objects.get(id=3)
+        serializer = EmployeeSerializer(user3)
+        data = serializer.data
         
         html = f"""
-        <h3>Users (limit 50):</h3>
-        <pre>{users_info[:50]}</pre>
-        <h3>Groups (limit 50):</h3>
-        <pre>{groups_info[:50]}</pre>
-        <h3>GroupTeachers (limit 50):</h3>
-        <pre>{gt_info[:50]}</pre>
+        <h3>User ID 3 Serialized Groups:</h3>
+        <pre>groups: {data.get('groups')}</pre>
+        <pre>groups_detail: {data.get('groups_detail')}</pre>
         """
         return HttpResponse(html)
     except Exception as e:

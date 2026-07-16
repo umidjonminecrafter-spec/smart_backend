@@ -3052,19 +3052,10 @@ from django.http import HttpResponse
 import os
 
 def temp_log_view(request):
-    try:
-        from accounts.serializers import EmployeeSerializer
-        from accounts.models import User
-        
-        user3 = User.objects.get(id=3)
-        serializer = EmployeeSerializer(user3)
-        data = serializer.data
-        
-        html = f"""
-        <h3>User ID 3 Serialized Groups:</h3>
-        <pre>groups: {data.get('groups')}</pre>
-        <pre>groups_detail: {data.get('groups_detail')}</pre>
-        """
-        return HttpResponse(html)
-    except Exception as e:
-        return HttpResponse(f"Error: {str(e)}")
+    log_path = "/var/log/musojon1995.pythonanywhere.com.error.log"
+    if not os.path.exists(log_path):
+        return HttpResponse(f"Log path {log_path} not found. Current dirs: {os.listdir('/var') if os.path.exists('/var') else 'No var'}")
+    
+    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+        lines = f.readlines()[-150:]
+    return HttpResponse("<pre>" + "".join(lines) + "</pre>")

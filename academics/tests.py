@@ -171,7 +171,7 @@ class AcademicsAPITests(APITestCase):
 
         # Create a user object for student1
         User.objects.create_user(
-            username=self.student1.phone,
+            username=f"{self.student1.phone}_{self.org1.id}",
             password="studentpassword",
             phone=self.student1.phone,
             role="student",
@@ -186,7 +186,7 @@ class AcademicsAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         # 1. Verify student User is deleted
-        self.assertFalse(User.objects.filter(username=self.student1.phone, role="student").exists())
+        self.assertFalse(User.objects.filter(username=f"{self.student1.phone}_{self.org1.id}", role="student").exists())
 
         # 2. Verify we can create a new student with that phone number (since it's freed)
         student_create_url = reverse('student-list')
@@ -204,7 +204,7 @@ class AcademicsAPITests(APITestCase):
         # Delete new student and their user directly from DB to avoid a second archive entry
         new_student_id = create_response.data['id']
         Student.objects.filter(id=new_student_id).delete()
-        User.objects.filter(username=self.student1.phone).delete()
+        User.objects.filter(username=f"{self.student1.phone}_{self.org1.id}").delete()
 
         # Now restore the archived student
         archive_entry = StudentArchive.objects.get(phone=self.student1.phone)
@@ -213,7 +213,7 @@ class AcademicsAPITests(APITestCase):
         self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
 
         # Verify User is recreated
-        self.assertTrue(User.objects.filter(username=self.student1.phone, role="student").exists())
+        self.assertTrue(User.objects.filter(username=f"{self.student1.phone}_{self.org1.id}", role="student").exists())
 
     def test_attendance_billing_logic(self):
         """
@@ -1003,6 +1003,31 @@ class StudentGroupLeaveTests(APITestCase):
         self.assertEqual(data['student']['id'], None)
         self.assertEqual(data['student']['full_name'], "Alice Green")
         self.assertEqual(data['student']['phone_number'], "+998909998877")
+
+    def test_student_phone_validation_and_cleaning(self):
+        """
+        Verify that student phone numbers are formatted and validated correctly.
+        """
+        from academics.serializers import StudentSerializer
+        
+        # 1. 9-digit phone is standardly formatted to +998XXXXXXXXX
+        serializer = StudentSerializer(data={
+            "first_name": "Vali",
+            "phone": "901234567",
+            "password": "password123"
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["phone"], "+998901234567")
+        
+        # 2. Invalid format raises validation error
+        serializer2 = StudentSerializer(data={
+            "first_name": "Vali",
+            "phone": "+998",
+            "password": "password123"
+        })
+        self.assertFalse(serializer2.is_valid())
+        self.assertIn("phone", serializer2.errors)
+        self.assertEqual(serializer2.errors["phone"][0], "Telefon raqami noto'g'ri formatda. Loyihada O'zbekiston raqamlari (+998XXXXXXXXX) qabul qilinadi.")
 
 
 

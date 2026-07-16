@@ -46,26 +46,49 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             return Response({"detail": "Faqat O'zbekiston telefon raqami orqali tizimga kirish mumkin (format: +998XXXXXXXXX)."}, status=status.HTTP_400_BAD_REQUEST)
             
         formatted_phone = '+' + cleaned
-        data['username'] = formatted_phone
+        
+        # Tashkilot ID sini header, query params yoki body orqali olamiz
+        org_id = request.headers.get('x-org-id') or request.META.get('HTTP_X_ORG_ID') or request.data.get('org_id') or request.query_params.get('org_id')
+        
+        if org_id:
+            data['username'] = f"{formatted_phone}_{org_id}"
+        else:
+            # Agar tashkilot ID yuborilmagan bo'lsa, telefon bo'yicha qidirib ko'ramiz
+            users = User.objects.filter(phone=formatted_phone)
+            if users.count() == 1:
+                data['username'] = users.first().username
+            elif users.count() > 1:
+                return Response({
+                    "detail": "Ushbu telefon raqami bir nechta tashkilotda ro'yxatdan o'tgan. Iltimos, tashkilotni (org_id yoki x-org-id) ko'rsating."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                data['username'] = formatted_phone
 
         print("Mapped login request data:", data)
 
-        # Try to authenticate with the given username first
+        # Authenticate qilamiz
         serializer = self.get_serializer(data=data)
         try:
             serializer.is_valid(raise_exception=True)
         except Exception as e:
-            # Fallback: try username without the '+' sign (e.g. 998XXXXXXXXX)
-            alt_username = cleaned
+            # Fallback 1: eski foydalanuvchilar uchun faqat formatlangan telefon raqami bilan kirib ko'ramiz
             alt_data = data.copy() if hasattr(data, 'copy') else dict(data)
-            alt_data['username'] = alt_username
+            alt_data['username'] = formatted_phone
             serializer2 = self.get_serializer(data=alt_data)
             try:
                 serializer2.is_valid(raise_exception=True)
-                serializer = serializer2  # Use the successful one
+                serializer = serializer2
             except Exception:
-                print("Login validation failed:", str(e))
-                return Response({"detail": "Telefon raqam yoki parol noto'g'ri."}, status=status.HTTP_400_BAD_REQUEST)
+                # Fallback 2: plyussiz raqam bilan urinib ko'ramiz
+                alt_data2 = data.copy() if hasattr(data, 'copy') else dict(data)
+                alt_data2['username'] = cleaned
+                serializer3 = self.get_serializer(data=alt_data2)
+                try:
+                    serializer3.is_valid(raise_exception=True)
+                    serializer = serializer3
+                except Exception:
+                    print("Login validation failed:", str(e))
+                    return Response({"detail": "Telefon raqam yoki parol noto'g'ri."}, status=status.HTTP_400_BAD_REQUEST)
         
         user = serializer.user
         update_last_login(None, user)

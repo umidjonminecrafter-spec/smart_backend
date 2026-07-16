@@ -23,7 +23,8 @@ class AccountsAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIn('access', response.data)
         self.assertIn('user', response.data)
-        self.assertEqual(response.data['user']['username'], '+998901112233')
+        org_id = response.data['user']['organization']
+        self.assertEqual(response.data['user']['username'], f"+998901112233_{org_id}")
         
         # Verify organization is created
         org_name = response.data['user']['organization_name']
@@ -113,26 +114,65 @@ class AccountsAPITests(APITestCase):
     def test_employee_unique_phone_validation(self):
         """
         Verify that creating an employee with an existing phone number returns a 400 validation error
-        specifically under the 'phone' key (not the hidden 'username' key).
+        specifically under the 'phone' key if in the SAME organization, but passes for DIFFERENT organizations.
         """
         from accounts.serializers import EmployeeSerializer
         org = Organization.objects.create(name="Unique Phone Org")
+        
+        # Pre-create user in org
         User.objects.create_user(
-            username="+998901112288",
+            username="+998901112288_1",
             password="password123",
             phone="+998901112288",
             role="employee",
             organization=org
         )
         
-        serializer = EmployeeSerializer(data={
-            "first_name": "Bob",
-            "phone": "+998901112288",
-            "role": "employee",
-            "position": "Manager"
-        })
+        class MockRequest:
+            def __init__(self, user):
+                self.user = user
+                
+        admin_user = User.objects.create_user(
+            username="admin_user",
+            password="password",
+            organization=org,
+            role="admin"
+        )
+        mock_request = MockRequest(admin_user)
+        
+        # Creating employee in same organization should fail
+        serializer = EmployeeSerializer(
+            data={
+                "first_name": "Bob",
+                "phone": "+998901112288",
+                "role": "employee",
+                "position": "Manager"
+            },
+            context={"request": mock_request}
+        )
         
         self.assertFalse(serializer.is_valid())
         self.assertIn("phone", serializer.errors)
         self.assertEqual(serializer.errors["phone"][0], "Ushbu telefon raqamli xodim tizimda allaqachon ro'yxatdan o'tgan.")
+        
+        # Creating employee in different organization should succeed
+        org2 = Organization.objects.create(name="Second Org")
+        admin_user2 = User.objects.create_user(
+            username="admin_user2",
+            password="password",
+            organization=org2,
+            role="admin"
+        )
+        mock_request2 = MockRequest(admin_user2)
+        
+        serializer2 = EmployeeSerializer(
+            data={
+                "first_name": "Bob",
+                "phone": "+998901112288",
+                "role": "employee",
+                "position": "Manager"
+            },
+            context={"request": mock_request2}
+        )
+        self.assertTrue(serializer2.is_valid(), serializer2.errors)
 

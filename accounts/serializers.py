@@ -54,11 +54,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         attrs['phone'] = formatted_phone
         attrs['username'] = formatted_phone
 
-        if User.objects.filter(username=formatted_phone).exists():
-            raise serializers.ValidationError({
-                "phone": "Ushbu telefon raqamga ega foydalanuvchi allaqachon ro'yxatdan o'tgan."
-            })
-
         full_name = attrs.get('full_name', '')
         if not full_name or not full_name.strip():
             raise serializers.ValidationError({"full_name": "Ism va Familiya kiritilishi shart."})
@@ -82,8 +77,10 @@ class RegisterSerializer(serializers.ModelSerializer):
         if org_name:
             organization = Organization.objects.create(name=org_name)
 
+        username = f"{validated_data['phone']}_{organization.id}" if organization else validated_data['username']
+
         user = User.objects.create_user(
-            username=validated_data['username'],
+            username=username,
             password=validated_data['password'],
             email=validated_data.get('email', ''),
             first_name=first_name,
@@ -150,10 +147,27 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 "salary_percentage": "O'qituvchi yaratish uchun ish haqi foizini yuborish majburiy!"
             })
 
-        # Telefon raqam takrorlanmasligini qo'lda tekshiramiz (frontedga xato 'phone' maydonida borishi uchun)
+        # Telefon raqam formatini va takrorlanmasligini qo'lda tekshiramiz (frontedga xato 'phone' maydonida borishi uchun)
         phone = attrs.get('phone')
         if phone:
-            qs = User.objects.filter(username=phone)
+            import re
+            if not re.match(r'^\+998\d{9}$', phone):
+                raise serializers.ValidationError({
+                    "phone": "Telefon raqami noto'g'ri formatda. Loyihada O'zbekiston raqamlari (+998XXXXXXXXX) qabul qilinadi."
+                })
+            
+            # Tashkilot kontekstini olamiz
+            request = self.context.get('request')
+            view = self.context.get('view')
+            org_id = None
+            if self.instance:
+                org_id = self.instance.organization_id
+            if not org_id and view and hasattr(view, 'get_organization_id'):
+                org_id = view.get_organization_id()
+            if not org_id and request and request.user:
+                org_id = getattr(request.user, 'organization_id', None)
+
+            qs = User.objects.filter(phone=phone, organization_id=org_id)
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
@@ -231,8 +245,14 @@ class EmployeeSerializer(serializers.ModelSerializer):
         salary_percentage = validated_data.pop('salary_percentage', None)  # alohida sug'urib olamiz
         branches = validated_data.pop('branches', [])
 
-        if not validated_data.get('username'):
-            validated_data['username'] = validated_data.get('phone', '')
+        # Username formatini tashkilot ID si bilan birlashtiramiz
+        org = validated_data.get('organization')
+        org_id = org.id if org else None
+        phone = validated_data.get('phone', '')
+        if phone and org_id:
+            validated_data['username'] = f"{phone}_{org_id}"
+        else:
+            validated_data['username'] = phone or validated_data.get('username', '')
 
         # Userni yaratamiz
         user = User.objects.create_user(
@@ -256,6 +276,15 @@ class EmployeeSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
         branches = validated_data.pop('branches', None)
+
+        phone = validated_data.get('phone')
+        org = validated_data.get('organization') or instance.organization
+        org_id = org.id if org else None
+        if phone:
+            if org_id:
+                validated_data['username'] = f"{phone}_{org_id}"
+            else:
+                validated_data['username'] = phone
         
         for attr, value in validated_data.items():
             setattr(instance, attr, value)

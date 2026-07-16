@@ -159,6 +159,24 @@ class StudentSerializer(serializers.ModelSerializer):
 
         if not phone:
             errors["phone"] = "Bu maydon majburiy."
+        else:
+            # 🚀 TELEFON RAQAM FORMATI VA UNIKALLIGINI TEKSHIRISH
+            import re
+            if not re.match(r'^\+998\d{9}$', phone):
+                errors["phone"] = "Telefon raqami noto'g'ri formatda. Loyihada O'zbekiston raqamlari (+998XXXXXXXXX) qabul qilinadi."
+            else:
+                from accounts.models import User
+                qs = User.objects.filter(username=phone)
+                if self.instance and self.instance.phone:
+                    qs = qs.exclude(username=self.instance.phone)
+                
+                if qs.exists():
+                    existing_user = qs.first()
+                    if existing_user.role == 'student':
+                        if Student.objects.filter(phone=phone).exists():
+                            errors["phone"] = "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."
+                    else:
+                        errors["phone"] = "Ushbu telefon raqamli foydalanuvchi tizimda allaqachon ro'yxatdan o'tgan."
 
         # Dinamik required field lar
         request = self.context.get("request")
@@ -198,9 +216,13 @@ class StudentSerializer(serializers.ModelSerializer):
         for field in ['phone', 'phone_number', 'phone_number2', 'parent_phone']:
             val = data.get(field)
             if val:
-                clean_val = ''.join(c for c in str(val) if c.isdigit())
-                if clean_val:
-                    data[field] = '+' + clean_val
+                cleaned = ''.join(c for c in str(val) if c.isdigit())
+                if len(cleaned) == 9:
+                    cleaned = '998' + cleaned
+                if cleaned.startswith('998') and len(cleaned) == 12:
+                    data[field] = '+' + cleaned
+                else:
+                    data[field] = '+' + cleaned if cleaned else val
 
         if 'phone_number' in data and 'phone' not in data:
             data['phone'] = data['phone_number']
@@ -210,22 +232,10 @@ class StudentSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password', None)
         phone = validated_data.get('phone')
 
-        from accounts.models import User
-        if phone:
-            existing_user = User.objects.filter(username=phone).first()
-            if existing_user:
-                if existing_user.role == 'student':
-                    # If user exists but student does not, we can reuse it
-                    if Student.objects.filter(phone=phone).exists():
-                        raise serializers.ValidationError(
-                            {"phone": "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."})
-                else:
-                    raise serializers.ValidationError(
-                        {"phone": "Ushbu telefon raqamli foydalanuvchi tizimda allaqachon ro'yxatdan o'tgan."})
-
         student = super().create(validated_data)
 
         if phone:
+            from accounts.models import User
             existing_user = User.objects.filter(username=phone).first()
             if existing_user:
                 # Reactivate and update existing user

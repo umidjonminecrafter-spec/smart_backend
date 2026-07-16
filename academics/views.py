@@ -257,12 +257,20 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             instance.is_archived = True
             instance.save(update_fields=['is_archived'])
             if instance.phone:
-                User.objects.filter(username=instance.phone, role='student').update(is_active=False)
+                username = f"{instance.phone}_{instance.organization_id}"
+                qs = User.objects.filter(username=username, role='student')
+                if not qs.exists():
+                    qs = User.objects.filter(username=instance.phone, role='student')
+                qs.update(is_active=False)
             return Response({"detail": "Qarzdorligi borligi sababli talaba yumshoq o'chirildi (arxivlandi).", "id": instance.id}, status=status.HTTP_200_OK)
         else:
             # Qarzdorligi yo'q: Butunlay o'chiriladi va User akkaunti ham o'chiriladi
             if instance.phone:
-                User.objects.filter(username=instance.phone, role='student').delete()
+                username = f"{instance.phone}_{instance.organization_id}"
+                qs = User.objects.filter(username=username, role='student')
+                if not qs.exists():
+                    qs = User.objects.filter(username=instance.phone, role='student')
+                qs.delete()
             return super().destroy(request, *args, **kwargs)
 
     @decorators.action(detail=True, methods=['post'], url_path='add-payment')
@@ -1502,8 +1510,14 @@ class StudentArchiveViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             archived_student.delete()
             
         from accounts.models import User
-        username = archive_item.phone or archive_item.email or f"user_{archive_item.id}"
-        User.objects.filter(username=username, role='student').delete()
+        org_id = archive_item.organization_id
+        phone = archive_item.phone
+        username = f"{phone}_{org_id}" if (phone and org_id) else (phone or archive_item.email or f"user_{archive_item.id}")
+        
+        qs = User.objects.filter(username=username, role='student')
+        if not qs.exists() and phone:
+            qs = User.objects.filter(username=phone, role='student')
+        qs.delete()
         
         return super().destroy(request, *args, **kwargs)
 
@@ -1514,34 +1528,42 @@ class StudentArchiveViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         is_student = not archive_item.role or archive_item.role.lower() in ['student', 'talaba']
 
         from accounts.models import User
-        username = archive_item.phone or archive_item.email or f"user_{archive_item.id}"
+        org_id = archive_item.organization_id
+        phone = archive_item.phone
+        username = f"{phone}_{org_id}" if (phone and org_id) else (phone or archive_item.email or f"user_{archive_item.id}")
 
         if is_student:
             # Check if active student already exists
-            if Student.objects.filter(phone=archive_item.phone, is_archived=False).exists():
+            if Student.objects.filter(phone=archive_item.phone, organization_id=org_id, is_archived=False).exists():
                 return Response({"detail": "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."},
                                 status=status.HTTP_400_BAD_REQUEST)
 
             # Check if archived student exists in Student table
-            archived_student = Student.objects.filter(phone=archive_item.phone, is_archived=True).first()
+            archived_student = Student.objects.filter(phone=archive_item.phone, organization_id=org_id, is_archived=True).first()
             if archived_student:
                 archived_student.is_archived = False
                 archived_student.save(update_fields=['is_archived'])
                 
                 # Reactivate user account
                 existing_user = User.objects.filter(username=username).first()
+                if not existing_user and phone:
+                    existing_user = User.objects.filter(username=phone).first() or User.objects.filter(phone=phone, organization_id=org_id).first()
                 if existing_user:
                     existing_user.is_active = True
-                    existing_user.save(update_fields=['is_active'])
+                    existing_user.username = username
+                    existing_user.save(update_fields=['is_active', 'username'])
                 
                 archive_item.delete()
                 return Response({"status": "success", "detail": "Restored successfully."}, status=status.HTTP_200_OK)
 
             existing_user = User.objects.filter(username=username).first()
+            if not existing_user and phone:
+                existing_user = User.objects.filter(username=phone).first() or User.objects.filter(phone=phone, organization_id=org_id).first()
             if existing_user:
                 if existing_user.role == 'student':
                     # Reactivate the existing student user
                     existing_user.is_active = True
+                    existing_user.username = username
                     existing_user.first_name = archive_item.first_name
                     existing_user.last_name = archive_item.last_name or ''
                     existing_user.email = archive_item.email or ''
@@ -1576,7 +1598,10 @@ class StudentArchiveViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             )
         else:
             # Check if user already exists
-            if User.objects.filter(username=username).exists():
+            existing_user = User.objects.filter(username=username).first()
+            if not existing_user and phone:
+                existing_user = User.objects.filter(username=phone).first() or User.objects.filter(phone=phone, organization_id=org_id).first()
+            if existing_user:
                 return Response({"detail": "Ushbu telefon raqamli foydalanuvchi tizimda allaqachon mavjud."},
                                 status=status.HTTP_400_BAD_REQUEST)
 

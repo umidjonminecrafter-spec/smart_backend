@@ -176,3 +176,40 @@ class AccountsAPITests(APITestCase):
         )
         self.assertTrue(serializer2.is_valid(), serializer2.errors)
 
+    def test_employee_serializer_includes_groups(self):
+        """
+        Verify that EmployeeSerializer serializes the teacher's groups and groups_detail.
+        """
+        from accounts.serializers import EmployeeSerializer
+        from academics.models import Group, Course
+        
+        org = Organization.objects.create(name="Groups Test Org")
+        teacher = User.objects.create_user(
+            username="+998901112277_1",
+            password="password123",
+            phone="+998901112277",
+            role="teacher",
+            organization=org
+        )
+        
+        course = Course.objects.create(
+            organization=org,
+            name="Chemistry",
+            price=150.00,
+            duration_weeks=10
+        )
+        
+        group1 = Group.objects.create(
+            organization=org,
+            name="Chem 101",
+            course=course,
+            teacher=teacher
+        )
+        
+        serializer = EmployeeSerializer(teacher)
+        data = serializer.data
+        self.assertIn("groups", data)
+        self.assertIn("groups_detail", data)
+        self.assertEqual(data["groups"], [group1.id])
+        self.assertEqual(data["groups_detail"], [{"id": group1.id, "name": "Chem 101"}])
+

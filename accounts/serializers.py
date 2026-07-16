@@ -125,15 +125,39 @@ class EmployeeSerializer(serializers.ModelSerializer):
         required=False
     )
     branches_detail = serializers.SerializerMethodField(read_only=True)
+    groups = serializers.SerializerMethodField(read_only=True)
+    groups_detail = serializers.SerializerMethodField(read_only=True)
 
     def get_branches_detail(self, obj):
         return [{"id": b.id, "name": b.name} for b in obj.branches.all()]
+
+    def _get_teacher_groups(self, obj):
+        from academics.models import Group
+        # Teacher or assistant teacher or additional teacher via GroupTeacher relation
+        group_list = list(
+            Group.objects.filter(teacher=obj) |
+            Group.objects.filter(assistant_teacher=obj) |
+            Group.objects.filter(group_teachers__teacher=obj)
+        )
+        seen = set()
+        unique_groups = []
+        for g in group_list:
+            if g.id not in seen:
+                seen.add(g.id)
+                unique_groups.append(g)
+        return unique_groups
+
+    def get_groups(self, obj):
+        return [g.id for g in self._get_teacher_groups(obj)]
+
+    def get_groups_detail(self, obj):
+        return [{"id": g.id, "name": g.name} for g in self._get_teacher_groups(obj)]
 
     class Meta:
         model = User
         fields = ('id', 'username', 'password', 'email', 'first_name', 'last_name', 'phone', 'role', 'position',
                   'organization', 'branch', 'birth_date', 'gender', 'photo', 'salary_percentage',
-                  'salary_percentage_detail', 'branches', 'branches_detail')
+                  'salary_percentage_detail', 'branches', 'branches_detail', 'groups', 'groups_detail')
         read_only_fields = ('id', 'organization', 'branch')
 
     # 🚀 1-YANGILIK: Abdulmajidga xatolik chiroyli "400 Bad Request" bo'lib borishi uchun:

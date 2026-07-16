@@ -446,6 +446,8 @@ class CourseMaterial(TenantModel):
 class StudentGroupLeave(TenantModel):
     # TO'G'RILANDI: on_delete=models.SET_NULL qilindi.
     student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name="group_leaves")
+    student_name = models.CharField(max_length=255, null=True, blank=True)
+    student_phone = models.CharField(max_length=50, null=True, blank=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="student_leaves")
     leave_reason = models.ForeignKey(LeaveReason, on_delete=models.SET_NULL, null=True, blank=True, related_name="student_leaves")
     leave_date = models.DateField()
@@ -454,8 +456,16 @@ class StudentGroupLeave(TenantModel):
     is_archived = models.BooleanField(default=False)
     is_sent_to_leads = models.BooleanField(default=False)
 
+    def save(self, *args, **kwargs):
+        if self.student:
+            if not self.student_name:
+                self.student_name = f"{self.student.first_name} {self.student.last_name or ''}".strip()
+            if not self.student_phone:
+                self.student_phone = self.student.phone or ""
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        student_name = self.student if self.student else "O'chirilgan Talaba"
+        student_name = self.student if self.student else (self.student_name or "O'chirilgan Talaba")
         return f"{student_name} left {self.group}"
 
 class StudentPricing(TenantModel):

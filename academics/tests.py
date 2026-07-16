@@ -949,6 +949,62 @@ class CourseMaterialAndOnlineLessonTests(APITestCase):
         self.assertNotIn("Msg in Org 2", messages)
 
 
+class StudentGroupLeaveTests(APITestCase):
+    def test_student_group_leave_student_null_fallback(self):
+        """
+        Ensure that when a student is deleted and student ForeignKey becomes NULL,
+        StudentGroupLeave API serializer falls back to student_name and student_phone.
+        """
+        from academics.models import Student, Group, Course, StudentGroupLeave
+        from organizations.models import Organization
+        from academics.serializers import StudentGroupLeaveSerializer
+        
+        org = Organization.objects.create(name="Test Org")
+        course = Course.objects.create(
+            organization=org,
+            name="Mathematics",
+            price=120.00,
+            duration_weeks=16
+        )
+        student = Student.objects.create(
+            organization=org,
+            first_name="Alice",
+            last_name="Green",
+            phone="+998909998877",
+            balance=0.00
+        )
+        group = Group.objects.create(
+            organization=org,
+            name="Math 101",
+            course=course
+        )
+        
+        leave = StudentGroupLeave.objects.create(
+            organization=org,
+            student=student,
+            group=group,
+            leave_date="2026-07-15",
+            comment="Leaving math"
+        )
+        
+        # Verify save() auto-populated
+        self.assertEqual(leave.student_name, "Alice Green")
+        self.assertEqual(leave.student_phone, "+998909998877")
+        
+        # Hard delete student
+        student.delete()
+        leave.refresh_from_db()
+        self.assertIsNone(leave.student)
+        self.assertEqual(leave.student_name, "Alice Green")
+        
+        # Verify serializer fallback representation
+        serializer = StudentGroupLeaveSerializer(leave)
+        data = serializer.data
+        self.assertEqual(data['student']['id'], None)
+        self.assertEqual(data['student']['full_name'], "Alice Green")
+        self.assertEqual(data['student']['phone_number'], "+998909998877")
+
+
 
 
 

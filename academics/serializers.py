@@ -729,6 +729,12 @@ class StudentGroupLeaveSerializer(serializers.ModelSerializer):
                 'full_name': f"{instance.student.first_name} {instance.student.last_name or ''}".strip(),
                 'phone_number': instance.student.phone
             }
+        else:
+            rep['student'] = {
+                'id': None,
+                'full_name': instance.student_name or "Noma'lum o'quvchi",
+                'phone_number': instance.student_phone or "-"
+            }
         if instance.group:
             rep['group'] = {
                 'id': instance.group.id,

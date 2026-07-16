@@ -3052,10 +3052,22 @@ from django.http import HttpResponse
 import os
 
 def temp_log_view(request):
-    log_path = "/var/log/musojon1995.pythonanywhere.com.error.log"
-    if not os.path.exists(log_path):
-        return HttpResponse(f"Log path {log_path} not found. Current dirs: {os.listdir('/var') if os.path.exists('/var') else 'No var'}")
-    
-    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
-        lines = f.readlines()[-150:]
-    return HttpResponse("<pre>" + "".join(lines) + "</pre>")
+    try:
+        from academics.models import Group, GroupTeacher
+        from accounts.models import User
+        
+        users_info = [(u.id, u.username, u.role) for u in User.objects.all()]
+        groups_info = [(g.id, g.name, g.teacher_id, g.assistant_teacher_id, g.organization_id) for g in Group.objects.all()]
+        gt_info = [(gt.id, gt.group_id, gt.teacher_id) for gt in GroupTeacher.objects.all()]
+        
+        html = f"""
+        <h3>Users (limit 50):</h3>
+        <pre>{users_info[:50]}</pre>
+        <h3>Groups (limit 50):</h3>
+        <pre>{groups_info[:50]}</pre>
+        <h3>GroupTeachers (limit 50):</h3>
+        <pre>{gt_info[:50]}</pre>
+        """
+        return HttpResponse(html)
+    except Exception as e:
+        return HttpResponse(f"Error: {str(e)}")

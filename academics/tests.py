@@ -520,6 +520,25 @@ class CourseMaterialAndOnlineLessonTests(APITestCase):
         self.assertEqual(att.grade, 5)
         self.assertEqual(att.reason, "Kasal bo'lib qoldi")
 
+    def test_excused_attendance_requires_reason(self):
+        """
+        Verify that POSTing excused status without a reason fails validation.
+        """
+        self.client.force_authenticate(user=self.admin1)
+        url = reverse('group-attendance', kwargs={'group_id': self.group1.id})
+
+        data = {
+            "student": self.student1.id,
+            "date": "2026-06-29",
+            "status": "excused",
+            "grade": 4,
+            "reason": ""  # empty reason
+        }
+
+        response = self.client.post(f"{url}?org_id={self.org1.id}", data=data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("reason", response.data)
+
     def test_debtor_student_archiving_flow(self):
         """
         Verify that a debtor student is soft-deleted, is retained in debtor list,

@@ -123,13 +123,6 @@ db_url = os.getenv('DATABASE_URL')
 if db_url and db_url.startswith('postgres://'):
     DATABASES['default'] = dj_database_url.config(conn_max_age=600, ssl_require=True)
 
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Faqat developmentda True
-CORS_ALLOW_HEADERS = [
-    'accept', 'accept-encoding', 'authorization', 'content-type',
-    'dnt', 'origin', 'user-agent', 'x-csrftoken', 'x-requested-with',
-    'x-org-id',
-]
-
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -182,7 +175,8 @@ SIMPLE_JWT = {
 }
 
 # CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = True  # Dev mode
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',

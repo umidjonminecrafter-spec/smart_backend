@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'analytics',
     'support',
+    'kpi',
 ]
 
 MIDDLEWARE = [

@@ -51,6 +51,7 @@ urlpatterns = [
     path('api/v1/billing/', include('billing.urls')),
     path('api/v1/analytics/', include('analytics.urls')),
     path('api/v1/support/', include('support.urls')),
+    path('api/v1/kpi/', include('kpi.urls')),
 ]
 
 if settings.DEBUG:

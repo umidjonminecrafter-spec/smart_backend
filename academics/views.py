@@ -466,6 +466,74 @@ class StudentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             "message": f"SMS successfully sent to {student.phone}."
         }, status=status.HTTP_200_OK)
 
+    @decorators.action(detail=True, methods=['get'], url_path='attendance-history')
+    def attendance_history(self, request, pk=None):
+        """Talabaning barcha yo'qlama tarixini qaytaradi."""
+        student = self.get_object()
+        org_id = self.get_organization_id()
+
+        from academics.models import Attendance
+        attendances = Attendance.objects.filter(
+            student=student,
+            organization_id=org_id
+        ).select_related('group').order_by('-date')
+
+        # Guruh bo'yicha guruhlash
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for att in attendances:
+            group_name = att.group.name if att.group else "Noma'lum"
+            grouped[group_name].append({
+                "id": att.id,
+                "date": att.date.isoformat(),
+                "status": att.status,
+                "grade": att.grade,
+                "reason": att.reason,
+            })
+
+        # Umumiy statistika
+        total = attendances.count()
+        present_count = attendances.filter(status='present').count()
+        absent_count = attendances.filter(status='absent').count()
+        late_count = attendances.filter(status='late').count()
+        excused_count = attendances.filter(status='excused').count()
+
+        return Response({
+            "student": {
+                "id": student.id,
+                "full_name": student.full_name,
+            },
+            "statistics": {
+                "total": total,
+                "present": present_count,
+                "absent": absent_count,
+                "late": late_count,
+                "excused": excused_count,
+                "attendance_rate": round((present_count / total * 100), 1) if total > 0 else 0,
+            },
+            "total_count": total,
+            "by_group": [
+                {
+                    "group_name": group_name,
+                    "records": records,
+                    "count": len(records),
+                }
+                for group_name, records in grouped.items()
+            ],
+            "history": [
+                {
+                    "id": att.id,
+                    "date": att.date.isoformat(),
+                    "status": att.status,
+                    "grade": att.grade,
+                    "reason": att.reason,
+                    "group_name": att.group.name if att.group else "Noma'lum",
+                    "group_id": att.group_id,
+                }
+                for att in attendances
+            ]
+        }, status=status.HTTP_200_OK)
+
     @decorators.action(detail=False, methods=['post'], url_path='import-excel')
     def import_excel(self, request):
         from decimal import Decimal

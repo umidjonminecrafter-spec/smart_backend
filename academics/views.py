@@ -1276,7 +1276,7 @@ class LessonScheduleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     queryset = LessonSchedule.objects.all()
     serializer_class = LessonScheduleSerializer
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['group', 'teacher']
+    filterset_fields = ['group', 'teacher', 'day_type']
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related(

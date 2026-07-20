@@ -630,6 +630,8 @@ class LessonScheduleSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source='teacher.get_full_name', read_only=True, default='')
     group_name = serializers.CharField(source='group.name', read_only=True)
     course_name = serializers.CharField(source='group.course.name', read_only=True, default='')
+    day_type_display = serializers.CharField(source='get_day_type_display', read_only=True)
+    group_days = serializers.JSONField(source='group.days', read_only=True, default=list)
 
     class Meta:
         model = LessonSchedule

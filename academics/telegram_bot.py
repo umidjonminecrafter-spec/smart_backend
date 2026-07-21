@@ -323,7 +323,7 @@ def handle_telegram_update(bot_type, token, update_data):
             user_query = Q(phone=phone_normalized) | Q(phone__icontains=digits) | Q(username__icontains=digits)
             if len(digits) >= 9:
                 user_query |= Q(phone__icontains=digits[-9:]) | Q(username__icontains=digits[-9:])
-            users = User.objects.filter(user_query, role='student')
+            users = User.objects.filter(user_query)
 
             linked = False
             if students.exists():

@@ -407,7 +407,18 @@ def payment_telegram_notification(sender, instance, created, **kwargs):
                         pass
 
                 # 2. Talabaning o'z Telegram botiga (@smarttalim_student_bot) Push xabar
-                student_chat_id = student.telegram_chat_id or (student_user.telegram_chat_id if student_user else None)
+                student_chat_id = getattr(student, 'telegram_chat_id', None)
+                if not student_chat_id and student.phone:
+                    digits = "".join(c for c in student.phone if c.isdigit())
+                    last_9 = digits[-9:] if len(digits) >= 9 else digits
+                    matched_user = User.objects.filter(
+                        Q(phone=student.phone) | Q(username=student.phone) |
+                        (Q(phone__icontains=last_9) if last_9 else Q()) |
+                        (Q(username__icontains=last_9) if last_9 else Q())
+                    ).filter(telegram_chat_id__isnull=False).first()
+                    if matched_user:
+                        student_chat_id = matched_user.telegram_chat_id
+
                 if student_chat_id:
                     from academics.telegram_bot import get_student_bot_token
                     student_token = get_student_bot_token(instance.organization)

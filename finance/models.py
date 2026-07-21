@@ -409,12 +409,8 @@ def payment_telegram_notification(sender, instance, created, **kwargs):
                 # 2. Talabaning o'z Telegram botiga (@smarttalim_student_bot) Push xabar
                 student_chat_id = student.telegram_chat_id or (student_user.telegram_chat_id if student_user else None)
                 if student_chat_id:
-                    student_token = None
-                    if setting:
-                        student_token = setting.student_bot_token or setting.bot_token
-                    if not student_token:
-                        from django.conf import settings
-                        student_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
+                    from academics.telegram_bot import get_student_bot_token
+                    student_token = get_student_bot_token(instance.organization)
 
                     st_msg = (
                         f"<b>💳 To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"

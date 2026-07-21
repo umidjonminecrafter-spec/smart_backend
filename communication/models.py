@@ -193,23 +193,15 @@ from django.dispatch import receiver
 def send_notification_to_telegram(sender, instance, created, **kwargs):
     if created and instance.user and getattr(instance.user, 'telegram_chat_id', None):
         try:
-            from organizations.models import TelegramNotificationSetting
-            from academics.telegram_bot import send_telegram_message
-            
-            setting = TelegramNotificationSetting.objects.filter(organization=instance.organization).first()
-            token = setting.staff_bot_token or setting.bot_token if setting else None
-            
-            if not token:
-                from django.conf import settings
-                token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
-                
+            from academics.telegram_bot import send_telegram_to_user
+
             lang = getattr(instance.user, 'telegram_language', 'uz') or 'uz'
             if lang == 'ru':
                 msg = f"<b>🔔 Новое уведомление:</b> {instance.title}\n\n{instance.message}"
             else:
                 msg = f"<b>🔔 Yangi bildirishnoma:</b> {instance.title}\n\n{instance.message}"
-                
-            send_telegram_message(token, instance.user.telegram_chat_id, msg)
+
+            send_telegram_to_user(instance.organization, instance.user, msg)
         except Exception as e:
             print(f"Error sending telegram notification: {str(e)}")
 

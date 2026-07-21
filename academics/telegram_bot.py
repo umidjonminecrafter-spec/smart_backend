@@ -35,6 +35,37 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
         return False
 
 
+def send_telegram_to_user(organization, user, text, reply_markup=None):
+    if not user or not getattr(user, 'telegram_chat_id', None):
+        return False
+
+    chat_id = user.telegram_chat_id
+    from organizations.models import TelegramNotificationSetting
+    from django.conf import settings
+
+    setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
+    candidate_tokens = []
+    if setting:
+        role = getattr(user, 'role', 'employee')
+        if role == 'student':
+            for t in [setting.student_bot_token, setting.bot_token, setting.verification_bot_token]:
+                if t and t not in candidate_tokens:
+                    candidate_tokens.append(t)
+        else:
+            for t in [setting.staff_bot_token, setting.bot_token, setting.verification_bot_token]:
+                if t and t not in candidate_tokens:
+                    candidate_tokens.append(t)
+
+    fallback = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
+    if fallback not in candidate_tokens:
+        candidate_tokens.append(fallback)
+
+    for token in candidate_tokens:
+        if send_telegram_message(token, chat_id, text, reply_markup):
+            return True
+    return False
+
+
 def get_contact_keyboard(text="📱 Telefon raqamni yuborish"):
     return {
         "keyboard": [[

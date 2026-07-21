@@ -1306,10 +1306,26 @@ def notify_balance_deduction(sender, instance, created, **kwargs):
             from organizations.models import TelegramNotificationSetting
             from accounts.models import User
             from django.db.models import Q
+            from django.utils import timezone as django_timezone
 
             student = instance.student
             amount_formatted = f"{int(abs(instance.amount)):,}".replace(",", " ")
             reason = instance.transaction_type or "Balansdan yechildi"
+
+            # Format exact time (HH:MM:SS)
+            created_at = getattr(instance, 'created_at', None) or django_timezone.now()
+            exact_time = django_timezone.localtime(created_at).strftime("%d.%m.%Y %H:%M:%S")
+
+            # Who deducted it (Operator/Admin/Teacher)
+            operator_name = getattr(instance, '_operator_name', None)
+            if not operator_name and hasattr(instance, 'created_by') and instance.created_by:
+                operator_name = instance.created_by.get_full_name() or instance.created_by.username
+            if not operator_name and hasattr(instance.student, 'organization') and instance.student.organization:
+                owner = User.objects.filter(organization=instance.student.organization, role__in=['owner', 'admin']).first()
+                if owner:
+                    operator_name = owner.get_full_name() or owner.username
+            if not operator_name:
+                operator_name = "Administrator / Tizim"
 
             # Resolve student_chat_id
             student_chat_id = getattr(student, 'telegram_chat_id', None)
@@ -1331,7 +1347,8 @@ def notify_balance_deduction(sender, instance, created, **kwargs):
                     f"<b>📉 Balansingizdan pul yechildi!</b>\n\n"
                     f"💸 <b>Yechilgan summa:</b> {amount_formatted} UZS\n"
                     f"📝 <b>Sabab:</b> {reason}\n"
-                    f"📅 <b>Sana:</b> {instance.date}\n"
+                    f"👤 <b>Yechgan xodim:</b> {operator_name}\n"
+                    f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>\n"
                     f"💵 <b>Yangi balansingiz:</b> {int(student.balance):,} UZS".replace(",", " ")
                 )
                 send_telegram_message(student_token, student_chat_id, st_msg)
@@ -1345,7 +1362,8 @@ def notify_balance_deduction(sender, instance, created, **kwargs):
                     f"👶 <b>Farzand:</b> {student.first_name} {student.last_name or ''}\n"
                     f"💸 <b>Yechilgan summa:</b> {amount_formatted} UZS\n"
                     f"📝 <b>Sabab:</b> {reason}\n"
-                    f"📅 <b>Sana:</b> {instance.date}\n"
+                    f"👤 <b>Yechgan xodim:</b> {operator_name}\n"
+                    f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>\n"
                     f"💵 <b>Balans:</b> {int(student.balance):,} UZS".replace(",", " ")
                 )
                 if student.father_telegram_chat_id:

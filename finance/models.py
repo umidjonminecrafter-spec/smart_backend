@@ -421,13 +421,17 @@ def payment_telegram_notification(sender, instance, created, **kwargs):
 
                 if student_chat_id:
                     from academics.telegram_bot import get_student_bot_token
+                    from django.utils import timezone as django_timezone
                     student_token = get_student_bot_token(instance.organization)
+                    created_at = getattr(instance, 'created_at', None) or django_timezone.now()
+                    exact_time = django_timezone.localtime(created_at).strftime("%d.%m.%Y %H:%M:%S")
 
                     st_msg = (
                         f"<b>💳 To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
                         f"💰 <b>To'langan summa:</b> {amount_formatted} UZS\n"
                         f"💳 <b>To'lov turi:</b> {instance.payment_method}\n"
-                        f"📅 <b>Sana:</b> {instance.date}\n"
+                        f"🧑‍💼 <b>Qabul qiluvchi xodim:</b> {employee_name}\n"
+                        f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>\n"
                         f"💵 <b>Yangi balansingiz:</b> {int(student.balance):,} UZS".replace(",", " ")
                     )
                     send_telegram_message(student_token, student_chat_id, st_msg)
@@ -435,12 +439,16 @@ def payment_telegram_notification(sender, instance, created, **kwargs):
                 # 3. Ota-ona botiga Push xabar (Ota yoki Onasining botiga)
                 parent_token = setting.parent_bot_token or setting.bot_token if setting else None
                 if parent_token:
+                    from django.utils import timezone as django_timezone
+                    created_at = getattr(instance, 'created_at', None) or django_timezone.now()
+                    exact_time = django_timezone.localtime(created_at).strftime("%d.%m.%Y %H:%M:%S")
                     parent_msg = (
                         f"<b>💳 Farzandingiz to'lovi qabul qilindi!</b>\n\n"
                         f"👶 <b>Farzand:</b> {student_name}\n"
                         f"💰 <b>To'langan summa:</b> {amount_formatted} UZS\n"
                         f"💳 <b>To'lov turi:</b> {instance.payment_method}\n"
-                        f"📅 <b>Sana:</b> {instance.date}\n"
+                        f"🧑‍💼 <b>Qabul qiluvchi xodim:</b> {employee_name}\n"
+                        f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>\n"
                         f"💵 <b>Balans:</b> {int(student.balance):,} UZS".replace(",", " ")
                     )
                     if student.father_telegram_chat_id:

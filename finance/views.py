@@ -310,6 +310,142 @@ class PaymentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     search_fields = ['student__first_name', 'student__last_name', 'comment']
     pagination_class = None
 
+    @decorators.action(detail=True, methods=['get'], url_path='receipt')
+    def receipt(self, request, pk=None):
+        """80mm chek printerga mos HTML kvitansiya sahifasini qaytaradi."""
+        from django.http import HttpResponse
+        from organizations.models import ReceiptSetting
+
+        payment = self.get_object()
+        org_id = self.get_organization_id()
+        org = payment.organization
+
+        # ReceiptSetting
+        try:
+            r_setting = ReceiptSetting.objects.get(organization=org)
+        except ReceiptSetting.DoesNotExist:
+            r_setting = None
+
+        student = payment.student
+        student_name = str(student) if student else "Noma'lum"
+        student_phone = getattr(student, 'phone', '-') if student else '-'
+        student_balance = f"{int(student.balance):,} UZS" if student else '-'
+
+        employee_name = ''
+        if payment.employee:
+            employee_name = payment.employee.get_full_name() or payment.employee.username
+
+        # Guruh
+        group_name = '-'
+        if student:
+            from academics.models import StudentGroup
+            sg = StudentGroup.objects.filter(student=student, organization_id=org_id).select_related('group').first()
+            if sg:
+                group_name = sg.group.name
+
+        # Kurs narxi
+        course_price = '-'
+        if student:
+            sg2 = StudentGroup.objects.filter(student=student, organization_id=org_id).select_related('group__course').first()
+            if sg2 and sg2.group and sg2.group.course:
+                course_price = f"{int(sg2.price):,} UZS" if sg2.price else f"{int(sg2.group.course.price):,} UZS" if hasattr(sg2.group.course, 'price') else '-'
+
+        amount_display = f"{int(payment.amount):,} UZS"
+        hide_logo = r_setting.hide_logo if r_setting else False
+        hide_receipt_number = r_setting.hide_receipt_number if r_setting else False
+        hide_org_name = r_setting.hide_organization_name if r_setting else False
+        hide_student = r_setting.hide_student_name if r_setting else False
+        hide_phone = r_setting.hide_phone_number if r_setting else False
+        hide_balance = r_setting.hide_balance if r_setting else False
+
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Kvitansiya #{payment.id}</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: 'Courier New', monospace;
+    width: 72mm;
+    margin: 0 auto;
+    padding: 2mm;
+    font-size: 12px;
+    color: #000;
+  }}
+  .center {{ text-align: center; }}
+  .bold {{ font-weight: bold; }}
+  .divider {{
+    border-top: 1px dashed #000;
+    margin: 4px 0;
+  }}
+  .row {{
+    display: flex;
+    justify-content: space-between;
+    padding: 1px 0;
+  }}
+  .row .label {{ color: #555; }}
+  .row .value {{ font-weight: bold; text-align: right; }}
+  .amount-row {{
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 14px;
+    font-weight: bold;
+  }}
+  .footer {{
+    text-align: center;
+    margin-top: 8px;
+    font-size: 10px;
+    color: #777;
+  }}
+  @media print {{
+    body {{ width: 72mm; }}
+    @page {{
+      size: 80mm auto;
+      margin: 0;
+    }}
+  }}
+</style>
+</head>
+<body>
+  {'<h2 class="center bold">' + org.name + '</h2>' if not hide_org_name else ''}
+  {'<p class="center" style="margin-bottom:4px;">Kvitansiya №' + str(payment.id) + '</p>' if not hide_receipt_number else ''}
+  <div class="divider"></div>
+
+  {'<div class="row"><span class="label">Talaba:</span><span class="value">' + student_name + '</span></div>' if not hide_student else ''}
+  {'<div class="row"><span class="label">Telefon:</span><span class="value">' + student_phone + '</span></div>' if not hide_phone else ''}
+  <div class="row"><span class="label">Guruh:</span><span class="value">{group_name}</span></div>
+  <div class="row"><span class="label">To'lov turi:</span><span class="value">{payment.payment_method}</span></div>
+  <div class="row"><span class="label">Sana:</span><span class="value">{payment.date}</span></div>
+  <div class="row"><span class="label">Xodim:</span><span class="value">{employee_name}</span></div>
+
+  <div class="divider"></div>
+
+  <div class="amount-row">
+    <span>TO'LOV:</span>
+    <span>{amount_display}</span>
+  </div>
+
+  {'<div class="row"><span class="label">Balans:</span><span class="value">' + student_balance + '</span></div>' if not hide_balance else ''}
+
+  <div class="divider"></div>
+
+  <div class="footer">
+    <p>{org.name} &bull; SmartTa'lim</p>
+    <p>{payment.date} &bull; #{payment.id}</p>
+  </div>
+
+  <script>
+    window.onload = function() {{
+      window.print();
+    }};
+  </script>
+</body>
+</html>"""
+
+        return HttpResponse(html, content_type='text/html; charset=utf-8')
+
 
 class SaleViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
     permission_page_name = 'Moliya'

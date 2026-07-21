@@ -294,7 +294,11 @@ def handle_telegram_update(bot_type, token, update_data):
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'reports':
-            users = User.objects.filter(phone=phone_normalized, role__in=['owner', 'admin'])
+            digits = "".join(c for c in phone_normalized if c.isdigit())
+            users = User.objects.filter(
+                Q(phone=phone_normalized) | Q(phone__icontains=digits) | Q(username__icontains=digits),
+                role__in=['owner', 'admin']
+            )
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
                 msg = (
@@ -310,7 +314,10 @@ def handle_telegram_update(bot_type, token, update_data):
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'staff':
-            users = User.objects.filter(phone=phone_normalized).exclude(role__in=['owner', 'admin', 'student'])
+            digits = "".join(c for c in phone_normalized if c.isdigit())
+            users = User.objects.filter(
+                Q(phone=phone_normalized) | Q(phone__icontains=digits) | Q(username__icontains=digits)
+            ).exclude(role='student')
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
                 msg = (
@@ -357,8 +364,8 @@ def handle_telegram_update(bot_type, token, update_data):
                 ])
             send_telegram_message(token, chat_id, msg, menu)
             return
-        elif bot_type == 'staff' and User.objects.filter(telegram_chat_id=chat_id).exclude(role__in=['owner', 'admin']).exists():
-            user = User.objects.filter(telegram_chat_id=chat_id).first()
+        elif bot_type == 'staff' and User.objects.filter(telegram_chat_id=chat_id).exclude(role='student').exists():
+            user = User.objects.filter(telegram_chat_id=chat_id).exclude(role='student').first()
             lang = getattr(user, 'telegram_language', 'uz') or 'uz'
             if lang == 'ru':
                 msg = f"Здравствуйте, {user.get_full_name() or user.username}! Добро пожаловать."
@@ -780,7 +787,7 @@ def handle_telegram_update(bot_type, token, update_data):
             send_telegram_message(token, chat_id, err_msg, menu)
 
     elif bot_type == 'staff':
-        user = User.objects.filter(telegram_chat_id=chat_id).exclude(role__in=['owner', 'admin']).first()
+        user = User.objects.filter(telegram_chat_id=chat_id).exclude(role='student').first()
         if not user:
             msg = "Siz hali ro'yxatdan o'tmagansiz. Iltimos, telefon raqamingizni yuboring:"
             send_telegram_message(token, chat_id, msg, get_contact_keyboard())

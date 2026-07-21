@@ -35,6 +35,8 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
         return False
 
 
+DEFAULT_STUDENT_BOT_TOKEN = "8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY"
+
 def get_student_bot_token(organization=None):
     from organizations.models import TelegramNotificationSetting
     from django.conf import settings
@@ -43,14 +45,12 @@ def get_student_bot_token(organization=None):
         setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
         if setting and setting.student_bot_token:
             return setting.student_bot_token
-        if setting and setting.bot_token:
-            return setting.bot_token
 
     for s in TelegramNotificationSetting.objects.all():
         if s.student_bot_token:
             return s.student_bot_token
 
-    return getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
+    return getattr(settings, 'STUDENT_BOT_TOKEN', None) or DEFAULT_STUDENT_BOT_TOKEN
 
 
 def send_telegram_to_user(organization, user, text, reply_markup=None):
@@ -58,41 +58,34 @@ def send_telegram_to_user(organization, user, text, reply_markup=None):
         return False
 
     chat_id = user.telegram_chat_id
+    role = getattr(user, 'role', 'employee')
+
+    if role == 'student':
+        student_token = get_student_bot_token(organization)
+        return send_telegram_message(student_token, chat_id, text, reply_markup)
+
     from organizations.models import TelegramNotificationSetting
     from django.conf import settings
 
     candidate_tokens = []
-    role = getattr(user, 'role', 'employee')
     org = organization or getattr(user, 'organization', None)
 
-    # 1. User's organization setting
     if org:
         setting = TelegramNotificationSetting.objects.filter(organization=org).first()
         if setting:
-            if role == 'student':
-                tokens = [setting.student_bot_token, setting.bot_token, setting.staff_bot_token, setting.verification_bot_token]
-            else:
-                tokens = [setting.staff_bot_token, setting.bot_token, setting.student_bot_token, setting.verification_bot_token]
-            for t in tokens:
+            for t in [setting.staff_bot_token, setting.bot_token]:
                 if t and t not in candidate_tokens:
                     candidate_tokens.append(t)
 
-    # 2. All settings in DB prioritized by role
     for setting in TelegramNotificationSetting.objects.all():
-        if role == 'student':
-            tokens = [setting.student_bot_token, setting.bot_token, setting.staff_bot_token]
-        else:
-            tokens = [setting.staff_bot_token, setting.bot_token, setting.student_bot_token]
-        for t in tokens:
+        for t in [setting.staff_bot_token, setting.bot_token]:
             if t and t not in candidate_tokens:
                 candidate_tokens.append(t)
 
-    # 3. Fallback from settings.py
     fallback = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
     if fallback not in candidate_tokens:
         candidate_tokens.append(fallback)
 
-    # Try sending via candidate tokens until success
     for token in candidate_tokens:
         if send_telegram_message(token, chat_id, text, reply_markup):
             return True

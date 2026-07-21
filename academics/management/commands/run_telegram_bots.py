@@ -32,8 +32,10 @@ class Command(BaseCommand):
                     if s.staff_bot_token:
                         active_bots.append(('staff', s.staff_bot_token))
 
+                if not active_bots or not any(b[0] == 'student' for b in active_bots):
+                    active_bots.append(('student', '8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY'))
+
                 if not active_bots:
-                    # Agar birorta ham token bo'lmasa 5 soniya kutib qayta tekshiramiz
                     time.sleep(5)
                     continue
 

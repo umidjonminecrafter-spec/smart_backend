@@ -368,22 +368,29 @@ def handle_telegram_update(bot_type, token, update_data):
 
         elif bot_type == 'reports':
             digits = "".join(c for c in phone_normalized if c.isdigit())
-            users = User.objects.filter(
-                Q(phone=phone_normalized) | Q(phone__icontains=digits) | Q(username__icontains=digits),
-                role__in=['owner', 'admin']
+            user_query = Q(phone=phone_normalized) | Q(phone__icontains=digits) | Q(username__icontains=digits)
+            if len(digits) >= 9:
+                user_query |= Q(phone__icontains=digits[-9:]) | Q(username__icontains=digits[-9:])
+
+            users = User.objects.filter(user_query).filter(
+                Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True) | Q(is_staff=True)
             )
+            if not users.exists():
+                users = User.objects.filter(user_query)
+
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
                 msg = (
                     "<b>Muvaffaqiyatli bog'landi! 📊</b>\n\n"
                     "Siz Hisobotlar botidan muvaffaqiyatli ro'yxatdan o'tdingiz.\n"
+                    "Endi barcha moliyaviy, tizim hodisalari va kunlik hisobotlar ushbu botga avtomatik keladi.\n\n"
                     "Iltimos, bot tilini tanlang:\n"
                     "Пожалуйста, выберите язык бота:"
                 )
                 menu = get_reply_keyboard([["🇺🇿 O'zbekcha", "🇷🇺 Русский"]])
                 send_telegram_message(token, chat_id, msg, menu)
             else:
-                msg = f"Kechirasiz, <code>{phone_normalized}</code> raqamli tashkilot rahbari/administrator topilmadi. Ushbu botga faqat rahbarlar kira oladi."
+                msg = f"Kechirasiz, <code>{phone_normalized}</code> raqamli tashkilot rahbari/administrator topilmadi."
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'staff':
@@ -420,7 +427,7 @@ def handle_telegram_update(bot_type, token, update_data):
             ])
             send_telegram_message(token, chat_id, msg, menu)
             return
-        elif bot_type == 'reports' and User.objects.filter(telegram_chat_id=chat_id, role__in=['owner', 'admin']).exists():
+        elif bot_type == 'reports' and User.objects.filter(telegram_chat_id=chat_id).exists():
             user = User.objects.filter(telegram_chat_id=chat_id).first()
             lang = getattr(user, 'telegram_language', 'uz') or 'uz'
             if lang == 'ru':

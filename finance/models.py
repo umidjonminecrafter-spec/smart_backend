@@ -247,65 +247,52 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
 
     try:
         from organizations.models import TelegramNotificationSetting
-        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
-        if not setting or not setting.is_active:
-            return
-
-        # Find the token to use
-        token = setting.bot_token or setting.staff_bot_token
-        if not token:
-            return
-
-        # Xabarnoma turi yoqilganligini tekshiramiz
-        if not getattr(setting, setting_type, False):
-            return
-
-        import urllib.request
-        import json
-        import threading
         from accounts.models import User
+        from django.db.models import Q
+        from academics.telegram_bot import send_telegram_message
 
-        # Gather all chat IDs to send to
+        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
+        if not setting:
+            setting = TelegramNotificationSetting.objects.first()
+
+        token = getattr(setting, 'bot_token', None) if setting else None
+        if not token:
+            from django.conf import settings
+            token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
+
         chat_ids_set = set()
-        if setting.chat_ids:
+
+        if setting and setting.chat_ids:
             for cid in setting.chat_ids.replace(',', ' ').split():
                 if cid.strip():
                     chat_ids_set.add(cid.strip())
 
-        # Also send to all registered staff members of this organization if using staff_bot_token
-        if token == setting.staff_bot_token:
-            staff_chats = User.objects.filter(
-                organization=organization,
+        # Collect chat IDs of all registered Owners and Admins
+        owners_chats = User.objects.filter(
+            organization=organization,
+            telegram_chat_id__isnull=False
+        ).filter(Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True) | Q(is_staff=True)).values_list('telegram_chat_id', flat=True)
+        for cid in owners_chats:
+            if cid:
+                chat_ids_set.add(str(cid))
+
+        if not chat_ids_set:
+            sys_chats = User.objects.filter(
                 telegram_chat_id__isnull=False
-            ).exclude(role='student').values_list('telegram_chat_id', flat=True)
-            for cid in staff_chats:
+            ).filter(Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True)).values_list('telegram_chat_id', flat=True)
+            for cid in sys_chats:
                 if cid:
                     chat_ids_set.add(str(cid))
 
         if not chat_ids_set:
+            print(f"[REPORTS_BOT_NO_CHAT_ID] No registered owners/admins found for report delivery.")
             return
 
         def worker():
             for chat_id in chat_ids_set:
-                try:
-                    url = f"https://api.telegram.org/bot{token}/sendMessage"
-                    payload = {
-                        'chat_id': chat_id,
-                        'text': message_text,
-                        'parse_mode': 'HTML'
-                    }
-                    data = json.dumps(payload).encode('utf-8')
-                    req = urllib.request.Request(
-                        url,
-                        data=data,
-                        headers={'Content-Type': 'application/json'},
-                        method='POST'
-                    )
-                    with urllib.request.urlopen(req, timeout=8) as res:
-                        res.read()
-                except Exception as e:
-                    print(f"Error sending telegram payment notification to {chat_id}: {str(e)}")
+                send_telegram_message(token, chat_id, message_text)
 
+        import threading
         threading.Thread(target=worker, daemon=True).start()
     except Exception as e:
         print(f"Error initiating telegram payment notification: {str(e)}")

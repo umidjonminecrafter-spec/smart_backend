@@ -313,10 +313,27 @@ def handle_telegram_update(bot_type, token, update_data):
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'student':
-            students = Student.objects.filter(phone=phone_normalized)
+            digits = "".join(c for c in phone_normalized if c.isdigit())
+            st_query = Q(phone=phone_normalized) | Q(phone__icontains=digits)
+            if len(digits) >= 9:
+                st_query |= Q(phone__icontains=digits[-9:])
+
+            students = Student.objects.filter(st_query)
+
+            user_query = Q(phone=phone_normalized) | Q(phone__icontains=digits) | Q(username__icontains=digits)
+            if len(digits) >= 9:
+                user_query |= Q(phone__icontains=digits[-9:]) | Q(username__icontains=digits[-9:])
+            users = User.objects.filter(user_query, role='student')
+
+            linked = False
             if students.exists():
                 students.update(telegram_chat_id=chat_id)
-                User.objects.filter(username=phone_normalized, role='student').update(telegram_chat_id=chat_id)
+                linked = True
+            if users.exists():
+                users.update(telegram_chat_id=chat_id)
+                linked = True
+
+            if linked:
                 msg = f"<b>Muvaffaqiyatli bog'landi!</b> 🎓\n\nSiz Student botidan muvaffaqiyatli ro'yxatdan o'tdingiz."
                 menu = get_reply_keyboard([
                     ["👤 Profilim", "💰 Balans & Qarz"],

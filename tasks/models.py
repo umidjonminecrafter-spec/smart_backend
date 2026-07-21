@@ -126,38 +126,39 @@ def notify_task_assignment(sender, instance, created, **kwargs):
     elif not created and instance.assigned_to and old_assigned_to_id != instance.assigned_to_id:
         should_send = True
 
-    if should_send and getattr(instance.assigned_to, 'telegram_chat_id', None):
+    if should_send and instance.assigned_to:
         try:
-            from organizations.models import TelegramNotificationSetting
-            from academics.telegram_bot import send_telegram_message
-            
-            setting = TelegramNotificationSetting.objects.filter(organization=instance.organization).first()
-            token = setting.staff_bot_token or setting.bot_token if setting else None
-            
-            if not token:
-                from django.conf import settings
-                token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
-                
-            lang = getattr(instance.assigned_to, 'telegram_language', 'uz') or 'uz'
+            from communication.models import Notification
             from django.utils import timezone as django_timezone
+
             local_due = django_timezone.localtime(instance.due_date) if instance.due_date else None
             due = local_due.strftime("%d.%m.%Y %H:%M") if local_due else "-"
-            
+
+            lang = getattr(instance.assigned_to, 'telegram_language', 'uz') or 'uz'
             if lang == 'ru':
                 msg = (
-                    f"<b>📋 Новая задача назначена вам:</b>\n\n"
+                    f"Sizga yangi vazifa yuklatildi:\n"
                     f"📌 Заголовок: {instance.title}\n"
                     f"💬 Описание: {instance.description or '-'}\n"
-                    f"📅 Срок выполнения: <b>{due}</b>"
+                    f"📅 Срок: {due}"
                 )
+                title = f"📋 Новая задача: {instance.title}"
             else:
                 msg = (
-                    f"<b>📋 Sizga yangi vazifa yuklatildi:</b>\n\n"
+                    f"Sizga yangi vazifa yuklatildi:\n"
                     f"📌 Sarlavha: {instance.title}\n"
                     f"💬 Tavsif: {instance.description or '-'}\n"
-                    f"📅 Muddat: <b>{due}</b>"
+                    f"📅 Muddat: {due}"
                 )
-            send_telegram_message(token, instance.assigned_to.telegram_chat_id, msg)
+                title = f"📋 Yangi vazifa: {instance.title}"
+
+            Notification.objects.create(
+                organization=instance.organization,
+                user=instance.assigned_to,
+                title=title,
+                message=msg,
+                type='info'
+            )
         except Exception as e:
             print(f"Error sending telegram task notification: {str(e)}")
 

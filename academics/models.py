@@ -1071,6 +1071,16 @@ def charge_attendance(student, group, date, attendance_id, organization):
         student.balance = Decimal(str(student.balance)) - lesson_cost
         student.save(update_fields=['balance'])
 
+        try:
+            BalanceHistory.objects.create(
+                organization=organization,
+                student=student,
+                amount=-lesson_cost,
+                transaction_type=f"Davomat ({group.name})"
+            )
+        except Exception:
+            pass
+
     # Update teacher salary calculation if they have a percentage rule
     if group.teacher:
         teacher = group.teacher
@@ -1286,4 +1296,63 @@ def attendance_post_delete(sender, instance, **kwargs):
                 attendance_id=instance.id,
                 organization=instance.organization
             )
+
+
+@receiver(post_save, sender=BalanceHistory)
+def notify_balance_deduction(sender, instance, created, **kwargs):
+    if created and instance.student and instance.amount and instance.amount < 0:
+        try:
+            from academics.telegram_bot import send_telegram_message, get_student_bot_token
+            from organizations.models import TelegramNotificationSetting
+            from accounts.models import User
+            from django.db.models import Q
+
+            student = instance.student
+            amount_formatted = f"{int(abs(instance.amount)):,}".replace(",", " ")
+            reason = instance.transaction_type or "Balansdan yechildi"
+
+            # Resolve student_chat_id
+            student_chat_id = getattr(student, 'telegram_chat_id', None)
+            if not student_chat_id and student.phone:
+                digits = "".join(c for c in student.phone if c.isdigit())
+                last_9 = digits[-9:] if len(digits) >= 9 else digits
+                matched_user = User.objects.filter(
+                    Q(phone=student.phone) | Q(username=student.phone) |
+                    (Q(phone__icontains=last_9) if last_9 else Q()) |
+                    (Q(username__icontains=last_9) if last_9 else Q())
+                ).filter(telegram_chat_id__isnull=False).first()
+                if matched_user:
+                    student_chat_id = matched_user.telegram_chat_id
+
+            if student_chat_id:
+                student_token = get_student_bot_token(instance.organization)
+
+                st_msg = (
+                    f"<b>📉 Balansingizdan pul yechildi!</b>\n\n"
+                    f"💸 <b>Yechilgan summa:</b> {amount_formatted} UZS\n"
+                    f"📝 <b>Sabab:</b> {reason}\n"
+                    f"📅 <b>Sana:</b> {instance.date}\n"
+                    f"💵 <b>Yangi balansingiz:</b> {int(student.balance):,} UZS".replace(",", " ")
+                )
+                send_telegram_message(student_token, student_chat_id, st_msg)
+
+            # Also notify parent bot if linked
+            setting = TelegramNotificationSetting.objects.filter(organization=instance.organization).first()
+            parent_token = setting.parent_bot_token or setting.bot_token if setting else None
+            if parent_token:
+                parent_msg = (
+                    f"<b>📉 Farzandingiz balansidan pul yechildi!</b>\n\n"
+                    f"👶 <b>Farzand:</b> {student.first_name} {student.last_name or ''}\n"
+                    f"💸 <b>Yechilgan summa:</b> {amount_formatted} UZS\n"
+                    f"📝 <b>Sabab:</b> {reason}\n"
+                    f"📅 <b>Sana:</b> {instance.date}\n"
+                    f"💵 <b>Balans:</b> {int(student.balance):,} UZS".replace(",", " ")
+                )
+                if student.father_telegram_chat_id:
+                    send_telegram_message(parent_token, student.father_telegram_chat_id, parent_msg)
+                if student.mother_telegram_chat_id:
+                    send_telegram_message(parent_token, student.mother_telegram_chat_id, parent_msg)
+
+        except Exception as e:
+            print(f"Error sending balance deduction telegram notification: {str(e)}")
 

@@ -380,6 +380,70 @@ def payment_telegram_notification(sender, instance, created, **kwargs):
         )
         send_telegram_payment_notification(instance.organization, text, 'student_payments')
 
+        # 🚀 TALABA VA OTA-ONA BOTIGA AVTOMATIK PUSH XABARNOMA YUBORISH
+        if instance.student:
+            try:
+                from communication.models import Notification
+                from academics.telegram_bot import send_telegram_message, send_telegram_to_user
+                from organizations.models import TelegramNotificationSetting
+                from accounts.models import User
+                from django.db.models import Q
+
+                student = instance.student
+                setting = TelegramNotificationSetting.objects.filter(organization=instance.organization).first()
+
+                # 1. Talaba foydalanuvchi akkaunti uchun DB Notification yaratamiz
+                student_user = User.objects.filter(Q(phone=student.phone) | Q(username=student.phone), role='student').first()
+                if student_user:
+                    try:
+                        Notification.objects.create(
+                            organization=instance.organization,
+                            user=student_user,
+                            title="💳 To'lov qabul qilindi",
+                            message=f"{amount_formatted} UZS miqdorida to'lov qabul qilindi. Joriy balans: {int(student.balance):,} UZS".replace(",", " "),
+                            type='info'
+                        )
+                    except Exception:
+                        pass
+
+                # 2. Talabaning o'z Telegram botiga (@smarttalim_student_bot) Push xabar
+                student_chat_id = student.telegram_chat_id or (student_user.telegram_chat_id if student_user else None)
+                if student_chat_id:
+                    student_token = None
+                    if setting:
+                        student_token = setting.student_bot_token or setting.bot_token
+                    if not student_token:
+                        from django.conf import settings
+                        student_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
+
+                    st_msg = (
+                        f"<b>💳 To'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+                        f"💰 <b>To'langan summa:</b> {amount_formatted} UZS\n"
+                        f"💳 <b>To'lov turi:</b> {instance.payment_method}\n"
+                        f"📅 <b>Sana:</b> {instance.date}\n"
+                        f"💵 <b>Yangi balansingiz:</b> {int(student.balance):,} UZS".replace(",", " ")
+                    )
+                    send_telegram_message(student_token, student_chat_id, st_msg)
+
+                # 3. Ota-ona botiga Push xabar (Ota yoki Onasining botiga)
+                parent_token = setting.parent_bot_token or setting.bot_token if setting else None
+                if parent_token:
+                    parent_msg = (
+                        f"<b>💳 Farzandingiz to'lovi qabul qilindi!</b>\n\n"
+                        f"👶 <b>Farzand:</b> {student_name}\n"
+                        f"💰 <b>To'langan summa:</b> {amount_formatted} UZS\n"
+                        f"💳 <b>To'lov turi:</b> {instance.payment_method}\n"
+                        f"📅 <b>Sana:</b> {instance.date}\n"
+                        f"💵 <b>Balans:</b> {int(student.balance):,} UZS".replace(",", " ")
+                    )
+                    if student.father_telegram_chat_id:
+                        send_telegram_message(parent_token, student.father_telegram_chat_id, parent_msg)
+                    if student.mother_telegram_chat_id:
+                        send_telegram_message(parent_token, student.mother_telegram_chat_id, parent_msg)
+
+            except Exception as e:
+                print(f"Error sending student payment telegram notification: {str(e)}")
+
 
 @receiver(post_save, sender=Expense)
 def expense_telegram_notification(sender, instance, created, **kwargs):

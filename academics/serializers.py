@@ -165,18 +165,39 @@ class StudentSerializer(serializers.ModelSerializer):
             if not re.match(r'^\+998\d{9}$', phone):
                 errors["phone"] = "Telefon raqami noto'g'ri formatda. Loyihada O'zbekiston raqamlari (+998XXXXXXXXX) qabul qilinadi."
             else:
+                from academics.models import Student
                 from accounts.models import User
-                qs = User.objects.filter(username=phone)
-                if self.instance and self.instance.phone:
-                    qs = qs.exclude(username=self.instance.phone)
-                
-                if qs.exists():
-                    existing_user = qs.first()
-                    if existing_user.role == 'student':
-                        if Student.objects.filter(phone=phone).exists():
-                            errors["phone"] = "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."
-                    else:
-                        errors["phone"] = "Ushbu telefon raqamli foydalanuvchi tizimda allaqachon ro'yxatdan o'tgan."
+                from django.db.models import Q
+
+                # Tashkilot kontekstini olamiz
+                request = self.context.get("request")
+                org_id = None
+                if self.instance:
+                    org_id = self.instance.organization_id
+                if not org_id and request and hasattr(request, "user") and getattr(request.user, "organization_id", None):
+                    org_id = request.user.organization_id
+
+                # 1. Talabalar ro'yxatida tekshiramiz (shu tashkilotda)
+                student_qs = Student.objects.filter(phone=phone)
+                if org_id:
+                    student_qs = student_qs.filter(organization_id=org_id)
+                if self.instance:
+                    student_qs = student_qs.exclude(pk=self.instance.pk)
+
+                if student_qs.exists():
+                    errors["phone"] = "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."
+                else:
+                    # 2. Xodimlar/Foydalanuvchilar ro'yxatida tekshiramiz (student bo'lmagan xodimlar)
+                    user_qs = User.objects.filter(
+                        Q(phone=phone) | Q(username=phone) | Q(username__startswith=f"{phone}_")
+                    ).exclude(role='student')
+                    if org_id:
+                        user_qs = user_qs.filter(organization_id=org_id)
+                    if self.instance and self.instance.phone:
+                        user_qs = user_qs.exclude(Q(phone=self.instance.phone) | Q(username=self.instance.phone))
+
+                    if user_qs.exists():
+                        errors["phone"] = "Ushbu telefon raqamli xodim tizimda allaqachon ro'yxatdan o'tgan."
 
         # Dinamik required field lar
         request = self.context.get("request")

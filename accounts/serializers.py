@@ -191,12 +191,29 @@ class EmployeeSerializer(serializers.ModelSerializer):
             if not org_id and request and request.user:
                 org_id = getattr(request.user, 'organization_id', None)
 
-            qs = User.objects.filter(phone=phone, organization_id=org_id)
+            from django.db.models import Q
+            from academics.models import Student
+
+            # 1. Boshqa xodimlar ro'yxatida tekshiramiz (shu tashkilotda, student bo'lmaganlar)
+            qs = User.objects.filter(
+                Q(phone=phone) | Q(username=phone) | Q(username__startswith=f"{phone}_")
+            ).exclude(role='student')
+            if org_id:
+                qs = qs.filter(organization_id=org_id)
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
                 raise serializers.ValidationError({
                     "phone": "Ushbu telefon raqamli xodim tizimda allaqachon ro'yxatdan o'tgan."
+                })
+
+            # 2. Talabalar ro'yxatida tekshiramiz (shu tashkilotda)
+            student_qs = Student.objects.filter(phone=phone)
+            if org_id:
+                student_qs = student_qs.filter(organization_id=org_id)
+            if student_qs.exists():
+                raise serializers.ValidationError({
+                    "phone": "Ushbu telefon raqamli talaba tizimda allaqachon mavjud."
                 })
 
         # Xavfsizlik qoidalari:

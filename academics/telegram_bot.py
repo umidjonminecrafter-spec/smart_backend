@@ -43,26 +43,38 @@ def send_telegram_to_user(organization, user, text, reply_markup=None):
     from organizations.models import TelegramNotificationSetting
     from django.conf import settings
 
-    setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
     candidate_tokens = []
-    if setting:
-        role = getattr(user, 'role', 'employee')
-        if role == 'student':
-            for t in [setting.student_bot_token, setting.bot_token, setting.verification_bot_token]:
-                if t and t not in candidate_tokens:
-                    candidate_tokens.append(t)
-        else:
-            for t in [setting.staff_bot_token, setting.bot_token, setting.verification_bot_token]:
+
+    # 1. User's organization setting
+    org = organization or getattr(user, 'organization', None)
+    if org:
+        setting = TelegramNotificationSetting.objects.filter(organization=org).first()
+        if setting:
+            role = getattr(user, 'role', 'employee')
+            if role == 'student':
+                tokens = [setting.student_bot_token, setting.bot_token, setting.staff_bot_token, setting.verification_bot_token]
+            else:
+                tokens = [setting.staff_bot_token, setting.bot_token, setting.student_bot_token, setting.verification_bot_token]
+            for t in tokens:
                 if t and t not in candidate_tokens:
                     candidate_tokens.append(t)
 
+    # 2. All settings in DB
+    for setting in TelegramNotificationSetting.objects.all():
+        for t in [setting.staff_bot_token, setting.bot_token, setting.student_bot_token, setting.verification_bot_token]:
+            if t and t not in candidate_tokens:
+                candidate_tokens.append(t)
+
+    # 3. Fallback from settings.py
     fallback = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
     if fallback not in candidate_tokens:
         candidate_tokens.append(fallback)
 
+    # Try sending via candidate tokens until success
     for token in candidate_tokens:
         if send_telegram_message(token, chat_id, text, reply_markup):
             return True
+
     return False
 
 

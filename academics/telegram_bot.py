@@ -29,28 +29,26 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
         payload["reply_markup"] = reply_markup
     try:
         response = requests.post(url, json=payload, timeout=8)
+        if response.status_code != 200:
+            print(f"[TELEGRAM_API_ERROR] Status {response.status_code} sending to {chat_id}: {response.text}")
         return response.status_code == 200
     except Exception as e:
-        print(f"Error sending message to {chat_id}: {str(e)}")
+        print(f"[TELEGRAM_EXCEPTION] Error sending message to {chat_id}: {str(e)}")
         return False
 
 
-DEFAULT_STUDENT_BOT_TOKEN = "8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY"
+STUDENT_BOT_TOKEN = "8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY"
 
 def get_student_bot_token(organization=None):
     from organizations.models import TelegramNotificationSetting
-    from django.conf import settings
-
-    if organization:
-        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
-        if setting and setting.student_bot_token:
-            return setting.student_bot_token
-
-    for s in TelegramNotificationSetting.objects.all():
-        if s.student_bot_token:
-            return s.student_bot_token
-
-    return getattr(settings, 'STUDENT_BOT_TOKEN', None) or DEFAULT_STUDENT_BOT_TOKEN
+    try:
+        TelegramNotificationSetting.objects.all().update(
+            student_bot_token=STUDENT_BOT_TOKEN,
+            student_bot_username="smarttalim_student_bot"
+        )
+    except Exception as e:
+        print(f"Error updating TelegramNotificationSetting: {str(e)}")
+    return STUDENT_BOT_TOKEN
 
 
 def send_telegram_to_user(organization, user, text, reply_markup=None):

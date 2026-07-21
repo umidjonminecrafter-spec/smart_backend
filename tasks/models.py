@@ -102,7 +102,7 @@ class TaskHistory(TenantModel):
         return f"{self.user} - {self.action} on {self.item.title} at {self.created_at}"
 
 
-from django.db.models.signals import pre_save, post_save
+from django.db.models.signals import pre_save, post_save, m2m_changed
 from django.dispatch import receiver
 
 @receiver(pre_save, sender=Item)
@@ -161,4 +161,46 @@ def notify_task_assignment(sender, instance, created, **kwargs):
             )
         except Exception as e:
             print(f"Error sending telegram task notification: {str(e)}")
+
+
+@receiver(m2m_changed, sender=Item.members.through)
+def notify_members_task_assignment(sender, instance, action, pk_set, **kwargs):
+    if action == 'post_add' and pk_set:
+        from accounts.models import User
+        users = User.objects.filter(pk__in=pk_set)
+        for user in users:
+            try:
+                from communication.models import Notification
+                from django.utils import timezone as django_timezone
+
+                local_due = django_timezone.localtime(instance.due_date) if instance.due_date else None
+                due = local_due.strftime("%d.%m.%Y %H:%M") if local_due else "-"
+
+                lang = getattr(user, 'telegram_language', 'uz') or 'uz'
+                if lang == 'ru':
+                    msg = (
+                        f"Sizga yangi vazifa yuklatildi:\n"
+                        f"📌 Заголовок: {instance.title}\n"
+                        f"💬 Описание: {instance.description or '-'}\n"
+                        f"📅 Срок: {due}"
+                    )
+                    title = f"📋 Новая задача: {instance.title}"
+                else:
+                    msg = (
+                        f"Sizga yangi vazifa yuklatildi:\n"
+                        f"📌 Sarlavha: {instance.title}\n"
+                        f"💬 Tavsif: {instance.description or '-'}\n"
+                        f"📅 Muddat: {due}"
+                    )
+                    title = f"📋 Yangi vazifa: {instance.title}"
+
+                Notification.objects.create(
+                    organization=instance.organization,
+                    user=user,
+                    title=title,
+                    message=msg,
+                    type='info'
+                )
+            except Exception as e:
+                print(f"Error sending task notification to member: {str(e)}")
 

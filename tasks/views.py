@@ -196,6 +196,27 @@ class CommentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             action="comment_added",
             details=f"Yangi sharh qo'shildi: '{comment.text[:50]}...'" if len(comment.text) > 50 else f"Yangi sharh qo'shildi: '{comment.text}'"
         )
+        if comment.item.assigned_to and comment.item.assigned_to != self.request.user:
+            try:
+                from communication.models import Notification
+                lang = getattr(comment.item.assigned_to, 'telegram_language', 'uz') or 'uz'
+                author_name = self.request.user.get_full_name() or self.request.user.username
+                if lang == 'ru':
+                    title = f"💬 Новый комментарий: {comment.item.title}"
+                    msg = f"Оставлен новый комментарий к задаче '{comment.item.title}':\n{author_name}: {comment.text}"
+                else:
+                    title = f"💬 Yangi sharh: {comment.item.title}"
+                    msg = f"'{comment.item.title}' vazifasiga yangi sharh qoldirildi:\n{author_name}: {comment.text}"
+
+                Notification.objects.create(
+                    organization=comment.organization,
+                    user=comment.item.assigned_to,
+                    title=title,
+                    message=msg,
+                    type='info'
+                )
+            except Exception as e:
+                pass
 
     def perform_destroy(self, instance):
         item = instance.item

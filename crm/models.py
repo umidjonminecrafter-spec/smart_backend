@@ -193,6 +193,7 @@ def track_lead_changes(sender, instance, **kwargs):
         instance._old_name = None
         instance._old_phone = None
         instance._old_section = None
+        instance._old_moderator_id = None
         return
 
     try:
@@ -201,6 +202,7 @@ def track_lead_changes(sender, instance, **kwargs):
         instance._old_name = old_instance.name
         instance._old_phone = old_instance.phone
         instance._old_section = old_instance.section
+        instance._old_moderator_id = old_instance.moderator_id
     except Lead.DoesNotExist:
         pass
 
@@ -233,3 +235,32 @@ def save_lead_history(sender, instance, created, **kwargs):
             lead=instance,
             change_details=full_log
         )
+
+    # Moderator biriktirilganda xodimgaga Telegram bildirishnoma yuborish
+    old_mod = getattr(instance, '_old_moderator_id', None)
+    should_notify = False
+    if created and instance.moderator:
+        should_notify = True
+    elif not created and instance.moderator and old_mod != instance.moderator_id:
+        should_notify = True
+
+    if should_notify and instance.moderator:
+        try:
+            from communication.models import Notification
+            lang = getattr(instance.moderator, 'telegram_language', 'uz') or 'uz'
+            if lang == 'ru':
+                title = f"🎯 Назначен новый лид: {instance.name}"
+                msg = f"Вам назначен новый лид: {instance.name}\n📞 Телефон: {instance.phone}"
+            else:
+                title = f"🎯 Yangi lid biriktirildi: {instance.name}"
+                msg = f"Sizga yangi lid biriktirildi: {instance.name}\n📞 Telefon: {instance.phone}"
+
+            Notification.objects.create(
+                organization=instance.organization,
+                user=instance.moderator,
+                title=title,
+                message=msg,
+                type='info'
+            )
+        except Exception as e:
+            print(f"Error notifying lead moderator: {str(e)}")

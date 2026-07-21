@@ -434,6 +434,28 @@ def salary_telegram_notification(sender, instance, created, **kwargs):
             )
             send_telegram_payment_notification(instance.organization, text, 'teacher_salaries')
 
+            # Xodimning o'ziga Telegram bildirishnoma yuborish
+            if instance.employee:
+                try:
+                    from communication.models import Notification
+                    lang = getattr(instance.employee, 'telegram_language', 'uz') or 'uz'
+                    if lang == 'ru':
+                        title = "💵 Выплачена зарплата"
+                        msg = f"Вам выплачена зарплата в размере {amount_formatted} UZS ({instance.date})."
+                    else:
+                        title = "💵 Oylik maosh to'landi"
+                        msg = f"Sizga {amount_formatted} UZS miqdorida oylik maosh to'landi ({instance.date})."
+
+                    Notification.objects.create(
+                        organization=instance.organization,
+                        user=instance.employee,
+                        title=title,
+                        message=msg,
+                        type='info'
+                    )
+                except Exception as e:
+                    print(f"Error notifying salary to employee: {str(e)}")
+
 
 @receiver(post_save, sender=TeacherSalaryPayment)
 def teacher_salary_telegram_notification(sender, instance, created, **kwargs):
@@ -447,10 +469,10 @@ def teacher_salary_telegram_notification(sender, instance, created, **kwargs):
             amount_formatted = str(instance.amount)
 
         text = (
-            f"<b>Chiqim (O'qituvchi maoshi)</b> 💸\n\n"
-            f"👤 O'qituvchi: {teacher_name}\n"
+            f"<b>Chiqim (O'qituvchi ish haqi)</b> 💸\n\n"
+            f"👨‍🏫 O'qituvchi: {teacher_name}\n"
             f"💰 Summa: {amount_formatted} UZS\n"
-            f"🗓 Davr: {instance.period}\n"
+            f"🗓 Sana: {instance.date}\n"
             f"🏢 Filial: {branch_name}"
         )
         send_telegram_payment_notification(instance.organization, text, 'teacher_salaries')

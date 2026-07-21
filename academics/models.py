@@ -1374,3 +1374,220 @@ def notify_balance_deduction(sender, instance, created, **kwargs):
         except Exception as e:
             print(f"Error sending balance deduction telegram notification: {str(e)}")
 
+
+@receiver(post_save, sender=ExamResult)
+def notify_exam_result(sender, instance, created, **kwargs):
+    if instance.student and instance.exam:
+        try:
+            from academics.telegram_bot import send_telegram_message, get_student_bot_token
+            from organizations.models import TelegramNotificationSetting
+            from accounts.models import User
+            from django.db.models import Q
+            from django.utils import timezone as django_timezone
+
+            student = instance.student
+            exam = instance.exam
+            score_val = float(instance.score)
+            max_score = getattr(exam, 'max_score', 100)
+            min_score = getattr(exam, 'min_score', 60)
+
+            status_str = "✅ O'tdi (Muvaffaqiyatli)" if score_val >= min_score else "⚠️ O'ta olmadi"
+
+            created_at = getattr(instance, 'created_at', None) or django_timezone.now()
+            exact_time = django_timezone.localtime(created_at).strftime("%d.%m.%Y %H:%M:%S")
+
+            student_chat_id = getattr(student, 'telegram_chat_id', None)
+            if not student_chat_id and student.phone:
+                digits = "".join(c for c in student.phone if c.isdigit())
+                last_9 = digits[-9:] if len(digits) >= 9 else digits
+                matched_user = User.objects.filter(
+                    Q(phone=student.phone) | Q(username=student.phone) |
+                    (Q(phone__icontains=last_9) if last_9 else Q()) |
+                    (Q(username__icontains=last_9) if last_9 else Q())
+                ).filter(telegram_chat_id__isnull=False).first()
+                if matched_user:
+                    student_chat_id = matched_user.telegram_chat_id
+
+            if student_chat_id:
+                student_token = get_student_bot_token(instance.organization)
+                st_msg = (
+                    f"<b>🏆 Imtihon Bahosi E'lon Qilindi!</b>\n\n"
+                    f"📚 <b>Imtihon nomi:</b> {exam.name}\n"
+                    f"⭐ <b>Qo'yilgan baho/bal:</b> <code>{score_val}</code> / {max_score}\n"
+                    f"📊 <b>Natija:</b> {status_str}\n"
+                    f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+                )
+                send_telegram_message(student_token, student_chat_id, st_msg)
+
+            setting = TelegramNotificationSetting.objects.filter(organization=instance.organization).first()
+            parent_token = setting.parent_bot_token or setting.bot_token if setting else None
+            if parent_token:
+                parent_msg = (
+                    f"<b>🏆 Farzandingiz Imtihon Bahosi!</b>\n\n"
+                    f"👶 <b>Farzand:</b> {student.first_name} {student.last_name or ''}\n"
+                    f"📚 <b>Imtihon nomi:</b> {exam.name}\n"
+                    f"⭐ <b>Baho/bal:</b> <code>{score_val}</code> / {max_score}\n"
+                    f"📊 <b>Natija:</b> {status_str}\n"
+                    f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+                )
+                if student.father_telegram_chat_id:
+                    send_telegram_message(parent_token, student.father_telegram_chat_id, parent_msg)
+                if student.mother_telegram_chat_id:
+                    send_telegram_message(parent_token, student.mother_telegram_chat_id, parent_msg)
+
+        except Exception as e:
+            print(f"Error sending exam result telegram notification: {str(e)}")
+
+
+@receiver(post_save, sender=Homework)
+def notify_homework_created(sender, instance, created, **kwargs):
+    if created and instance.group:
+        try:
+            from academics.telegram_bot import send_telegram_message, get_student_bot_token
+            from academics.models import StudentGroup
+            from organizations.models import TelegramNotificationSetting
+            from accounts.models import User
+            from django.db.models import Q
+            from django.utils import timezone as django_timezone
+
+            group = instance.group
+            teacher_name = "O'qituvchi"
+            if instance.created_by:
+                teacher_name = instance.created_by.get_full_name() or instance.created_by.username
+            elif group.teacher:
+                teacher_name = group.teacher.get_full_name() or group.teacher.username
+
+            created_at = getattr(instance, 'created_at', None) or django_timezone.now()
+            exact_time = django_timezone.localtime(created_at).strftime("%d.%m.%Y %H:%M:%S")
+            due_date_str = str(instance.due_date) if instance.due_date else "Belgilanmagan"
+
+            student_groups = StudentGroup.objects.filter(group=group).select_related('student')
+            for sg in student_groups:
+                student = sg.student
+                if not student:
+                    continue
+
+                student_chat_id = getattr(student, 'telegram_chat_id', None)
+                if not student_chat_id and student.phone:
+                    digits = "".join(c for c in student.phone if c.isdigit())
+                    last_9 = digits[-9:] if len(digits) >= 9 else digits
+                    matched_user = User.objects.filter(
+                        Q(phone=student.phone) | Q(username=student.phone) |
+                        (Q(phone__icontains=last_9) if last_9 else Q()) |
+                        (Q(username__icontains=last_9) if last_9 else Q())
+                    ).filter(telegram_chat_id__isnull=False).first()
+                    if matched_user:
+                        student_chat_id = matched_user.telegram_chat_id
+
+                if student_chat_id:
+                    student_token = get_student_bot_token(instance.organization)
+                    st_msg = (
+                        f"<b>📝 Yangi Uy Vazifasi Berildi!</b>\n\n"
+                        f"👥 <b>Guruh:</b> {group.name}\n"
+                        f"📚 <b>Mavzu:</b> {instance.title}\n"
+                        f"📝 <b>Topshiriq:</b> {instance.text or 'Tavsif berilmagan'}\n"
+                        f"📅 <b>Topshirish muddati:</b> {due_date_str}\n"
+                        f"👤 <b>O'qituvchi:</b> {teacher_name}\n"
+                        f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+                    )
+                    send_telegram_message(student_token, student_chat_id, st_msg)
+
+                setting = TelegramNotificationSetting.objects.filter(organization=instance.organization).first()
+                parent_token = setting.parent_bot_token or setting.bot_token if setting else None
+                if parent_token:
+                    parent_msg = (
+                        f"<b>📝 Farzandingizga Yangi Uy Vazifasi Berildi!</b>\n\n"
+                        f"👶 <b>Farzand:</b> {student.first_name} {student.last_name or ''}\n"
+                        f"👥 <b>Guruh:</b> {group.name}\n"
+                        f"📚 <b>Mavzu:</b> {instance.title}\n"
+                        f"📅 <b>Topshirish muddati:</b> {due_date_str}\n"
+                        f"👤 <b>O'qituvchi:</b> {teacher_name}\n"
+                        f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+                    )
+                    if student.father_telegram_chat_id:
+                        send_telegram_message(parent_token, student.father_telegram_chat_id, parent_msg)
+                    if student.mother_telegram_chat_id:
+                        send_telegram_message(parent_token, student.mother_telegram_chat_id, parent_msg)
+
+        except Exception as e:
+            print(f"Error sending homework telegram notification: {str(e)}")
+
+
+@receiver(post_save, sender=Attendance)
+def notify_attendance_saved(sender, instance, created, **kwargs):
+    if instance.student and instance.group:
+        try:
+            from academics.telegram_bot import send_telegram_message, get_student_bot_token
+            from organizations.models import TelegramNotificationSetting
+            from accounts.models import User
+            from django.db.models import Q
+            from django.utils import timezone as django_timezone
+
+            student = instance.student
+            group = instance.group
+
+            status_map = {
+                'present': "✅ Keldi (Darsda)",
+                'late': "⏰ Kechikdi",
+                'absent': "❌ Kelmadi (Sababsiz)",
+                'excused': "📋 Sababli kelmadi"
+            }
+            status_text = status_map.get(instance.status, instance.status)
+
+            teacher_name = "O'qituvchi"
+            if group.teacher:
+                teacher_name = group.teacher.get_full_name() or group.teacher.username
+
+            created_at = getattr(instance, 'created_at', None) or django_timezone.now()
+            exact_time = django_timezone.localtime(created_at).strftime("%d.%m.%Y %H:%M:%S")
+
+            grade_str = str(instance.grade) if instance.grade is not None else "Qo'yilmagan"
+            reason_str = instance.reason if instance.reason else "Yo'q"
+
+            student_chat_id = getattr(student, 'telegram_chat_id', None)
+            if not student_chat_id and student.phone:
+                digits = "".join(c for c in student.phone if c.isdigit())
+                last_9 = digits[-9:] if len(digits) >= 9 else digits
+                matched_user = User.objects.filter(
+                    Q(phone=student.phone) | Q(username=student.phone) |
+                    (Q(phone__icontains=last_9) if last_9 else Q()) |
+                    (Q(username__icontains=last_9) if last_9 else Q())
+                ).filter(telegram_chat_id__isnull=False).first()
+                if matched_user:
+                    student_chat_id = matched_user.telegram_chat_id
+
+            if student_chat_id:
+                student_token = get_student_bot_token(instance.organization)
+                st_msg = (
+                    f"<b>📊 Davomat Qayd Etildi!</b>\n\n"
+                    f"👥 <b>Guruh:</b> {group.name}\n"
+                    f"📌 <b>Holatingiz:</b> {status_text}\n"
+                    f"📅 <b>Dars sanasi:</b> {instance.date}\n"
+                    f"⭐ <b>Dars bahosi:</b> {grade_str}\n"
+                    f"📝 <b>Izoh:</b> {reason_str}\n"
+                    f"👤 <b>O'qituvchi:</b> {teacher_name}\n"
+                    f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+                )
+                send_telegram_message(student_token, student_chat_id, st_msg)
+
+            setting = TelegramNotificationSetting.objects.filter(organization=instance.organization).first()
+            parent_token = setting.parent_bot_token or setting.bot_token if setting else None
+            if parent_token:
+                parent_msg = (
+                    f"<b>📊 Farzandingiz Davomati Qayd Etildi!</b>\n\n"
+                    f"👶 <b>Farzand:</b> {student.first_name} {student.last_name or ''}\n"
+                    f"👥 <b>Guruh:</b> {group.name}\n"
+                    f"📌 <b>Holati:</b> {status_text}\n"
+                    f"📅 <b>Dars sanasi:</b> {instance.date}\n"
+                    f"⭐ <b>Baho:</b> {grade_str}\n"
+                    f"👤 <b>O'qituvchi:</b> {teacher_name}\n"
+                    f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+                )
+                if student.father_telegram_chat_id:
+                    send_telegram_message(parent_token, student.father_telegram_chat_id, parent_msg)
+                if student.mother_telegram_chat_id:
+                    send_telegram_message(parent_token, student.mother_telegram_chat_id, parent_msg)
+
+        except Exception as e:
+            print(f"Error sending attendance telegram notification: {str(e)}")
+

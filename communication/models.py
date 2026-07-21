@@ -251,20 +251,23 @@ def send_sms_to_telegram(sender, instance, created, **kwargs):
                                 bot_token_field = 'staff_bot_token'
                                 
             if chat_id and org:
-                setting = TelegramNotificationSetting.objects.filter(organization=org).first()
-                token = None
-                if setting:
-                    # Get the preferred token, e.g. student_bot_token, parent_bot_token, etc.
-                    token = getattr(setting, bot_token_field, None)
-                    # If preferred token is empty, fall back to general bot_token
-                    if not token:
+                from django.utils import timezone as django_timezone
+                exact_time = django_timezone.localtime(instance.created_at).strftime("%d.%m.%Y %H:%M:%S") if getattr(instance, 'created_at', None) else ""
+                time_str = f"\n🕒 <b>Vaqti:</b> <code>{exact_time}</code>" if exact_time else ""
+
+                if bot_token_field == 'student_bot_token':
+                    from academics.telegram_bot import get_student_bot_token
+                    token = get_student_bot_token(org)
+                else:
+                    setting = TelegramNotificationSetting.objects.filter(organization=org).first()
+                    token = getattr(setting, bot_token_field, None) if setting else None
+                    if not token and setting:
                         token = setting.bot_token
-                
-                if not token:
-                    from django.conf import settings
-                    token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
-                    
-                msg = f"<b>✉️ Yangi xabar:</b>\n\n{instance.message}"
+                    if not token:
+                        from django.conf import settings
+                        token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
+
+                msg = f"<b>✉️ Sizga Yangi Xabar Keldi!</b>\n\n📝 <b>Matn:</b> {instance.message}{time_str}"
                 send_telegram_message(token, chat_id, msg)
         except Exception as e:
             print(f"Error sending SMS to telegram: {str(e)}")

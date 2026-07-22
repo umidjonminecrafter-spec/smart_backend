@@ -829,11 +829,21 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
         from academics.models import Holiday, StudentPricing
 
         org_id = self.get_organization_id()
-        period = request.data.get('period') or request.data.get('month')  # Support both period and month
+        period = request.data.get('period') or request.data.get('month') or request.query_params.get('period') or request.query_params.get('month')
+        is_reset = request.data.get('reset') or request.query_params.get('reset')
 
         if not org_id or not period:
             return Response({"detail": "org_id and period are required in payload."},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        if is_reset:
+            calcs = TeacherSalaryCalculation.objects.filter(organization_id=org_id, period=period)
+            calcs.update(calculated_amount=Decimal('0.00'), details={'rule_type': 'percentage', 'rate': '50.00', 'attendance_charges': {}})
+            return Response({
+                "detail": f"Teacher salary calculations reset to 0 UZS for period {period}.",
+                "period": period,
+                "results": TeacherSalaryCalculationSerializer(calcs, many=True).data
+            }, status=status.HTTP_200_OK)
 
         try:
             year, month = map(int, period.split('-'))

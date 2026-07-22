@@ -2975,8 +2975,6 @@ class StudentLeaversReasonsReportView(APIView):
 
     def get(self, request):
         from django.utils.dateparse import parse_date
-        
-        # 🔥 To'g'ridan-to'g'ri ketishlar tarixi modelini import qilamiz
         from academics.models import StudentGroupLeave
 
         tab_type = request.query_params.get('tab', 'all')
@@ -2986,49 +2984,88 @@ class StudentLeaversReasonsReportView(APIView):
         from_date = parse_date(from_date_str) if from_date_str else None
         to_date = parse_date(to_date_str) if to_date_str else None
 
-        # 🌟 Filterlarni faqat joriy tashkilot va kiritilgan sanalar bo'yicha quramiz
+        org = request.user.organization
         branch_id = get_active_branch_id(request)
-        filters = Q(student__organization=request.user.organization)
+        filters = Q(organization=org) | Q(student__organization=org)
         if branch_id:
-            filters &= Q(branch_id=branch_id)
+            filters &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
 
         if from_date:
-            filters &= Q(created_at__date__gte=from_date)
+            filters &= (Q(leave_date__gte=from_date) | Q(created_at__date__gte=from_date))
         if to_date:
-            filters &= Q(created_at__date__lte=to_date)
+            filters &= (Q(leave_date__lte=to_date) | Q(created_at__date__lte=to_date))
 
-        # 🌟 Ketish sababi (LeaveReason) modelidagi 'reason' maydoni bo'yicha guruhlaymiz
-        reasons_queryset = (
-            StudentGroupLeave.objects.filter(filters)
-            .values('leave_reason__reason')  # Sababning nomini toza matn ko'rinishida olamiz
-            .annotate(count=Count('id'))
-            .order_by('-count')
-        )
+        leaves_qs = StudentGroupLeave.objects.filter(filters).select_related(
+            'student', 'group', 'leave_reason'
+        ).order_by('-leave_date', '-id')
+
+        all_students = []
+        reason_groups = {}
+
+        for leave in leaves_qs:
+            student_name = ""
+            if leave.student:
+                first = leave.student.first_name or ""
+                last = leave.student.last_name or ""
+                student_name = f"{first} {last}".strip()
+            if not student_name:
+                student_name = leave.student_name or "Noma'lum talaba"
+
+            phone = leave.student.phone if (leave.student and leave.student.phone) else (leave.student_phone or "")
+            reason_name = leave.leave_reason.reason if leave.leave_reason else "Sababi ko'rsatilmagan"
+            group_name = leave.group.name if leave.group else ""
+            leave_dt_str = leave.leave_date.isoformat() if leave.leave_date else (leave.created_at.date().isoformat() if leave.created_at else None)
+
+            item = {
+                "id": leave.id,
+                "student_id": leave.student_id,
+                "student_name": student_name,
+                "name": student_name,
+                "phone": phone,
+                "group_name": group_name,
+                "group": group_name,
+                "leave_reason": reason_name,
+                "reason_name": reason_name,
+                "leave_date": leave_dt_str,
+                "sana": leave_dt_str,
+                "comment": leave.comment or "",
+                "refound_amount": float(leave.refound_amount or 0)
+            }
+
+            all_students.append(item)
+            if reason_name not in reason_groups:
+                reason_groups[reason_name] = []
+            reason_groups[reason_name].append(item)
 
         chart_data = []
-        for item in reasons_queryset:
-            reason = item['leave_reason__reason'] or "Sababi ko'rsatilmagan"
+        table_data = []
+
+        for i, (r_name, r_students) in enumerate(reason_groups.items(), 1):
+            count = len(r_students)
             chart_data.append({
-                "reason_name": reason,
-                "count": item['count']
+                "reason_name": r_name,
+                "count": count
+            })
+            table_data.append({
+                "id": i,
+                "reason_name": r_name,
+                "student_count": count,
+                "count": count,
+                "students": r_students
             })
 
-        # Frontend qulab tushmasligi uchun sug'urta mockup:
         if not chart_data:
             chart_data = [{"reason_name": "Boshqa sabab", "count": 0}]
+            table_data = [{"id": 1, "reason_name": "Boshqa sabab", "student_count": 0, "count": 0, "students": []}]
 
-        total_leavers = sum(item['count'] for item in chart_data)
+        total_leavers = len(all_students)
 
         return Response({
             "total_leavers": total_leavers,
             "chart_data": chart_data,
-            "table_data": [
-                {
-                    "id": i,
-                    "reason_name": item['reason_name'],
-                    "student_count": item['count']
-                } for i, item in enumerate(chart_data, 1)
-            ]
+            "table_data": table_data,
+            "students": all_students,
+            "leavers": all_students
         })
 
 

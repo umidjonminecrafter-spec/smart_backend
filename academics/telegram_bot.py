@@ -340,7 +340,11 @@ def handle_telegram_update(bot_type, token, update_data):
                 students.update(telegram_chat_id=chat_id)
                 linked = True
             if users.exists():
-                users.update(telegram_chat_id=chat_id)
+                # Faqat talaba roliga ega foydalanuvchilarni talaba botiga biriktiramiz
+                # Rahbar (owner/admin) larning telegram_chat_id'si buzilmasligi uchun
+                student_users = users.filter(role='student')
+                if student_users.exists():
+                    student_users.update(telegram_chat_id=chat_id)
                 linked = True
 
             if linked:
@@ -392,6 +396,15 @@ def handle_telegram_update(bot_type, token, update_data):
 
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
+                from organizations.models import TelegramNotificationSetting
+                for u in users:
+                    if u.organization:
+                        setting, _ = TelegramNotificationSetting.objects.get_or_create(organization=u.organization)
+                        cids = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
+                        cids.add(str(chat_id))
+                        setting.chat_ids = ", ".join(cids)
+                        setting.save(update_fields=['chat_ids'])
+
                 msg = (
                     "<b>Muvaffaqiyatli bog'landi! 📊</b>\n\n"
                     "Siz Hisobotlar botidan muvaffaqiyatli ro'yxatdan o'tdingiz.\n"

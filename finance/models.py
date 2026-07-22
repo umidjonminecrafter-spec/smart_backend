@@ -243,6 +243,9 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
     setting_type: 'student_payments', 'teacher_salaries', 'expenses', 'other_payments'
     """
     if not organization:
+        from organizations.models import Organization
+        organization = Organization.objects.first()
+    if not organization:
         return
 
     try:

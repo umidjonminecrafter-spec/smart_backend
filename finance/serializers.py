@@ -394,17 +394,20 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         if rule_type == 'percentage':
             aklad_val = 0.0
             ish_haqi_val = 0.0
-            calc_val = davomat_summa
+            calc_val = 0.0
+            total_earned = davomat_summa
         else:
             calc_val = float(instance.calculated_amount or 0)
             aklad_val = calc_val
             ish_haqi_val = calc_val
             davomat_summa = 0.0
             davomat_count = 0
+            total_earned = calc_val
 
-        net = (calc_val + bonus) - (advance + penalty)
+        net = (total_earned + bonus) - (advance + penalty)
 
         rep['calculated_amount'] = round(calc_val, 2)
+        rep['amount'] = round(calc_val, 2)
         rep['ish_haqi'] = round(ish_haqi_val, 2)
         rep['davomat'] = davomat_count
         rep['davomat_count'] = davomat_count
@@ -427,6 +430,7 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['akladi'] = round(aklad_val, 2)
         rep['base_salary'] = round(aklad_val, 2)
 
+        rep['total_earned'] = round(total_earned, 2)
         rep['net_salary'] = round(net, 2)
         rep['final_payout'] = round(net, 2)
         rep['to_lanmagan'] = round(net, 2)

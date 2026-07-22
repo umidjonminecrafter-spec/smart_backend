@@ -270,13 +270,99 @@ class TeacherSalaryRuleSerializer(serializers.ModelSerializer):
         
         return rep
 
+from django.db import models
+from decimal import Decimal
+
 class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source='teacher.get_full_name', read_only=True)
+    bonus = serializers.SerializerMethodField()
+    penalty = serializers.SerializerMethodField()
+    advance = serializers.SerializerMethodField()
+    paid_amount = serializers.SerializerMethodField()
+    net_salary = serializers.SerializerMethodField()
 
     class Meta:
         model = TeacherSalaryCalculation
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
+
+    def get_bonus(self, obj):
+        if not obj.teacher_id or not obj.period:
+            return 0.0
+        try:
+            year, month = map(int, obj.period.split('-'))
+            val = Bonus.objects.filter(
+                organization_id=obj.organization_id,
+                employee_id=obj.teacher_id,
+                date__year=year,
+                date__month=month
+            ).aggregate(total=models.Sum('amount'))['total'] or Decimal('0.00')
+            return float(val)
+        except Exception:
+            return 0.0
+
+    def get_penalty(self, obj):
+        if not obj.teacher_id or not obj.period:
+            return 0.0
+        try:
+            year, month = map(int, obj.period.split('-'))
+            val = Fine.objects.filter(
+                organization_id=obj.organization_id,
+                employee_id=obj.teacher_id,
+                date__year=year,
+                date__month=month
+            ).aggregate(total=models.Sum('amount'))['total'] or Decimal('0.00')
+            return float(val)
+        except Exception:
+            return 0.0
+
+    def get_advance(self, obj):
+        if not obj.teacher_id or not obj.period:
+            return 0.0
+        try:
+            year, month = map(int, obj.period.split('-'))
+            from academics.models import TeacherSalaryPayment
+            val = TeacherSalaryPayment.objects.filter(
+                organization_id=obj.organization_id,
+                teacher_id=obj.teacher_id,
+                paid_at__year=year,
+                paid_at__month=month
+            ).aggregate(total=models.Sum('amount'))['total'] or Decimal('0.00')
+            return float(val)
+        except Exception:
+            return 0.0
+
+    def get_paid_amount(self, obj):
+        return self.get_advance(obj)
+
+    def get_net_salary(self, obj):
+        calc = float(obj.calculated_amount or 0)
+        bonus = self.get_bonus(obj)
+        penalty = self.get_penalty(obj)
+        advance = self.get_advance(obj)
+        net = (calc + bonus) - (advance + penalty)
+        return round(net, 2)
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        bonus = self.get_bonus(instance)
+        penalty = self.get_penalty(instance)
+        advance = self.get_advance(instance)
+        calc = float(instance.calculated_amount or 0)
+        net = (calc + bonus) - (advance + penalty)
+
+        rep['bonus'] = bonus
+        rep['penalty'] = penalty
+        rep['jarima'] = penalty
+        rep['advance'] = advance
+        rep['avans'] = advance
+        rep['paid_amount'] = advance
+        rep['to_langan'] = advance
+        rep['net_salary'] = round(net, 2)
+        rep['final_payout'] = round(net, 2)
+        rep['to_lanmagan'] = round(net, 2)
+        rep['remaining_balance'] = round(net, 2)
+        return rep
 
 class CashboxSerializer(serializers.ModelSerializer):
     class Meta:

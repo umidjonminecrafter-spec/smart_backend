@@ -1095,7 +1095,7 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-class TeacherSalaryPaymentsView(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class TeacherSalaryPaymentsView(TenantViewSetMixin, viewsets.ModelViewSet):
     # This matches /teacher-salary-payments/ endpoints in finance
     permission_page_name = 'Ish haqi'
     queryset = TeacherSalaryPayment.objects.all()

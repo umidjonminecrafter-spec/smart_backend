@@ -1867,20 +1867,8 @@ class TransactionCreateAPIView(APIView):
                 # Avval kassa amaliyotini saqlaymiz
                 instance = serializer.save(organization=request.user.organization)
 
-                # TO'G'RILANDI: Modelda maydon 'transaction_type' va qiymatlar kichik harfda ('kirim'/'chiqim')
-                if instance.student:
-                    student = instance.student
-                    amount = instance.amount
-
-                    if instance.transaction_type == 'kirim':
-                        # Kassaga kirim bo'ldi -> O'quvchi balansi ko'payadi
-                        student.balance += amount
-                        student.save(update_fields=['balance'])
-
-                    elif instance.transaction_type == 'chiqim':
-                        # Kassadan o'quvchiga chiqim bo'ldi (Refund) -> O'quvchi balansi kamayadi
-                        student.balance -= amount
-                        student.save(update_fields=['balance'])
+                # Kassa tranzaksiyasi kassaga yoziladi va kassa balansi sinxronlashadi.
+                # Talaba balansi bu yerda qayta o'zgarmaydi.
 
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

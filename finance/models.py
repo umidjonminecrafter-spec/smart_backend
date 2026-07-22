@@ -242,82 +242,61 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
     Tashkilotning Telegram sozlamalariga asosan xabar yuboradi.
     setting_type: 'student_payments', 'teacher_salaries', 'expenses', 'other_payments'
     """
-    if not organization:
-        from organizations.models import Organization
-        organization = Organization.objects.first()
-    if not organization:
-        return
-
     try:
         from organizations.models import TelegramNotificationSetting
         from accounts.models import User
+        from academics.models import Student
         from django.db.models import Q
-        from academics.telegram_bot import send_telegram_message, get_report_bot_token
+        from academics.telegram_bot import send_telegram_message, get_report_bot_token, get_student_bot_token
 
-        token = get_report_bot_token(organization)
-        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
+        if not organization:
+            from organizations.models import Organization
+            organization = Organization.objects.first()
+
+        report_token = get_report_bot_token(organization)
+        student_token = get_student_bot_token(organization)
 
         chat_ids_set = set()
 
-        if setting and setting.chat_ids:
-            for cid in setting.chat_ids.replace(',', ' ').split():
-                if cid.strip():
-                    chat_ids_set.add(cid.strip())
+        # 1. Setting chat_ids
+        for setting in TelegramNotificationSetting.objects.all():
+            if setting.chat_ids:
+                for cid in setting.chat_ids.replace(',', ' ').split():
+                    if cid.strip():
+                        chat_ids_set.add(cid.strip())
 
-        # Collect chat IDs of all registered Owners and Admins
-        owners_chats = User.objects.filter(
-            organization=organization,
+        # 2. Registered staff/owners/admins
+        staff_chats = User.objects.filter(
             telegram_chat_id__isnull=False
-        ).filter(Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True) | Q(is_staff=True)).values_list('telegram_chat_id', flat=True)
-        for cid in owners_chats:
-            if cid:
-                chat_ids_set.add(str(cid))
+        ).exclude(role='student').values_list('telegram_chat_id', flat=True)
+        for cid in staff_chats:
+            if cid and str(cid).strip():
+                chat_ids_set.add(str(cid).strip())
+
+        # 3. All superusers/staff
+        sys_chats = User.objects.filter(
+            telegram_chat_id__isnull=False,
+            is_staff=True
+        ).values_list('telegram_chat_id', flat=True)
+        for cid in sys_chats:
+            if cid and str(cid).strip():
+                chat_ids_set.add(str(cid).strip())
 
         if not chat_ids_set:
-            sys_chats = User.objects.filter(
-                telegram_chat_id__isnull=False
-            ).filter(Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True) | Q(is_staff=True)).values_list('telegram_chat_id', flat=True)
-            for cid in sys_chats:
-                if cid:
-                    chat_ids_set.add(str(cid))
-
-        # Real-time auto-discovery check from Telegram getUpdates
-        try:
-            import requests
-            res = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", params={"timeout": 1}, timeout=3)
-            if res.status_code == 200:
-                up_data = res.json()
-                if up_data.get("ok"):
-                    for up in up_data.get("result", []):
-                        msg_obj = up.get("message", {})
-                        cid = msg_obj.get("chat", {}).get("id")
-                        if cid:
-                            chat_ids_set.add(str(cid))
-                            if setting:
-                                existing = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
-                                existing.add(str(cid))
-                                setting.chat_ids = ", ".join(existing)
-                                setting.save(update_fields=['chat_ids'])
-                            contact = msg_obj.get("contact", {})
-                            phone_raw = contact.get("phone_number") or msg_obj.get("text", "")
-                            digits = "".join(c for c in str(phone_raw) if c.isdigit())
-                            if len(digits) >= 9:
-                                User.objects.filter(
-                                    Q(phone__icontains=digits[-9:]) | Q(username__icontains=digits[-9:])
-                                ).filter(Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True) | Q(is_staff=True)).update(telegram_chat_id=str(cid))
-        except Exception as e_disc:
-            print(f"Auto-discovery check error: {str(e_disc)}")
-
-        if not chat_ids_set:
-            print(f"[REPORTS_BOT_NO_CHAT_ID] No registered owners/admins found for report delivery.")
+            print(f"[REPORTS_BOT_NO_CHAT_ID] No chat IDs found for report delivery.")
             return
 
-        def worker():
-            for chat_id in chat_ids_set:
-                send_telegram_message(token, chat_id, message_text)
+        # Synchronous sending (no daemon thread to prevent PythonAnywhere WSGI termination)
+        tokens_to_try = [report_token, student_token]
+        for chat_id in chat_ids_set:
+            sent = False
+            for tkn in tokens_to_try:
+                if send_telegram_message(tkn, chat_id, message_text):
+                    sent = True
+                    break
+            if not sent:
+                print(f"[TELEGRAM_SEND_FAILED] Failed to send report to chat_id {chat_id} with all tokens.")
 
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
     except Exception as e:
         print(f"Error initiating telegram payment notification: {str(e)}")
 

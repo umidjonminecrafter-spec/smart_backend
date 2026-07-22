@@ -1591,3 +1591,25 @@ def notify_attendance_saved(sender, instance, created, **kwargs):
         except Exception as e:
             print(f"Error sending attendance telegram notification: {str(e)}")
 
+
+@receiver(post_save, sender=Student)
+def notify_new_student_to_report_bot(sender, instance, created, **kwargs):
+    if created and instance.organization:
+        try:
+            from finance.models import send_telegram_payment_notification
+            from django.utils import timezone as django_timezone
+            created_at = getattr(instance, 'created_at', None) or django_timezone.now()
+            exact_time = django_timezone.localtime(created_at).strftime("%d.%m.%Y %H:%M:%S")
+            branch_name = instance.branch.name if getattr(instance, 'branch', None) else "Asosiy Filial"
+            text = (
+                f"<b>🎓 Yangi Talaba Qabul Qilindi!</b>\n\n"
+                f"👤 <b>Talaba:</b> {instance.first_name} {instance.last_name or ''}\n"
+                f"📞 <b>Telefon:</b> {instance.phone or 'Kiritilmagan'}\n"
+                f"📍 <b>Filial:</b> {branch_name}\n"
+                f"💵 <b>Boshlang'ich balans:</b> {int(instance.balance):,} UZS".replace(",", " ") + "\n"
+                f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+            )
+            send_telegram_payment_notification(instance.organization, text, 'other_payments')
+        except Exception as e:
+            print(f"Error sending student notification to report bot: {str(e)}")
+

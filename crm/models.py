@@ -264,3 +264,23 @@ def save_lead_history(sender, instance, created, **kwargs):
             )
         except Exception as e:
             print(f"Error notifying lead moderator: {str(e)}")
+
+    if created and instance.organization:
+        try:
+            from finance.models import send_telegram_payment_notification
+            from django.utils import timezone as django_timezone
+            created_at = getattr(instance, 'created_at', None) or django_timezone.now()
+            exact_time = django_timezone.localtime(created_at).strftime("%d.%m.%Y %H:%M:%S")
+            section_name = instance.section.name if instance.section else "Asosiy"
+            mod_name = (instance.moderator.get_full_name() or instance.moderator.username) if instance.moderator else "Biriktirilmagan"
+            text = (
+                f"<b>🎯 Yangi Lid Keldi (CRM)!</b>\n\n"
+                f"👤 <b>Mijoz:</b> {instance.name}\n"
+                f"📞 <b>Telefon:</b> {instance.phone or 'Kiritilmagan'}\n"
+                f"📌 <b>Bo'lim:</b> {section_name}\n"
+                f"🧑‍💼 <b>Mas'ul xodim:</b> {mod_name}\n"
+                f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+            )
+            send_telegram_payment_notification(instance.organization, text, 'other_payments')
+        except Exception as e:
+            print(f"Error sending lead notification to report bot: {str(e)}")

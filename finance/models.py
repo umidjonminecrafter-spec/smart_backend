@@ -258,15 +258,19 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
 
         chat_ids_set = set()
 
-        # 1. Setting chat_ids
-        for setting in TelegramNotificationSetting.objects.all():
+        # 1. Setting chat_ids — faqat shu tashkilotniki
+        try:
+            setting = TelegramNotificationSetting.objects.get(organization=organization)
             if setting.chat_ids:
                 for cid in setting.chat_ids.replace(',', ' ').split():
                     if cid.strip():
                         chat_ids_set.add(cid.strip())
+        except TelegramNotificationSetting.DoesNotExist:
+            pass
 
-        # 2. Registered staff/owners/admins
+        # 2. Registered staff/owners/admins — faqat shu tashkilotniki
         staff_chats = User.objects.filter(
+            organization=organization,
             telegram_chat_id__isnull=False
         ).exclude(role='student').values_list('telegram_chat_id', flat=True)
         for cid in staff_chats:

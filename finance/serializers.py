@@ -406,16 +406,15 @@ class CashTransactionSerializer(serializers.ModelSerializer):
         student = attrs.get('student')
         employee = attrs.get('employee')
 
-        # 1. Agarda KIRIM (kirim) bo'lsa, o'quvchi (student) tanlanishi shart!
+        # 1. Agarda KIRIM (kirim) bo'lsa: o'quvchidan Kassaga kirim qilish taqiqlanadi (O'quvchi to'lovlari faqat Talaba profilidan bajariladi)
         if tx_type == 'kirim':
-            # Check for student keywords in category/comment (though test requires student directly)
-            if not student:
+            if student:
                 raise serializers.ValidationError({
-                    "student": "Kassaga kirim qilinganda qaysi o'quvchidan pul kelayotganini tanlash majburiy! ⚠️"
+                    "student": "O'quvchidan Kassaga to'g'ridan-to'g'ri kirim qilib bo'lmaydi! O'quvchi to'lovlari faqat O'quvchilar bo'limidan 'To'lov qilish' tugmasi orqali bajariladi. ⚠️"
                 })
             if employee:
                 raise serializers.ValidationError({
-                    "employee": "Kirim amaliyotida xodimni tanlash mumkin emas, faqat o'quvchi tanlanishi kerak!"
+                    "employee": "Kirim amaliyotida xodimni tanlash mumkin emas!"
                 })
 
         # 2. Agarda CHIQIM (chiqim) bo'lsa, yo xodim yoki o'quvchidan biri albatta tanlanishi shart!

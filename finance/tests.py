@@ -152,9 +152,9 @@ class CashTransactionAPITests(APITestCase):
 
         self.client.force_authenticate(user=self.admin)
 
-    def test_cash_transaction_kirim_student_required(self):
+    def test_cash_transaction_kirim_disallows_student(self):
         """
-        Verify that student is required for kirim (INCOME) if description/category contains student keywords.
+        Verify that student is disallowed for Kassa kirim (INCOME).
         """
         url = reverse('transaction-create')
         data = {
@@ -163,19 +163,20 @@ class CashTransactionAPITests(APITestCase):
             "payment_method": "naqd",
             "amount": "150000.00",
             "date": "2026-07-01",
-            "category_name": "o'quvchi to'ladi",
-            "description": "Talaba dars to'lovi"
+            "category_name": "Boshqa kirim",
+            "description": "General income"
         }
 
-        # Attempt without student -> should fail
-        response = self.client.post(url, data=data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("student", response.data)
-
-        # Attempt with student -> should pass
-        data["student"] = self.student.id
+        # General kirim without student -> should pass
         response = self.client.post(url, data=data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Attempt with student -> should fail
+        data_with_student = data.copy()
+        data_with_student["student"] = self.student.id
+        response = self.client.post(url, data_with_student, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("student", response.data)
 
         # Verify kassa balance
         self.cashbox.refresh_from_db()

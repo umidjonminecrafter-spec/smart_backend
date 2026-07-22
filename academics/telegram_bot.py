@@ -397,13 +397,19 @@ def handle_telegram_update(bot_type, token, update_data):
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
                 from organizations.models import TelegramNotificationSetting
-                for u in users:
-                    if u.organization:
-                        setting, _ = TelegramNotificationSetting.objects.get_or_create(organization=u.organization)
-                        cids = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
-                        cids.add(str(chat_id))
-                        setting.chat_ids = ", ".join(cids)
-                        setting.save(update_fields=['chat_ids'])
+                settings = TelegramNotificationSetting.objects.all()
+                if not settings.exists():
+                    from organizations.models import Organization
+                    org = Organization.objects.first()
+                    if org:
+                        TelegramNotificationSetting.objects.create(organization=org, bot_token=token, chat_ids=str(chat_id))
+                        settings = TelegramNotificationSetting.objects.all()
+                for setting in settings:
+                    cids = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
+                    cids.add(str(chat_id))
+                    setting.chat_ids = ", ".join(cids)
+                    setting.bot_token = token
+                    setting.save(update_fields=['chat_ids', 'bot_token'])
 
                 msg = (
                     "<b>Muvaffaqiyatli bog'landi! 📊</b>\n\n"

@@ -286,16 +286,10 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
             print(f"[REPORTS_BOT_NO_CHAT_ID] No chat IDs found for report delivery.")
             return
 
-        # Synchronous sending (no daemon thread to prevent PythonAnywhere WSGI termination)
-        tokens_to_try = [report_token, student_token]
+        # Synchronous sending strictly via report_token (@smarttalim_report_bot)
         for chat_id in chat_ids_set:
-            sent = False
-            for tkn in tokens_to_try:
-                if send_telegram_message(tkn, chat_id, message_text):
-                    sent = True
-                    break
-            if not sent:
-                print(f"[TELEGRAM_SEND_FAILED] Failed to send report to chat_id {chat_id} with all tokens.")
+            if not send_telegram_message(report_token, chat_id, message_text):
+                print(f"[REPORTS_BOT_SEND_FAILED] Failed to send report to chat_id {chat_id} via report_token.")
 
     except Exception as e:
         print(f"Error initiating telegram payment notification: {str(e)}")

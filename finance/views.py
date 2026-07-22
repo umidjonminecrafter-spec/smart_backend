@@ -2150,13 +2150,15 @@ class FinancialReportsView(APIView):
         end_date_str = request.query_params.get('to_date')
         cashbox_id = request.query_params.get('kassa') or request.query_params.get('cashbox')
 
+        org_id = getattr(request.user, 'organization_id', None)
+        if not org_id and hasattr(request.user, 'organization') and request.user.organization:
+            org_id = request.user.organization.id
+
         branch_id = get_active_branch_id(request)
-        if hasattr(Transaction, 'organization'):
-            tx_filters = Q(organization_id=request.user.organization_id)
-        else:
-            tx_filters = Q(cashbox__organization_id=request.user.organization_id)
+        tx_filters = Q(organization_id=org_id) if org_id else Q()
         if branch_id:
-            tx_filters &= Q(branch_id=branch_id)
+            tx_filters &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True) | Q(cashbox__branch_id=branch_id))
+
         queryset = Transaction.objects.filter(tx_filters)
 
         if start_date_str:
@@ -2173,15 +2175,46 @@ class FinancialReportsView(APIView):
             except ValueError:
                 pass
 
-        # Abdulmajid xatolik yuborganda filtrdan xavfsiz o'tish
         if cashbox_id:
             try:
                 queryset = queryset.filter(cashbox_id=int(cashbox_id))
             except ValueError:
                 pass
 
-        total_income = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or 0
-        total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or 0
+        total_income = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+        # Fallback to Payment/Expense models if Transaction table has 0 records for this org
+        if total_income == 0 and total_expense == 0 and org_id:
+            p_filter = Q(organization_id=org_id)
+            e_filter = Q(organization_id=org_id)
+            s_filter = Q(organization_id=org_id, status='paid')
+            t_filter = Q(organization_id=org_id)
+
+            if branch_id:
+                p_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+                e_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+                s_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+                t_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+
+            if start_date_str:
+                p_filter &= Q(date__gte=start_date_str)
+                e_filter &= Q(date__gte=start_date_str)
+                s_filter &= Q(date__gte=start_date_str)
+                t_filter &= Q(paid_at__date__gte=start_date_str)
+
+            if end_date_str:
+                p_filter &= Q(date__lte=end_date_str)
+                e_filter &= Q(date__lte=end_date_str)
+                s_filter &= Q(date__lte=end_date_str)
+                t_filter &= Q(paid_at__date__lte=end_date_str)
+
+            total_income = Payment.objects.filter(p_filter, amount__gt=0).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            expenses_val = Expense.objects.filter(e_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            salaries_val = Salary.objects.filter(s_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            tsalaries_val = TeacherSalaryPayment.objects.filter(t_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            total_expense = expenses_val + salaries_val + tsalaries_val
+
         balance = total_income - total_expense
 
         income_breakdown = {}
@@ -2209,7 +2242,8 @@ class FinancialReportsView(APIView):
             "cards": {
                 "total_income": float(total_income),
                 "total_expense": float(total_expense),
-                "balance": float(balance)
+                "balance": float(balance),
+                "net_profit": float(balance)
             },
             "linear_chart": {
                 "labels": list(daily_data.keys()),
@@ -2241,16 +2275,17 @@ class CashFlowReportView(APIView):
         to_date = request.query_params.get('to_date')
         cashbox_id = request.query_params.get('kassa') or request.query_params.get('cashbox')
 
+        org_id = getattr(request.user, 'organization_id', None)
+        if not org_id and hasattr(request.user, 'organization') and request.user.organization:
+            org_id = request.user.organization.id
+
         branch_id = get_active_branch_id(request)
-        if hasattr(Transaction, 'organization'):
-            tx_filters = Q(organization_id=request.user.organization_id)
-        else:
-            tx_filters = Q(cashbox__organization_id=request.user.organization_id)
+        tx_filters = Q(organization_id=org_id) if org_id else Q()
         if branch_id:
-            tx_filters &= Q(branch_id=branch_id)
+            tx_filters &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True) | Q(cashbox__branch_id=branch_id))
+
         queryset = Transaction.objects.filter(tx_filters)
 
-        # 2. Sana filtri (Xavfsiz parsing bilan)
         if from_date:
             try:
                 queryset = queryset.filter(created_at__gte=datetime.strptime(from_date, '%Y-%m-%d'))
@@ -2264,20 +2299,33 @@ class CashFlowReportView(APIView):
             except ValueError:
                 pass
 
-        # 3. 🌟 MANA SHU JOYI GLOBAL XATOLIKNI OLDINI OLADI:
-        # Abdulmajid xato matn yuborib qolsa ham ushlab qolib, dasturni qulatmaydi
         if cashbox_id:
             try:
                 queryset = queryset.filter(cashbox_id=int(cashbox_id))
             except ValueError:
                 pass
 
-        # Kirim va Chiqimlarni tavsifi (description) bo'yicha guruhlaymiz
         incomes = queryset.filter(type='INCOME').values('description').annotate(total=Sum('amount'))
         expenses = queryset.filter(type='EXPENSE').values('description').annotate(total=Sum('amount'))
 
-        total_income = sum(item['total'] for item in incomes) or 0
-        total_expense = sum(item['total'] for item in expenses) or 0
+        total_income = sum(item['total'] for item in incomes) or Decimal('0.00')
+        total_expense = sum(item['total'] for item in expenses) or Decimal('0.00')
+
+        if total_income == 0 and total_expense == 0 and org_id:
+            p_filter = Q(organization_id=org_id)
+            e_filter = Q(organization_id=org_id)
+            if branch_id:
+                p_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+                e_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+            if from_date:
+                p_filter &= Q(date__gte=from_date)
+                e_filter &= Q(date__gte=from_date)
+            if to_date:
+                p_filter &= Q(date__lte=to_date)
+                e_filter &= Q(date__lte=to_date)
+
+            total_income = Payment.objects.filter(p_filter, amount__gt=0).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            total_expense = Expense.objects.filter(e_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
 
         return Response({
             "kirimlar": [
@@ -2290,7 +2338,8 @@ class CashFlowReportView(APIView):
             ],
             "jami_kirim": float(total_income),
             "jami_chiqim": float(total_expense),
-            "sof_pul_oqimi": float(total_income - total_expense)
+            "sof_pul_oqimi": float(total_income - total_expense),
+            "net_profit": float(total_income - total_expense)
         }, status=status.HTTP_200_OK)
 
 
@@ -2304,16 +2353,17 @@ class PnLReportView(APIView):
         from_date = request.query_params.get('from_date')
         to_date = request.query_params.get('to_date')
 
+        org_id = getattr(request.user, 'organization_id', None)
+        if not org_id and hasattr(request.user, 'organization') and request.user.organization:
+            org_id = request.user.organization.id
+
         branch_id = get_active_branch_id(request)
-        if hasattr(Transaction, 'organization'):
-            tx_filters = Q(organization_id=request.user.organization_id)
-        else:
-            tx_filters = Q(cashbox__organization_id=request.user.organization_id)
+        tx_filters = Q(organization_id=org_id) if org_id else Q()
         if branch_id:
-            tx_filters &= Q(branch_id=branch_id)
+            tx_filters &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True) | Q(cashbox__branch_id=branch_id))
+
         queryset = Transaction.objects.filter(tx_filters)
 
-        # Sanalar bo'yicha xavfsiz filterlash
         if from_date:
             try:
                 queryset = queryset.filter(created_at__gte=datetime.strptime(from_date, '%Y-%m-%d'))
@@ -2326,15 +2376,46 @@ class PnLReportView(APIView):
             except ValueError:
                 pass
 
-        # Kirim va chiqimlarni jamlash
-        total_income = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or 0
-        total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or 0
+        total_income = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+        if total_income == 0 and total_expense == 0 and org_id:
+            p_filter = Q(organization_id=org_id)
+            e_filter = Q(organization_id=org_id)
+            s_filter = Q(organization_id=org_id, status='paid')
+            t_filter = Q(organization_id=org_id)
+
+            if branch_id:
+                p_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+                e_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+                s_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+                t_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+
+            if from_date:
+                p_filter &= Q(date__gte=from_date)
+                e_filter &= Q(date__gte=from_date)
+                s_filter &= Q(date__gte=from_date)
+                t_filter &= Q(paid_at__date__gte=from_date)
+
+            if to_date:
+                p_filter &= Q(date__lte=to_date)
+                e_filter &= Q(date__lte=to_date)
+                s_filter &= Q(date__lte=to_date)
+                t_filter &= Q(paid_at__date__lte=to_date)
+
+            total_income = Payment.objects.filter(p_filter, amount__gt=0).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            expenses_val = Expense.objects.filter(e_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            salaries_val = Salary.objects.filter(s_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            tsalaries_val = TeacherSalaryPayment.objects.filter(t_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            total_expense = expenses_val + salaries_val + tsalaries_val
+
         net_profit = total_income - total_expense
 
         return Response({
             "total_income": float(total_income),
             "total_expense": float(total_expense),
-            "net_profit": float(net_profit)
+            "net_profit": float(net_profit),
+            "sof_foyda": float(net_profit)
         }, status=status.HTTP_200_OK)
 
 

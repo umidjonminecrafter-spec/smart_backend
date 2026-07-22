@@ -11,7 +11,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         domain = options['domain'].strip().replace('https://', '').replace('http://', '').strip('/')
-        report_token = options.get('report_token') or '8697561524:AAHyj2sGeNuYS5K8omuZoDdmtTBXz0oob94'
+        report_token = options.get('report_token') or '8697561524:AAHyj2sGeNuYS5K8omuZoDdmtTBXz0Oob94'
         STUDENT_BOT_TOKEN = '8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY'
 
         # DB dagi sozlamalarni yangilaymiz

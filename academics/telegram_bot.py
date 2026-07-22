@@ -38,7 +38,7 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
 
 
 STUDENT_BOT_TOKEN = "8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY"
-REPORT_BOT_TOKEN = "8697561524:AAHyj2sGeNuYS5K8omuZoDdmtTBXz0oob94"
+REPORT_BOT_TOKEN = "8697561524:AAHyj2sGeNuYS5K8omuZoDdmtTBXz0Oob94"
 
 def get_student_bot_token(organization=None):
     from organizations.models import TelegramNotificationSetting

@@ -32,7 +32,7 @@ class Command(BaseCommand):
                     if s.staff_bot_token:
                         active_bots.append(('staff', s.staff_bot_token))
 
-                REPORT_BOT_TOKEN = '8697561524:AAHyj2sGeNuYS5K8omuZoDdmtTBXz0oob94'
+                REPORT_BOT_TOKEN = '8697561524:AAHyj2sGeNuYS5K8omuZoDdmtTBXz0Oob94'
                 STUDENT_BOT_TOKEN = '8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY'
 
                 if not any(b[0] == 'reports' for b in active_bots):

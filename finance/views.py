@@ -1031,36 +1031,12 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
                         details['attendance_charges'] = attendance_charges
                         details['calculated_from_lessons'] = True
                     else:
-                        # Fallback to monthly student pricing enrollment calculation
-                        total_revenue = Decimal('0.00')
-                        student_groups = StudentGroup.objects.filter(group__teacher=teacher,
-                                                                     organization_id=org_id).select_related('group',
-                                                                                                            'group__course')
-                        
-                        student_ids = [sg.student_id for sg in student_groups]
-                        course_ids = [sg.group.course_id for sg in student_groups if sg.group and sg.group.course]
-
-                        pricings = StudentPricing.objects.filter(student_id__in=student_ids, course_id__in=course_ids)
-                        pricing_map = {(p.student_id, p.course_id): p.custom_price for p in pricings}
-
-                        for sg in student_groups:
-                            custom_price = None
-                            if sg.group and sg.group.course:
-                                custom_price = pricing_map.get((sg.student_id, sg.group.course_id))
-
-                            if custom_price is not None:
-                                price = custom_price
-                            else:
-                                price = sg.price or getattr(sg.group, 'price', None) or (
-                                    sg.group.course.price if sg.group and sg.group.course else Decimal('0.00'))
-
-                            total_revenue += price * student_discount
-
-                        calculated_amount = total_revenue * (rate / Decimal('100.00'))
+                        # Faqat o'tkazilgan darslar (yo'qlama) bo'yicha oylik hisoblanadi.
+                        # Yo'qlama qilinmagan bo'lsa, oylik 0 UZS bo'ladi.
+                        calculated_amount = Decimal('0.00')
                         details['student_count'] = student_count
-                        details['total_revenue'] = str(total_revenue)
-                        if stud_holiday_days > 0:
-                            details['student_holiday_days'] = stud_holiday_days
+                        details['attendance_charges'] = {}
+                        details['calculated_from_lessons'] = True
 
             elif rule_type == 'per_hour':
                 from academics.models import LessonSchedule

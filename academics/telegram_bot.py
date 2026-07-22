@@ -38,6 +38,7 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
 
 
 STUDENT_BOT_TOKEN = "8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY"
+REPORT_BOT_TOKEN = "7185362147:AAEX5h1s39q31_b126348123h12a"
 
 def get_student_bot_token(organization=None):
     from organizations.models import TelegramNotificationSetting
@@ -49,6 +50,17 @@ def get_student_bot_token(organization=None):
     except Exception as e:
         print(f"Error updating TelegramNotificationSetting: {str(e)}")
     return STUDENT_BOT_TOKEN
+
+
+def get_report_bot_token(organization=None):
+    from organizations.models import TelegramNotificationSetting
+    try:
+        TelegramNotificationSetting.objects.all().update(
+            bot_token=REPORT_BOT_TOKEN
+        )
+    except Exception as e:
+        print(f"Error updating TelegramNotificationSetting for report bot: {str(e)}")
+    return REPORT_BOT_TOKEN
 
 
 def send_telegram_to_user(organization, user, text, reply_markup=None):

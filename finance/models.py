@@ -249,16 +249,10 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
         from organizations.models import TelegramNotificationSetting
         from accounts.models import User
         from django.db.models import Q
-        from academics.telegram_bot import send_telegram_message
+        from academics.telegram_bot import send_telegram_message, get_report_bot_token
 
+        token = get_report_bot_token(organization)
         setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
-        if not setting:
-            setting = TelegramNotificationSetting.objects.first()
-
-        token = getattr(setting, 'bot_token', None) if setting else None
-        if not token:
-            from django.conf import settings
-            token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
 
         chat_ids_set = set()
 
@@ -579,6 +573,47 @@ def sale_telegram_notification(sender, instance, created, **kwargs):
             f"🏢 Filial: {branch_name}"
         )
         send_telegram_payment_notification(instance.organization, text, 'other_payments')
+
+
+@receiver(post_save, sender=CashTransaction)
+def cashtransaction_telegram_notification(sender, instance, created, **kwargs):
+    if created and instance.organization:
+        try:
+            cashbox_name = instance.cashbox.name if instance.cashbox else "Kassa"
+            ttype_str = "Chiqim 📉" if instance.transaction_type == 'chiqim' else "Kirim 📥"
+            
+            try:
+                amount_formatted = f"{int(instance.amount):,}".replace(",", " ")
+            except:
+                amount_formatted = str(instance.amount)
+
+            from django.utils import timezone as django_timezone
+            created_at = getattr(instance, 'created_at', None) or django_timezone.now()
+            exact_time = django_timezone.localtime(created_at).strftime("%d.%m.%Y %H:%M:%S")
+
+            person_info = ""
+            if instance.student:
+                person_info = f"\n👤 <b>Talaba:</b> {instance.student.first_name} {instance.student.last_name or ''}"
+            elif instance.employee:
+                person_info = f"\n🧑‍💼 <b>Xodim:</b> {instance.employee.get_full_name() or instance.employee.username}"
+
+            category_str = f"\n📁 <b>Kategoriya/Sabab:</b> {instance.category_name}" if instance.category_name else ""
+            comment_str = f"\n📝 <b>Izoh:</b> {instance.comment}" if instance.comment else ""
+
+            text = (
+                f"<b>Kassa Operatsiyasi ({ttype_str})</b>\n\n"
+                f"💼 <b>Kassa:</b> {cashbox_name}\n"
+                f"💰 <b>Summa:</b> {amount_formatted} UZS\n"
+                f"💳 <b>To'lov turi:</b> {instance.payment_method.capitalize()}"
+                f"{person_info}"
+                f"{category_str}"
+                f"{comment_str}\n"
+                f"🗓 <b>Sana:</b> {instance.date}\n"
+                f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+            )
+            send_telegram_payment_notification(instance.organization, text, 'other_payments')
+        except Exception as e:
+            print(f"Error sending cashtransaction telegram notification: {str(e)}")
 
 
 # ================= TALABA BALANSI INTEGRATSIYASI SIGNALLARI =================

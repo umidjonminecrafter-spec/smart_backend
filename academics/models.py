@@ -1588,6 +1588,20 @@ def notify_attendance_saved(sender, instance, created, **kwargs):
                 if student.mother_telegram_chat_id:
                     send_telegram_message(parent_token, student.mother_telegram_chat_id, parent_msg)
 
+            # Also send report to Hisobot Boti (@smarttalim_report_bot) for owners/admins
+            rep_msg = (
+                f"<b>📊 Davomat Qayd Etildi (Tizim)</b>\n\n"
+                f"👤 <b>Talaba:</b> {student.first_name} {student.last_name or ''}\n"
+                f"👥 <b>Guruh:</b> {group.name}\n"
+                f"📌 <b>Holati:</b> {status_text}\n"
+                f"📅 <b>Dars sanasi:</b> {instance.date}\n"
+                f"⭐ <b>Baho:</b> {grade_str}\n"
+                f"👤 <b>O'qituvchi:</b> {teacher_name}\n"
+                f"🕒 <b>Vaqti:</b> <code>{exact_time}</code>"
+            )
+            from finance.models import send_telegram_payment_notification
+            send_telegram_payment_notification(instance.organization, rep_msg, 'other_payments')
+
         except Exception as e:
             print(f"Error sending attendance telegram notification: {str(e)}")
 

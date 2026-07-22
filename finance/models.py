@@ -399,7 +399,7 @@ def payment_telegram_notification(sender, instance, created, **kwargs):
                         Q(phone=student.phone) | Q(username=student.phone) |
                         (Q(phone__icontains=last_9) if last_9 else Q()) |
                         (Q(username__icontains=last_9) if last_9 else Q())
-                    ).filter(telegram_chat_id__isnull=False).first()
+                    ).filter(role='student', telegram_chat_id__isnull=False).first()
                     if matched_user:
                         student_chat_id = matched_user.telegram_chat_id
 

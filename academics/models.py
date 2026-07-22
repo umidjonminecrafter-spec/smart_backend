@@ -1336,7 +1336,7 @@ def notify_balance_deduction(sender, instance, created, **kwargs):
                     Q(phone=student.phone) | Q(username=student.phone) |
                     (Q(phone__icontains=last_9) if last_9 else Q()) |
                     (Q(username__icontains=last_9) if last_9 else Q())
-                ).filter(telegram_chat_id__isnull=False).first()
+                ).filter(role='student', telegram_chat_id__isnull=False).first()
                 if matched_user:
                     student_chat_id = matched_user.telegram_chat_id
 
@@ -1404,7 +1404,7 @@ def notify_exam_result(sender, instance, created, **kwargs):
                     Q(phone=student.phone) | Q(username=student.phone) |
                     (Q(phone__icontains=last_9) if last_9 else Q()) |
                     (Q(username__icontains=last_9) if last_9 else Q())
-                ).filter(telegram_chat_id__isnull=False).first()
+                ).filter(role='student', telegram_chat_id__isnull=False).first()
                 if matched_user:
                     student_chat_id = matched_user.telegram_chat_id
 
@@ -1475,7 +1475,7 @@ def notify_homework_created(sender, instance, created, **kwargs):
                         Q(phone=student.phone) | Q(username=student.phone) |
                         (Q(phone__icontains=last_9) if last_9 else Q()) |
                         (Q(username__icontains=last_9) if last_9 else Q())
-                    ).filter(telegram_chat_id__isnull=False).first()
+                    ).filter(role='student', telegram_chat_id__isnull=False).first()
                     if matched_user:
                         student_chat_id = matched_user.telegram_chat_id
 
@@ -1552,7 +1552,7 @@ def notify_attendance_saved(sender, instance, created, **kwargs):
                     Q(phone=student.phone) | Q(username=student.phone) |
                     (Q(phone__icontains=last_9) if last_9 else Q()) |
                     (Q(username__icontains=last_9) if last_9 else Q())
-                ).filter(telegram_chat_id__isnull=False).first()
+                ).filter(role='student', telegram_chat_id__isnull=False).first()
                 if matched_user:
                     student_chat_id = matched_user.telegram_chat_id
 

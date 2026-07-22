@@ -986,40 +986,48 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
                     student_count = student_groups.count()
                     
                     if attendances.exists():
-                        # Calculate based on lessons/attendances
+                        # Calculate strictly based on actual attendance deductions
                         total_earned = Decimal('0.00')
                         attendance_charges = {}
                         
                         for att in attendances:
-                            monthly_price = Decimal('0.00')
-                            sg = StudentGroup.objects.filter(student=att.student, group=att.group).first()
-                            if sg and sg.price is not None:
-                                monthly_price = sg.price
-                            elif att.group.course:
-                                monthly_price = att.group.course.price
-                                
-                            try:
-                                from finance.models import FinanceSetting
-                                setting = FinanceSetting.objects.filter(organization_id=org_id).first()
-                                if setting and setting.is_auto_discount_enabled:
-                                    groups_count = StudentGroup.objects.filter(student=att.student).count()
-                                    discount_percent = Decimal('0.00')
-                                    if groups_count == 2:
-                                        discount_percent = Decimal(str(setting.two_groups_discount_percent))
-                                    elif groups_count == 3:
-                                        discount_percent = Decimal(str(setting.three_groups_discount_percent))
-                                    elif groups_count >= 4:
-                                        discount_percent = Decimal(str(setting.four_groups_discount_percent))
+                            from finance.models import Transaction
+                            tx = Transaction.objects.filter(description__startswith=f"Davomat #{att.id}:").first()
+                            if tx and tx.amount > 0:
+                                lesson_cost = tx.amount
+                            else:
+                                monthly_price = Decimal('0.00')
+                                sg = StudentGroup.objects.filter(student=att.student, group=att.group).first()
+                                if sg and sg.price is not None:
+                                    monthly_price = sg.price
+                                elif att.group.course:
+                                    monthly_price = att.group.course.price
                                     
-                                    if discount_percent > 0:
-                                        monthly_price = monthly_price * (Decimal('1.00') - (discount_percent / Decimal('100.00')))
-                            except Exception as e:
-                                print(f"Error applying auto discount: {str(e)}")
-                                
-                            from academics.models import get_lessons_in_month
-                            lessons_in_month = get_lessons_in_month(att.group, att.date.year, att.date.month)
-                            lesson_cost = monthly_price / Decimal(lessons_in_month)
-                            lesson_cost = round(lesson_cost, 2)
+                                try:
+                                    from finance.models import FinanceSetting
+                                    setting = FinanceSetting.objects.filter(organization_id=org_id).first()
+                                    if setting and setting.is_auto_discount_enabled:
+                                        groups_count = StudentGroup.objects.filter(student=att.student).count()
+                                        discount_percent = Decimal('0.00')
+                                        if groups_count == 2:
+                                            discount_percent = Decimal(str(setting.two_groups_discount_percent))
+                                        elif groups_count == 3:
+                                            discount_percent = Decimal(str(setting.three_groups_discount_percent))
+                                        elif groups_count >= 4:
+                                            discount_percent = Decimal(str(setting.four_groups_discount_percent))
+                                        
+                                        if discount_percent > 0:
+                                            monthly_price = monthly_price * (Decimal('1.00') - (discount_percent / Decimal('100.00')))
+                                except Exception as e:
+                                    print(f"Error applying auto discount: {str(e)}")
+                                    
+                                from academics.models import get_lessons_in_month
+                                lessons_in_month = get_lessons_in_month(att.group, att.date.year, att.date.month)
+                                if lessons_in_month > 0:
+                                    lesson_cost = monthly_price / Decimal(lessons_in_month)
+                                else:
+                                    lesson_cost = Decimal('0.00')
+                                lesson_cost = round(lesson_cost, 2)
                             
                             share = lesson_cost * (rate / Decimal('100.00'))
                             share = round(share, 2)

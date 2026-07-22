@@ -369,34 +369,65 @@ def generate_daily_report_message(org, report_date, lang='uz'):
 
 
 def send_daily_telegram_reports():
+    """
+    Har kuni soat 9:00 da PythonAnywhere scheduled task orqali ishga tushadi.
+    Kechagi kunning to'liq hisobotini har bir tashkilotning hisobot botiga yuboradi.
+    """
     from django.db import connection
     connection.close()
 
     from django.utils import timezone
     from datetime import timedelta
-    from organizations.models import TelegramNotificationSetting
+    from organizations.models import Organization, TelegramNotificationSetting
     from accounts.models import User
+    from academics.telegram_bot import send_telegram_message, get_report_bot_token
 
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
-    active_settings = TelegramNotificationSetting.objects.filter(is_active=True).select_related('organization')
-    for setting in active_settings:
-        org = setting.organization
-        if not setting.staff_bot_token:
-            continue
+    # Barcha tashkilotlar uchun hisobot yuboramiz
+    for org in Organization.objects.all():
+        try:
+            report_token = get_report_bot_token(org)
+            if not report_token:
+                print(f"[DAILY_REPORT] No report bot token for org: {org.name}")
+                continue
 
-        staff_users = User.objects.filter(
-            organization=org,
-            telegram_chat_id__isnull=False
-        ).exclude(role='student')
-
-        if not staff_users.exists():
-            continue
-
-        for user in staff_users:
+            # 1. TelegramNotificationSetting dan chat_ids
+            chat_ids_set = set()
             try:
-                lang = getattr(user, 'telegram_language', 'uz') or 'uz'
-                report_msg = generate_daily_report_message(org, yesterday, lang=lang)
-                send_telegram_message(setting.staff_bot_token, user.telegram_chat_id, report_msg)
-            except Exception as e:
-                print(f"Error sending daily report to user {user.id}: {str(e)}")
+                setting = TelegramNotificationSetting.objects.get(organization=org)
+                if setting.chat_ids:
+                    for cid in setting.chat_ids.replace(',', ' ').split():
+                        if cid.strip():
+                            chat_ids_set.add(cid.strip())
+            except TelegramNotificationSetting.DoesNotExist:
+                pass
+
+            # 2. Tashkilotdagi admin/owner/manager larning telegram_chat_id si
+            staff_users = User.objects.filter(
+                organization=org,
+                telegram_chat_id__isnull=False
+            ).exclude(role='student')
+
+            for user in staff_users:
+                if user.telegram_chat_id and str(user.telegram_chat_id).strip():
+                    chat_ids_set.add(str(user.telegram_chat_id).strip())
+
+            if not chat_ids_set:
+                print(f"[DAILY_REPORT] No chat IDs for org: {org.name}")
+                continue
+
+            # Hisobot matnini yaratamiz (kechagi kun uchun)
+            report_msg = generate_daily_report_message(org, yesterday, lang='uz')
+
+            # Har bir chat_id ga report_token orqali yuboramiz
+            for chat_id in chat_ids_set:
+                try:
+                    send_telegram_message(report_token, chat_id, report_msg)
+                    print(f"[DAILY_REPORT] Sent to chat_id={chat_id} for org={org.name}")
+                except Exception as e:
+                    print(f"[DAILY_REPORT_ERR] chat_id={chat_id} org={org.name}: {e}")
+
+        except Exception as e:
+            print(f"[DAILY_REPORT_ERR] org={org.name}: {e}")
+

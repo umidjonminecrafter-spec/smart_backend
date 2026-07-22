@@ -273,14 +273,26 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
             if cid and str(cid).strip():
                 chat_ids_set.add(str(cid).strip())
 
-        # 3. All superusers/staff
-        sys_chats = User.objects.filter(
-            telegram_chat_id__isnull=False,
-            is_staff=True
-        ).values_list('telegram_chat_id', flat=True)
-        for cid in sys_chats:
-            if cid and str(cid).strip():
-                chat_ids_set.add(str(cid).strip())
+        # 3. Real-Time getUpdates discovery for @smarttalim_report_bot
+        try:
+            import requests
+            res = requests.get(f"https://api.telegram.org/bot{report_token}/getUpdates", params={"offset": -10}, timeout=2)
+            if res.status_code == 200:
+                up_data = res.json()
+                if up_data.get("ok"):
+                    for up in up_data.get("result", []):
+                        msg_obj = up.get("message", {}) or up.get("edited_message", {})
+                        cid = msg_obj.get("chat", {}).get("id")
+                        if cid:
+                            str_cid = str(cid)
+                            chat_ids_set.add(str_cid)
+                            for setting in TelegramNotificationSetting.objects.all():
+                                cids = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
+                                cids.add(str_cid)
+                                setting.chat_ids = ", ".join(cids)
+                                setting.save(update_fields=['chat_ids'])
+        except Exception as e_up:
+            print(f"[REPORTS_AUTO_DISCOVERY_ERR] {str(e_up)}")
 
         if not chat_ids_set:
             print(f"[REPORTS_BOT_NO_CHAT_ID] No chat IDs found for report delivery.")

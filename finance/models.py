@@ -276,10 +276,37 @@ def send_telegram_payment_notification(organization, message_text, setting_type)
         if not chat_ids_set:
             sys_chats = User.objects.filter(
                 telegram_chat_id__isnull=False
-            ).filter(Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True)).values_list('telegram_chat_id', flat=True)
+            ).filter(Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True) | Q(is_staff=True)).values_list('telegram_chat_id', flat=True)
             for cid in sys_chats:
                 if cid:
                     chat_ids_set.add(str(cid))
+
+        # Real-time auto-discovery check from Telegram getUpdates
+        try:
+            import requests
+            res = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", params={"timeout": 1}, timeout=3)
+            if res.status_code == 200:
+                up_data = res.json()
+                if up_data.get("ok"):
+                    for up in up_data.get("result", []):
+                        msg_obj = up.get("message", {})
+                        cid = msg_obj.get("chat", {}).get("id")
+                        if cid:
+                            chat_ids_set.add(str(cid))
+                            if setting:
+                                existing = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
+                                existing.add(str(cid))
+                                setting.chat_ids = ", ".join(existing)
+                                setting.save(update_fields=['chat_ids'])
+                            contact = msg_obj.get("contact", {})
+                            phone_raw = contact.get("phone_number") or msg_obj.get("text", "")
+                            digits = "".join(c for c in str(phone_raw) if c.isdigit())
+                            if len(digits) >= 9:
+                                User.objects.filter(
+                                    Q(phone__icontains=digits[-9:]) | Q(username__icontains=digits[-9:])
+                                ).filter(Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True) | Q(is_staff=True)).update(telegram_chat_id=str(cid))
+        except Exception as e_disc:
+            print(f"Auto-discovery check error: {str(e_disc)}")
 
         if not chat_ids_set:
             print(f"[REPORTS_BOT_NO_CHAT_ID] No registered owners/admins found for report delivery.")

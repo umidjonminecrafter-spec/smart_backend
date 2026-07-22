@@ -32,12 +32,21 @@ class Command(BaseCommand):
                     if s.staff_bot_token:
                         active_bots.append(('staff', s.staff_bot_token))
 
-                if not active_bots or not any(b[0] == 'student' for b in active_bots):
-                    active_bots.append(('student', '8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY'))
+                REPORT_BOT_TOKEN = '7185362147:AAEX5h1s39q31_b126348123h12a'
+                STUDENT_BOT_TOKEN = '8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY'
 
-                if not active_bots:
-                    time.sleep(5)
-                    continue
+                if not any(b[0] == 'reports' for b in active_bots):
+                    active_bots.append(('reports', REPORT_BOT_TOKEN))
+                if not any(b[0] == 'student' for b in active_bots):
+                    active_bots.append(('student', STUDENT_BOT_TOKEN))
+
+                for bot_type, token in active_bots:
+                    if token not in offsets:
+                        offsets[token] = 0
+                        try:
+                            requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook", timeout=3)
+                        except Exception:
+                            pass
 
                 for bot_type, token in active_bots:
                     offset = offsets.get(token, 0)

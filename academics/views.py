@@ -984,8 +984,10 @@ class GroupViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
             days_combined = " ".join(days_list)
 
-            is_even = any(x in days_combined for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5'])
-            is_odd = any(x in days_combined for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6'])
+            # Juft kunlar: Seshanba(Tue), Payshanba(Thu), Shanba(Sat) -> even
+            is_even = any(x in days_combined for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6'])
+            # Toq kunlar: Dushanba(Mon), Chorshanba(Wed), Juma(Fri) -> odd
+            is_odd = any(x in days_combined for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5'])
 
             if is_even:
                 calculated_day_type = 'even'

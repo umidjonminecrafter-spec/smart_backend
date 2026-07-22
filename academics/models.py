@@ -911,15 +911,16 @@ def trigger_lesson_generation(sender, instance, created, **kwargs):
             if not days_combined and instance.day_type:
                 days_combined = str(instance.day_type).lower().strip()
 
-            # Toq yoki Juft kunligini aniqlash (Strict checking)
+            # Juft kunlar: Seshanba(Tue), Payshanba(Thu), Shanba(Sat) -> even
             is_even = any(
                 x in days_combined for x in ['seshanba', 'payshanba', 'shanba', 'tue', 'thu', 'sat', '2', '4', '6'])
+            # Toq kunlar: Dushanba(Mon), Chorshanba(Wed), Juma(Fri) -> odd
             is_odd = any(x in days_combined for x in ['dushanba', 'chorshanba', 'juma', 'mon', 'wed', 'fri', '1', '3', '5'])
 
             if is_even and not is_odd:
-                calculated_day_type = 'odd'  # Model tanlovi bo'yicha: Juft kunlar -> odd (Toq kunlar)
+                calculated_day_type = 'even'   # Seshanba-Payshanba-Shanba = Juft kunlar
             else:
-                calculated_day_type = 'even'  # Dushanba-Chorshanba-Juma -> even (Juft kunlar)
+                calculated_day_type = 'odd'    # Dushanba-Chorshanba-Juma = Toq kunlar
 
             LessonSchedule.objects.create(
                 organization=instance.organization,

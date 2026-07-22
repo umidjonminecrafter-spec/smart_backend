@@ -348,8 +348,72 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         bonus = self.get_bonus(instance)
         penalty = self.get_penalty(instance)
         advance = self.get_advance(instance)
-        calc = float(instance.calculated_amount or 0)
-        net = (calc + bonus) - (advance + penalty)
+
+        details = instance.details or {}
+        rule_type = details.get('rule_type')
+        if not rule_type:
+            if instance.teacher and instance.teacher.salary_percentage:
+                rule_type = 'percentage'
+            else:
+                rule_type = 'fixed'
+
+        att_charges = details.get('attendance_charges', {})
+        davomat_count = len(att_charges)
+        davomat_summa = 0.0
+
+        if att_charges:
+            try:
+                davomat_summa = float(sum(Decimal(str(v)) for v in att_charges.values()))
+            except Exception:
+                davomat_summa = 0.0
+
+        if rule_type == 'percentage' and davomat_summa == 0.0 and instance.teacher_id and instance.period:
+            try:
+                year, month = map(int, instance.period.split('-'))
+                from academics.models import Attendance
+                atts = Attendance.objects.filter(
+                    group__teacher_id=instance.teacher_id,
+                    organization_id=instance.organization_id,
+                    date__year=year,
+                    date__month=month,
+                    status__in=['present', 'late']
+                )
+                davomat_count = atts.count()
+                from finance.models import Transaction
+                rate_str = details.get('rate') or (str(instance.teacher.salary_percentage.percent) if instance.teacher and instance.teacher.salary_percentage else '50')
+                rate = Decimal(rate_str)
+                tot = Decimal('0.00')
+                for a in atts:
+                    tx = Transaction.objects.filter(description__startswith=f"Davomat #{a.id}:").first()
+                    if tx and tx.amount > 0:
+                        tot += round(tx.amount * (rate / Decimal('100.00')), 2)
+                davomat_summa = float(tot)
+            except Exception:
+                davomat_summa = 0.0
+
+        if rule_type == 'percentage':
+            aklad_val = 0.0
+            ish_haqi_val = 0.0
+            calc_val = davomat_summa
+        else:
+            calc_val = float(instance.calculated_amount or 0)
+            aklad_val = calc_val
+            ish_haqi_val = calc_val
+            davomat_summa = 0.0
+            davomat_count = 0
+
+        net = (calc_val + bonus) - (advance + penalty)
+
+        rep['calculated_amount'] = round(calc_val, 2)
+        rep['ish_haqi'] = round(ish_haqi_val, 2)
+        rep['davomat'] = davomat_count
+        rep['davomat_count'] = davomat_count
+        rep['attendances_count'] = davomat_count
+        rep['davomatdan'] = round(davomat_summa, 2)
+        rep['davomatdan_ushlangani'] = round(davomat_summa, 2)
+        rep['davomat_summa'] = round(davomat_summa, 2)
+        rep['attendance_salary'] = round(davomat_summa, 2)
+        rep['attendance_amount'] = round(davomat_summa, 2)
 
         rep['bonus'] = bonus
         rep['penalty'] = penalty
@@ -358,6 +422,11 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['avans'] = advance
         rep['paid_amount'] = advance
         rep['to_langan'] = advance
+
+        rep['aklad'] = round(aklad_val, 2)
+        rep['akladi'] = round(aklad_val, 2)
+        rep['base_salary'] = round(aklad_val, 2)
+
         rep['net_salary'] = round(net, 2)
         rep['final_payout'] = round(net, 2)
         rep['to_lanmagan'] = round(net, 2)

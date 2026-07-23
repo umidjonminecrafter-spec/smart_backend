@@ -752,7 +752,7 @@ class TeacherSalaryRuleViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         }, status=status.HTTP_200_OK)
 
 
-class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     permission_page_name = 'Ish haqi'
     queryset = TeacherSalaryCalculation.objects.all()
     serializer_class = TeacherSalaryCalculationSerializer
@@ -778,41 +778,115 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ReadOnlyModel
             "calculations": TeacherSalaryCalculationSerializer(calcs, many=True).data
         }, status=status.HTTP_200_OK)
 
-    def perform_create(self, serializer):
+    def create(self, request, *args, **kwargs):
+        from finance.models import Cashbox, Transaction
+        from academics.models import TeacherSalaryPayment
+        from accounts.models import User
+        from organizations.models import Organization
+
+        org_id = self.get_organization_id()
+        cashbox_id = request.data.get('cashbox') or request.data.get('cashbox_id')
+        if not cashbox_id:
+            return Response({
+                "detail": "Oylik to'lash uchun kassa tanlanishi shart!",
+                "cashbox": "Oylik to'lash uchun kassa tanlanishi shart!"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        cashbox = Cashbox.objects.filter(id=cashbox_id, organization_id=org_id).first()
+        if not cashbox:
+            cashbox = Cashbox.objects.filter(id=cashbox_id).first()
+        if not cashbox:
+            return Response({
+                "detail": "Tanlangan kassa topilmadi.",
+                "cashbox": "Tanlangan kassa topilmadi."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        teachers_payload = request.data.get('teachers')
+        teacher_id = request.data.get('teacher') or request.data.get('teacher_id')
+        calc_id = request.data.get('id') or request.data.get('calculation_id')
+        period = request.data.get('period') or '2026-07'
+
+        teachers_list = []
+        if isinstance(teachers_payload, list):
+            teachers_list = teachers_payload
+        elif teachers_payload:
+            teachers_list = [teachers_payload]
+        elif teacher_id:
+            teachers_list = [teacher_id]
+
+        if calc_id:
+            calc = TeacherSalaryCalculation.objects.filter(id=calc_id).first()
+            if calc:
+                teachers_list = [calc.teacher_id]
+
+        if not teachers_list:
+            teacher_id_attr = request.data.get('teacher')
+            if teacher_id_attr:
+                teachers_list = [teacher_id_attr]
+
+        if not teachers_list:
+            return super().create(request, *args, **kwargs)
+
+        created_payments = []
+
         with transaction.atomic():
-            # 1. Oylik hisob-kitobini saqlaymiz
-            salary_calc = serializer.save()
+            for t_id in teachers_list:
+                teacher_obj = User.objects.filter(id=t_id).first()
+                if not teacher_obj:
+                    continue
 
-            # 2. Frontenddan qaysi kassadan oylik berilayotgani keladi
-            cashbox_id = self.request.data.get('cashbox')
-            if not cashbox_id:
-                raise serializers.ValidationError({"cashbox": "Oylik berish uchun kassa tanlanishi shart!"})
+                calc = TeacherSalaryCalculation.objects.filter(
+                    organization_id=org_id,
+                    teacher=teacher_obj,
+                    period=period
+                ).first()
 
-            cashbox = Cashbox.objects.get(id=cashbox_id)
+                payout_amount = Decimal('0.00')
+                req_amount = request.data.get('amount')
+                if req_amount is not None:
+                    try:
+                        payout_amount = Decimal(str(req_amount))
+                    except (ValueError, TypeError):
+                        payout_amount = Decimal('0.00')
 
-            # 3. Haqiqatda kassadan chiqib ketadigan yakuniy summani hisoblaymiz:
-            # Formula: (Asosiy Oylik + Bonuslar) - (Avans + Jarimalar)
-            # eslatma: field nomlarini o'zingizning modelingizga qarab moslab olasiz
-            final_payout = (salary_calc.calculated_amount + salary_calc.bonus) - (
-                    salary_calc.advance + salary_calc.penalty)
+                if payout_amount <= 0 and calc:
+                    serializer = TeacherSalaryCalculationSerializer(calc)
+                    rep = serializer.data
+                    payout_amount = Decimal(str(rep.get('final_payout') or rep.get('net_salary') or rep.get('to_lanmagan') or calc.calculated_amount or 0))
 
-            # 4. Moliyaviy tranzaksiya yaratamiz (Chiqim)
-            # TO'G'RILANDI: organization qo'shildi (avval yo'q edi - NOT NULL xatoligi
-            # berishi mumkin edi) va category='SALARY' qilib belgilandi.
-            Transaction.objects.create(
-                organization=cashbox.organization,
-                cashbox=cashbox,
-                amount=final_payout,
-                type='EXPENSE',
-                category='SALARY',
-                employee=salary_calc.teacher,
-                description=f"Oylik to'lovi: {salary_calc.teacher} uchun ({salary_calc.period} davri)"
-            )
+                # 🌟 KASSA BALANSINI TEKSHIRISH
+                cb_balance = Decimal(str(cashbox.balance or 0))
+                if cb_balance < payout_amount:
+                    bal_str = f"{int(cb_balance):,} UZS".replace(",", " ")
+                    payout_str = f"{int(payout_amount):,} UZS".replace(",", " ")
+                    return Response({
+                        "detail": f"Kassada mablag' yetarli emas! Kassadagi joriy balans: {bal_str}. To'lanadigan oylik: {payout_str}",
+                        "cashbox": f"Kassada mablag' yetarli emas! (Joriy balans: {bal_str})"
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
-            # TO'G'RILANDI: Kassa balansini bu yerda QO'LDA kamaytirmaymiz!
-            # Yuqoridagi Transaction.objects.create() chaqirilganda
-            # `recompute_cashbox_balance` signali (models.py) kassa balansini
-            # AVTOMATIK va TO'G'RI (yagona formula asosida) qayta hisoblaydi.
+                # Create TeacherSalaryPayment (automatically creates Transaction and deducts from cashbox)
+                org_obj = Organization.objects.filter(id=org_id).first() if org_id else cashbox.organization
+                payment = TeacherSalaryPayment.objects.create(
+                    organization=org_obj,
+                    teacher=teacher_obj,
+                    amount=payout_amount,
+                    cashbox=cashbox,
+                    date=timezone.now().date(),
+                    period=period,
+                    note=f"Oylik to'lovi: {teacher_obj} ({period})"
+                )
+
+                created_payments.append({
+                    "id": payment.id,
+                    "teacher": teacher_obj.get_full_name() or teacher_obj.username,
+                    "amount": float(payout_amount),
+                    "cashbox": cashbox.name
+                })
+
+        return Response({
+            "detail": f"O'qituvchiga oylik to'landi va {cashbox.name} kassasidan yechildi.",
+            "payments": created_payments
+        }, status=status.HTTP_201_CREATED)
 
 
 class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
@@ -1123,6 +1197,28 @@ class TeacherSalaryPaymentsView(TenantViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['teacher']
     pagination_class = None
+
+    def create(self, request, *args, **kwargs):
+        from finance.models import Cashbox
+        from decimal import Decimal
+        cashbox_id = request.data.get('cashbox') or request.data.get('cashbox_id')
+        amount = request.data.get('amount')
+
+        if cashbox_id and amount is not None:
+            try:
+                payout_amount = Decimal(str(amount))
+                cashbox = Cashbox.objects.filter(id=cashbox_id).first()
+                if cashbox and Decimal(str(cashbox.balance or 0)) < payout_amount:
+                    bal_str = f"{int(cashbox.balance):,} UZS".replace(",", " ")
+                    payout_str = f"{int(payout_amount):,} UZS".replace(",", " ")
+                    return Response({
+                        "detail": f"Kassada mablag' yetarli emas! Kassadagi joriy balans: {bal_str}. To'lanadigan oylik: {payout_str}",
+                        "cashbox": f"Kassada mablag' yetarli emas! (Joriy balans: {bal_str})"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            except (ValueError, TypeError):
+                pass
+
+        return super().create(request, *args, **kwargs)
 
     @decorators.action(detail=False, methods=['get'])
     def summary(self, request):

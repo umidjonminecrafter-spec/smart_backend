@@ -239,55 +239,10 @@ from django.dispatch import receiver
 
 def send_telegram_payment_notification(organization, message_text, setting_type):
     """
-    Tashkilotning Telegram sozlamalariga asosan xabar yuboradi.
-    setting_type: 'student_payments', 'teacher_salaries', 'expenses', 'other_payments'
+    Tezkor operatsion xabarlarni Hisobot botiga yuborish to'xtatilgan.
+    Hisobot botiga faqat har kuni soat 09:00 da kunlik umumiy hisobot boradi.
     """
-    try:
-        from organizations.models import TelegramNotificationSetting
-        from accounts.models import User
-        from academics.models import Student
-        from django.db.models import Q
-        from academics.telegram_bot import send_telegram_message, get_report_bot_token, get_student_bot_token
-
-        if not organization:
-            from organizations.models import Organization
-            organization = Organization.objects.first()
-
-        report_token = get_report_bot_token(organization)
-        student_token = get_student_bot_token(organization)
-
-        chat_ids_set = set()
-
-        # 1. Setting chat_ids — faqat shu tashkilotniki
-        try:
-            setting = TelegramNotificationSetting.objects.get(organization=organization)
-            if setting.chat_ids:
-                for cid in setting.chat_ids.replace(',', ' ').split():
-                    if cid.strip():
-                        chat_ids_set.add(cid.strip())
-        except TelegramNotificationSetting.DoesNotExist:
-            pass
-
-        # 2. Registered staff/owners/admins — faqat shu tashkilotniki
-        staff_chats = User.objects.filter(
-            organization=organization,
-            telegram_chat_id__isnull=False
-        ).exclude(role='student').values_list('telegram_chat_id', flat=True)
-        for cid in staff_chats:
-            if cid and str(cid).strip():
-                chat_ids_set.add(str(cid).strip())
-
-        if not chat_ids_set:
-            print(f"[REPORTS_BOT_NO_CHAT_ID] No chat IDs found for report delivery.")
-            return
-
-        # Synchronous sending strictly via report_token (@smarttalim_report_bot)
-        for chat_id in chat_ids_set:
-            if not send_telegram_message(report_token, chat_id, message_text):
-                print(f"[REPORTS_BOT_SEND_FAILED] Failed to send report to chat_id {chat_id} via report_token.")
-
-    except Exception as e:
-        print(f"Error initiating telegram payment notification: {str(e)}")
+    return
 
 
 @receiver(post_save, sender=Payment)

@@ -864,17 +864,34 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ModelViewSet)
                         "cashbox": f"Kassada mablag' yetarli emas! (Joriy balans: {bal_str})"
                     }, status=status.HTTP_400_BAD_REQUEST)
 
-                # Create TeacherSalaryPayment (automatically creates Transaction and deducts from cashbox)
+                # Create TeacherSalaryPayment (with valid model fields)
                 org_obj = Organization.objects.filter(id=org_id).first() if org_id else cashbox.organization
                 payment = TeacherSalaryPayment.objects.create(
                     organization=org_obj,
                     teacher=teacher_obj,
                     amount=payout_amount,
-                    cashbox=cashbox,
-                    date=timezone.now().date(),
-                    period=period,
-                    note=f"Oylik to'lovi: {teacher_obj} ({period})"
+                    period=period
                 )
+
+                # Link transaction to the selected cashbox to update balance correctly
+                tx = Transaction.objects.filter(
+                    organization=org_obj,
+                    description__endswith=f"(SglID: {payment.id})"
+                ).first()
+                if tx:
+                    tx.cashbox = cashbox
+                    tx.amount = payout_amount
+                    tx.save()
+                else:
+                    Transaction.objects.create(
+                        organization=org_obj,
+                        cashbox=cashbox,
+                        amount=payout_amount,
+                        type='EXPENSE',
+                        category='SALARY',
+                        employee=teacher_obj,
+                        description=f"O'qituvchi maosh to'lovi: {teacher_obj} (SglID: {payment.id})"
+                    )
 
                 created_payments.append({
                     "id": payment.id,

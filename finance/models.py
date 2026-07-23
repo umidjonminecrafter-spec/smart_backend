@@ -481,11 +481,13 @@ def teacher_salary_telegram_notification(sender, instance, created, **kwargs):
         except:
             amount_formatted = str(instance.amount)
 
+        paid_date = instance.paid_at.date() if hasattr(instance, 'paid_at') and instance.paid_at else getattr(instance, 'date', "Noma'lum")
+
         text = (
             f"<b>Chiqim (O'qituvchi ish haqi)</b> 💸\n\n"
             f"👨‍🏫 O'qituvchi: {teacher_name}\n"
             f"💰 Summa: {amount_formatted} UZS\n"
-            f"🗓 Sana: {instance.date}\n"
+            f"🗓 Sana: {paid_date}\n"
             f"🏢 Filial: {branch_name}"
         )
         send_telegram_payment_notification(instance.organization, text, 'teacher_salaries')

@@ -850,8 +850,8 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ModelViewSet)
                     net_unpaid = Decimal(str(rep.get('to_lanmagan') or rep.get('net_salary') or rep.get('final_payout') or 0))
                     total_earned_val = Decimal(str(rep.get('davomatdan') or rep.get('total_earned') or rep.get('ish_haqi') or calc.calculated_amount or 0))
 
-                # 2. Maximum amount that can be paid out
-                available_to_pay = max(net_unpaid, total_earned_val)
+                # 2. Available unpaid balance that can be paid out
+                available_to_pay = net_unpaid
 
                 # 3. Determine payout amount requested
                 payout_amount = Decimal('0.00')

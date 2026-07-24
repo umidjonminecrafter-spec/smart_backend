@@ -427,8 +427,6 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
             total_earned = calc_val
 
         net = max(0.0, (total_earned + bonus) - (paid_amount + advance + penalty))
-        if net <= 0 and total_earned > 0 and paid_amount >= total_earned:
-            net = max(0.0, (total_earned + bonus) - (advance + penalty))
 
         # Teacher details for full name and phone number
         teacher_obj = instance.teacher

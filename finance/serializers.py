@@ -321,6 +321,24 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
             return 0.0
         try:
             year, month = map(int, obj.period.split('-'))
+            from finance.models import Transaction
+            val = Transaction.objects.filter(
+                organization_id=obj.organization_id,
+                employee_id=obj.teacher_id,
+                type='EXPENSE',
+                category='ADVANCE',
+                created_at__year=year,
+                created_at__month=month
+            ).aggregate(total=models.Sum('amount'))['total'] or Decimal('0.00')
+            return float(val)
+        except Exception:
+            return 0.0
+
+    def get_paid_amount(self, obj):
+        if not obj.teacher_id or not obj.period:
+            return 0.0
+        try:
+            year, month = map(int, obj.period.split('-'))
             from academics.models import TeacherSalaryPayment
             val = TeacherSalaryPayment.objects.filter(
                 organization_id=obj.organization_id,
@@ -332,15 +350,13 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         except Exception:
             return 0.0
 
-    def get_paid_amount(self, obj):
-        return self.get_advance(obj)
-
     def get_net_salary(self, obj):
         calc = float(obj.calculated_amount or 0)
         bonus = self.get_bonus(obj)
         penalty = self.get_penalty(obj)
         advance = self.get_advance(obj)
-        net = (calc + bonus) - (advance + penalty)
+        paid = self.get_paid_amount(obj)
+        net = max(0.0, (calc + bonus) - (paid + advance + penalty))
         return round(net, 2)
 
     def to_representation(self, instance):
@@ -348,6 +364,7 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         bonus = self.get_bonus(instance)
         penalty = self.get_penalty(instance)
         advance = self.get_advance(instance)
+        paid_amount = self.get_paid_amount(instance)
 
         details = instance.details or {}
         rule_type = details.get('rule_type')
@@ -396,17 +413,15 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
             ish_haqi_val = 0.0
             calc_val = 0.0
             total_earned = davomat_summa
-            remaining_davomat = max(0.0, davomat_summa - advance)
         else:
             calc_val = float(instance.calculated_amount or 0)
             aklad_val = calc_val
             ish_haqi_val = calc_val
             davomat_summa = 0.0
-            remaining_davomat = max(0.0, calc_val - advance)
             davomat_count = 0
             total_earned = calc_val
 
-        net = max(0.0, (total_earned + bonus) - (advance + penalty))
+        net = max(0.0, (total_earned + bonus) - (paid_amount + advance + penalty))
 
         rep['calculated_amount'] = round(calc_val, 2)
         rep['amount'] = round(calc_val, 2)
@@ -414,11 +429,11 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['davomat'] = davomat_count
         rep['davomat_count'] = davomat_count
         rep['attendances_count'] = davomat_count
-        rep['davomatdan'] = round(remaining_davomat, 2)
-        rep['davomatdan_ushlangani'] = round(remaining_davomat, 2)
-        rep['davomat_summa'] = round(remaining_davomat, 2)
-        rep['attendance_salary'] = round(remaining_davomat, 2)
-        rep['attendance_amount'] = round(remaining_davomat, 2)
+        rep['davomatdan'] = round(davomat_summa, 2)
+        rep['davomatdan_ushlangani'] = round(davomat_summa, 2)
+        rep['davomat_summa'] = round(davomat_summa, 2)
+        rep['attendance_salary'] = round(davomat_summa, 2)
+        rep['attendance_amount'] = round(davomat_summa, 2)
         rep['gross_davomatdan'] = round(davomat_summa, 2)
 
         rep['bonus'] = bonus
@@ -426,8 +441,8 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['jarima'] = penalty
         rep['advance'] = advance
         rep['avans'] = advance
-        rep['paid_amount'] = advance
-        rep['to_langan'] = advance
+        rep['paid_amount'] = paid_amount
+        rep['to_langan'] = paid_amount
 
         rep['aklad'] = round(aklad_val, 2)
         rep['akladi'] = round(aklad_val, 2)

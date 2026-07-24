@@ -930,6 +930,8 @@ class TeacherSalaryCalculateView(TenantViewSetMixin, APIView):
         if is_reset:
             calcs = TeacherSalaryCalculation.objects.filter(organization_id=org_id, period=period)
             calcs.update(calculated_amount=Decimal('0.00'), details={'rule_type': 'percentage', 'rate': '50.00', 'attendance_charges': {}})
+            from academics.models import TeacherSalaryPayment
+            TeacherSalaryPayment.objects.filter(organization_id=org_id, period=period).delete()
             return Response({
                 "detail": f"Teacher salary calculations reset to 0 UZS for period {period}.",
                 "period": period,

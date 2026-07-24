@@ -428,9 +428,26 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
 
         net = max(0.0, (total_earned + bonus) - (total_taken + penalty))
 
+        # Teacher details for full name and phone number
+        teacher_obj = instance.teacher
+        t_first = teacher_obj.first_name if teacher_obj else ''
+        t_last = teacher_obj.last_name if teacher_obj else ''
+        t_full = f"{t_first} {t_last}".strip() or "Noma'lum"
+        t_phone = getattr(teacher_obj, 'phone_number', None) or getattr(teacher_obj, 'phone', '') if teacher_obj else ''
+
+        rep['teacher_name'] = t_full
+        rep['full_name'] = t_full
+        rep['first_name'] = t_first
+        rep['last_name'] = t_last
+        rep['phone_number'] = t_phone or ''
+        rep['phone'] = t_phone or ''
+        rep['telefon'] = t_phone or ''
+
         rep['calculated_amount'] = round(calc_val, 2)
         rep['amount'] = round(calc_val, 2)
-        rep['ish_haqi'] = round(ish_haqi_val, 2)
+        rep['ish_haqi'] = round(total_earned, 2)
+        rep['salary'] = round(total_earned, 2)
+
         rep['davomat'] = davomat_count
         rep['davomat_count'] = davomat_count
         rep['attendances_count'] = davomat_count

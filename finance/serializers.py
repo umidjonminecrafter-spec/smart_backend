@@ -426,7 +426,7 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
             davomat_count = 0
             total_earned = calc_val
 
-        net = max(0.0, (total_earned + bonus) - (total_taken + penalty))
+        net = max(0.0, (total_earned + bonus) - (paid_amount + advance + penalty))
 
         # Teacher details for full name and phone number
         teacher_obj = instance.teacher
@@ -443,29 +443,34 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['phone'] = t_phone or ''
         rep['telefon'] = t_phone or ''
 
-        rep['calculated_amount'] = round(calc_val, 2)
-        rep['amount'] = round(calc_val, 2)
+        rep['calculated_amount'] = round(total_earned if rule_type == 'percentage' else calc_val, 2)
+        rep['amount'] = round(total_earned if rule_type == 'percentage' else calc_val, 2)
         rep['ish_haqi'] = round(total_earned, 2)
         rep['salary'] = round(total_earned, 2)
 
         rep['davomat'] = davomat_count
         rep['davomat_count'] = davomat_count
         rep['attendances_count'] = davomat_count
+        rep['att_count'] = davomat_count
+        rep['lessons_count'] = davomat_count
 
-        rep['davomatdan'] = round(remaining_davomat, 2)
-        rep['davomatdan_ushlangani'] = round(remaining_davomat, 2)
-        rep['davomat_summa'] = round(remaining_davomat, 2)
-        rep['attendance_salary'] = round(remaining_davomat, 2)
-        rep['attendance_amount'] = round(remaining_davomat, 2)
+        # DAVOMATDAN... shows total gross attendance earnings for this month
+        rep['davomatdan'] = round(davomat_summa, 2)
+        rep['davomatdan_ushlangani'] = round(davomat_summa, 2)
+        rep['davomat_summa'] = round(davomat_summa, 2)
+        rep['attendance_salary'] = round(davomat_summa, 2)
+        rep['attendance_amount'] = round(davomat_summa, 2)
         rep['gross_davomatdan'] = round(davomat_summa, 2)
 
         rep['bonus'] = bonus
         rep['penalty'] = penalty
         rep['jarima'] = penalty
 
-        # Olingan umumiy pul AVANS ustunida ko'rinadi
-        rep['advance'] = total_taken
-        rep['avans'] = total_taken
+        # Real advances taken (if any)
+        rep['advance'] = advance
+        rep['avans'] = advance
+
+        # Salary payouts already paid
         rep['paid_amount'] = paid_amount
         rep['to_langan'] = paid_amount
 

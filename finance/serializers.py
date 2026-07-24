@@ -413,11 +413,13 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
             ish_haqi_val = 0.0
             calc_val = 0.0
             total_earned = davomat_summa
+            remaining_davomat = max(0.0, davomat_summa - (paid_amount + advance))
         else:
             calc_val = float(instance.calculated_amount or 0)
             aklad_val = calc_val
             ish_haqi_val = calc_val
             davomat_summa = 0.0
+            remaining_davomat = max(0.0, calc_val - (paid_amount + advance))
             davomat_count = 0
             total_earned = calc_val
 
@@ -429,11 +431,12 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['davomat'] = davomat_count
         rep['davomat_count'] = davomat_count
         rep['attendances_count'] = davomat_count
-        rep['davomatdan'] = round(davomat_summa, 2)
-        rep['davomatdan_ushlangani'] = round(davomat_summa, 2)
-        rep['davomat_summa'] = round(davomat_summa, 2)
-        rep['attendance_salary'] = round(davomat_summa, 2)
-        rep['attendance_amount'] = round(davomat_summa, 2)
+
+        rep['davomatdan'] = round(remaining_davomat, 2)
+        rep['davomatdan_ushlangani'] = round(remaining_davomat, 2)
+        rep['davomat_summa'] = round(remaining_davomat, 2)
+        rep['attendance_salary'] = round(remaining_davomat, 2)
+        rep['attendance_amount'] = round(remaining_davomat, 2)
         rep['gross_davomatdan'] = round(davomat_summa, 2)
 
         rep['bonus'] = bonus

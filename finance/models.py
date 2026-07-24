@@ -825,7 +825,7 @@ def update_cashbox_balance(organization):
 def recompute_cashbox_balance(sender, instance, **kwargs):
     """
     Kassa balansini FAQAT Transaction jadvalidan qayta hisoblaydigan
-    YAGONA funksiya. Boshqa hech qayerda cashbox.balance qo'lda o'zgartirilmasligi kerak.
+    YAGONA funksiya. Davomat yozuvlari (Davomat #) kassa balansini o'zgartirmaydi.
     """
     from django.db.models import Sum
     from decimal import Decimal
@@ -834,7 +834,7 @@ def recompute_cashbox_balance(sender, instance, **kwargs):
     if not cashbox:
         return
 
-    income = Transaction.objects.filter(cashbox=cashbox, type='INCOME').aggregate(
+    income = Transaction.objects.filter(cashbox=cashbox, type='INCOME').exclude(description__startswith='Davomat #').aggregate(
         total=Sum('amount'))['total'] or Decimal('0.00')
     expense = Transaction.objects.filter(cashbox=cashbox, type='EXPENSE').aggregate(
         total=Sum('amount'))['total'] or Decimal('0.00')

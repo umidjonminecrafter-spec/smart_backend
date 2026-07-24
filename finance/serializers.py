@@ -408,22 +408,25 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
             except Exception:
                 davomat_summa = 0.0
 
+        # Olingan barcha pullar (avans + to'langan maosh)
+        total_taken = paid_amount + advance
+
         if rule_type == 'percentage':
             aklad_val = 0.0
             ish_haqi_val = 0.0
             calc_val = 0.0
             total_earned = davomat_summa
-            remaining_davomat = max(0.0, davomat_summa - (paid_amount + advance))
+            remaining_davomat = max(0.0, davomat_summa - total_taken)
         else:
             calc_val = float(instance.calculated_amount or 0)
             aklad_val = calc_val
             ish_haqi_val = calc_val
             davomat_summa = 0.0
-            remaining_davomat = max(0.0, calc_val - (paid_amount + advance))
+            remaining_davomat = max(0.0, calc_val - total_taken)
             davomat_count = 0
             total_earned = calc_val
 
-        net = max(0.0, (total_earned + bonus) - (paid_amount + advance + penalty))
+        net = max(0.0, (total_earned + bonus) - (total_taken + penalty))
 
         rep['calculated_amount'] = round(calc_val, 2)
         rep['amount'] = round(calc_val, 2)
@@ -442,8 +445,10 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['bonus'] = bonus
         rep['penalty'] = penalty
         rep['jarima'] = penalty
-        rep['advance'] = advance
-        rep['avans'] = advance
+
+        # Olingan umumiy pul AVANS ustunida ko'rinadi
+        rep['advance'] = total_taken
+        rep['avans'] = total_taken
         rep['paid_amount'] = paid_amount
         rep['to_langan'] = paid_amount
 

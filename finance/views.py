@@ -894,11 +894,26 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ModelViewSet)
 
                 # Create TeacherSalaryPayment (with valid model fields)
                 org_obj = Organization.objects.filter(id=org_id).first() if org_id else cashbox.organization
+                
+                try:
+                    pyear, pmonth = map(int, period.split('-'))
+                    from django.utils import timezone
+                    now_dt = timezone.now()
+                    if pyear == now_dt.year and pmonth == now_dt.month:
+                        pdate = now_dt
+                    else:
+                        import datetime
+                        pdate = datetime.datetime(pyear, pmonth, 1, 12, 0, tzinfo=timezone.utc)
+                except Exception:
+                    from django.utils import timezone
+                    pdate = timezone.now()
+
                 payment = TeacherSalaryPayment.objects.create(
                     organization=org_obj,
                     teacher=teacher_obj,
                     amount=payout_amount,
-                    period=period
+                    period=period,
+                    paid_at=pdate
                 )
 
                 # Link transaction to the selected cashbox to update balance correctly

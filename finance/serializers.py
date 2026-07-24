@@ -340,11 +340,10 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         try:
             year, month = map(int, obj.period.split('-'))
             from academics.models import TeacherSalaryPayment
+            from django.db.models import Q
             val = TeacherSalaryPayment.objects.filter(
-                organization_id=obj.organization_id,
-                teacher_id=obj.teacher_id,
-                paid_at__year=year,
-                paid_at__month=month
+                Q(organization_id=obj.organization_id, teacher_id=obj.teacher_id) &
+                (Q(period=obj.period) | Q(paid_at__year=year, paid_at__month=month))
             ).aggregate(total=models.Sum('amount'))['total'] or Decimal('0.00')
             return float(val)
         except Exception:

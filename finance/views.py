@@ -841,22 +841,19 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ModelViewSet)
                     period=period
                 ).first()
 
-                # 1. Calculate remaining unpaid salary (to_lanmagan) for this teacher
+                # 1. Calculate remaining unpaid salary (to_lanmagan) and gross earned salary for this teacher
                 net_unpaid = Decimal('0.00')
+                total_earned_val = Decimal('0.00')
                 if calc:
                     serializer = TeacherSalaryCalculationSerializer(calc)
                     rep = serializer.data
                     net_unpaid = Decimal(str(rep.get('to_lanmagan') or rep.get('net_salary') or rep.get('final_payout') or 0))
+                    total_earned_val = Decimal(str(rep.get('davomatdan') or rep.get('total_earned') or rep.get('ish_haqi') or calc.calculated_amount or 0))
 
-                # 2. If net_unpaid <= 0, block the payout!
-                if net_unpaid <= 0:
-                    teacher_name = f"{teacher_obj.first_name} {teacher_obj.last_name or ''}".strip()
-                    return Response({
-                        "detail": f"{teacher_name} uchun to'lanishi kerak bo'lgan ish haqi qoldig'i mavjud emas (0 UZS).",
-                        "error": "To'lanmagan ish haqi mavjud emas"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                # 2. Maximum amount that can be paid out
+                available_to_pay = max(net_unpaid, total_earned_val)
 
-                # 3. Determine payout amount
+                # 3. Determine payout amount requested
                 payout_amount = Decimal('0.00')
                 req_amount = request.data.get('amount')
                 if req_amount is not None:
@@ -866,12 +863,20 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ModelViewSet)
                         payout_amount = Decimal('0.00')
 
                 if payout_amount <= 0:
-                    payout_amount = net_unpaid
+                    payout_amount = available_to_pay
 
-                # 4. Check if payout_amount exceeds unpaid balance
-                if payout_amount > net_unpaid:
+                # 4. If available_to_pay <= 0, block the payout!
+                if available_to_pay <= 0:
+                    teacher_name = f"{teacher_obj.first_name} {teacher_obj.last_name or ''}".strip()
+                    return Response({
+                        "detail": f"{teacher_name} uchun to'lanishi kerak bo'lgan ish haqi qoldig'i mavjud emas (0 UZS).",
+                        "error": "To'lanmagan ish haqi mavjud emas"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # 5. Check if payout_amount exceeds available balance
+                if payout_amount > available_to_pay:
                     p_str = f"{int(payout_amount):,} UZS".replace(",", " ")
-                    u_str = f"{int(net_unpaid):,} UZS".replace(",", " ")
+                    u_str = f"{int(available_to_pay):,} UZS".replace(",", " ")
                     return Response({
                         "detail": f"To'lov summasi ({p_str}) to'lanmagan ish haqi qoldig'idan ({u_str}) ko'p bo'lishi mumkin emas!",
                         "error": "To'lov summasi qoldiqdan ko'p"

@@ -2474,6 +2474,7 @@ class CashFlowReportView(APIView):
 class PnLReportView(APIView):
     """
     Foyda va Zarar (PnL) hisoboti endpointi.
+    O'quvchilardan tushgan daromaddan o'qituvchilar foiz ulushi va xarajatlar ayirilib sof foyda hisoblanadi.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -2486,62 +2487,73 @@ class PnLReportView(APIView):
             org_id = request.user.organization.id
 
         branch_id = get_active_branch_id(request)
-        tx_filters = Q(organization_id=org_id) if org_id else Q()
-        if branch_id:
-            tx_filters &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True) | Q(cashbox__branch_id=branch_id))
 
-        queryset = Transaction.objects.filter(tx_filters)
+        # 1. Total income (Student payments)
+        p_filter = Q(organization_id=org_id)
+        if branch_id:
+            p_filter &= (Q(branch_id=branch_id) | Q(branch__isnull=True))
+        if from_date:
+            p_filter &= Q(date__gte=from_date)
+        if to_date:
+            p_filter &= Q(date__lte=to_date)
+
+        total_income = Payment.objects.filter(p_filter, amount__gt=0).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+        if total_income == 0 and org_id:
+            tx_inc_filter = Q(organization_id=org_id, type='INCOME')
+            if branch_id:
+                tx_inc_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+            if from_date:
+                tx_inc_filter &= Q(created_at__gte=from_date)
+            if to_date:
+                tx_inc_filter &= Q(created_at__lte=to_date)
+            total_income = Transaction.objects.filter(tx_inc_filter).exclude(description__startswith='Davomat #').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+        # 2. Total expenses (Expenses + Teacher Salary Accruals / Payouts)
+        e_filter = Q(organization_id=org_id)
+        t_filter = Q(organization_id=org_id)
+        calc_filter = Q(organization_id=org_id)
+
+        if branch_id:
+            e_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+            t_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+            calc_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
 
         if from_date:
+            e_filter &= Q(date__gte=from_date)
+            t_filter &= Q(paid_at__date__gte=from_date)
             try:
-                queryset = queryset.filter(created_at__gte=datetime.strptime(from_date, '%Y-%m-%d'))
-            except ValueError:
+                calc_filter &= Q(period__gte=from_date[:7])
+            except Exception:
                 pass
         if to_date:
+            e_filter &= Q(date__lte=to_date)
+            t_filter &= Q(paid_at__date__lte=to_date)
             try:
-                queryset = queryset.filter(
-                    created_at__lte=datetime.combine(datetime.strptime(to_date, '%Y-%m-%d'), time.max))
-            except ValueError:
+                calc_filter &= Q(period__lte=to_date[:7])
+            except Exception:
                 pass
 
-        total_income = queryset.filter(type='INCOME').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-        total_expense = queryset.filter(type='EXPENSE').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        expenses_val = Expense.objects.filter(e_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        tsalaries_val = TeacherSalaryPayment.objects.filter(t_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
 
-        if total_income == 0 and total_expense == 0 and org_id:
-            p_filter = Q(organization_id=org_id)
-            e_filter = Q(organization_id=org_id)
-            s_filter = Q(organization_id=org_id, status='paid')
-            t_filter = Q(organization_id=org_id)
+        # Teacher accrued percentage share from attendance calculations
+        teacher_accrued = Decimal('0.00')
+        calcs = TeacherSalaryCalculation.objects.filter(calc_filter)
+        for c in calcs:
+            serializer = TeacherSalaryCalculationSerializer(c)
+            teacher_accrued += Decimal(str(serializer.data.get('total_earned') or 0))
 
-            if branch_id:
-                p_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
-                e_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
-                s_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
-                t_filter &= (Q(branch_id=branch_id) | Q(branch_id__isnull=True))
+        teacher_expenses = max(tsalaries_val, teacher_accrued)
+        total_expense = expenses_val + teacher_expenses
 
-            if from_date:
-                p_filter &= Q(date__gte=from_date)
-                e_filter &= Q(date__gte=from_date)
-                s_filter &= Q(date__gte=from_date)
-                t_filter &= Q(paid_at__date__gte=from_date)
-
-            if to_date:
-                p_filter &= Q(date__lte=to_date)
-                e_filter &= Q(date__lte=to_date)
-                s_filter &= Q(date__lte=to_date)
-                t_filter &= Q(paid_at__date__lte=to_date)
-
-            total_income = Payment.objects.filter(p_filter, amount__gt=0).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            expenses_val = Expense.objects.filter(e_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            salaries_val = Salary.objects.filter(s_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            tsalaries_val = TeacherSalaryPayment.objects.filter(t_filter).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-            total_expense = expenses_val + salaries_val + tsalaries_val
-
-        net_profit = total_income - total_expense
+        net_profit = max(Decimal('0.00'), total_income - total_expense)
 
         return Response({
             "total_income": float(total_income),
             "total_expense": float(total_expense),
+            "expenses": float(expenses_val),
+            "teacher_salaries": float(teacher_expenses),
             "net_profit": float(net_profit),
             "sof_foyda": float(net_profit)
         }, status=status.HTTP_200_OK)

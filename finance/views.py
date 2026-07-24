@@ -841,6 +841,22 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ModelViewSet)
                     period=period
                 ).first()
 
+                # 1. Calculate remaining unpaid salary (to_lanmagan) for this teacher
+                net_unpaid = Decimal('0.00')
+                if calc:
+                    serializer = TeacherSalaryCalculationSerializer(calc)
+                    rep = serializer.data
+                    net_unpaid = Decimal(str(rep.get('to_lanmagan') or rep.get('net_salary') or rep.get('final_payout') or 0))
+
+                # 2. If net_unpaid <= 0, block the payout!
+                if net_unpaid <= 0:
+                    teacher_name = f"{teacher_obj.first_name} {teacher_obj.last_name or ''}".strip()
+                    return Response({
+                        "detail": f"{teacher_name} uchun to'lanishi kerak bo'lgan ish haqi qoldig'i mavjud emas (0 UZS).",
+                        "error": "To'lanmagan ish haqi mavjud emas"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # 3. Determine payout amount
                 payout_amount = Decimal('0.00')
                 req_amount = request.data.get('amount')
                 if req_amount is not None:
@@ -849,12 +865,19 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ModelViewSet)
                     except (ValueError, TypeError):
                         payout_amount = Decimal('0.00')
 
-                if payout_amount <= 0 and calc:
-                    serializer = TeacherSalaryCalculationSerializer(calc)
-                    rep = serializer.data
-                    payout_amount = Decimal(str(rep.get('final_payout') or rep.get('net_salary') or rep.get('to_lanmagan') or calc.calculated_amount or 0))
+                if payout_amount <= 0:
+                    payout_amount = net_unpaid
 
-                # 🌟 KASSA BALANSINI TEKSHIRISH
+                # 4. Check if payout_amount exceeds unpaid balance
+                if payout_amount > net_unpaid:
+                    p_str = f"{int(payout_amount):,} UZS".replace(",", " ")
+                    u_str = f"{int(net_unpaid):,} UZS".replace(",", " ")
+                    return Response({
+                        "detail": f"To'lov summasi ({p_str}) to'lanmagan ish haqi qoldig'idan ({u_str}) ko'p bo'lishi mumkin emas!",
+                        "error": "To'lov summasi qoldiqdan ko'p"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # 5. 🌟 KASSA BALANSINI TEKSHIRISH
                 cb_balance = Decimal(str(cashbox.balance or 0))
                 if cb_balance < payout_amount:
                     bal_str = f"{int(cb_balance):,} UZS".replace(",", " ")

@@ -868,8 +868,14 @@ class TeacherSalaryCalculationViewSet(TenantViewSetMixin, viewsets.ModelViewSet)
                 # 4. If available_to_pay <= 0, block the payout!
                 if available_to_pay <= 0:
                     teacher_name = f"{teacher_obj.first_name} {teacher_obj.last_name or ''}".strip()
+                    paid_str = ""
+                    if calc:
+                        serializer = TeacherSalaryCalculationSerializer(calc)
+                        p_val = serializer.data.get('to_langan') or 0
+                        if p_val > 0:
+                            paid_str = f" (Ushbu davr uchun {int(p_val):,} UZS allaqachon to'langan)".replace(",", " ")
                     return Response({
-                        "detail": f"{teacher_name} uchun to'lanishi kerak bo'lgan ish haqi qoldig'i mavjud emas (0 UZS).",
+                        "detail": f"{teacher_name} uchun to'lanishi kerak bo'lgan ish haqi qoldig'i mavjud emas (0 UZS).{paid_str}",
                         "error": "To'lanmagan ish haqi mavjud emas"
                     }, status=status.HTTP_400_BAD_REQUEST)
 

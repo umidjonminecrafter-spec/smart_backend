@@ -469,9 +469,10 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['advance'] = advance
         rep['avans'] = advance
 
-        # Salary payouts already paid
-        rep['paid_amount'] = paid_amount
-        rep['to_langan'] = paid_amount
+        is_paid = (paid_amount >= (total_earned + bonus - advance - penalty)) if (total_earned > 0) else False
+
+        rep['paid_amount'] = round(paid_amount, 2)
+        rep['to_langan'] = round(paid_amount, 2)
 
         rep['aklad'] = round(aklad_val, 2)
         rep['akladi'] = round(aklad_val, 2)
@@ -481,7 +482,10 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['net_salary'] = round(net, 2)
         rep['final_payout'] = round(net, 2)
         rep['to_lanmagan'] = round(net, 2)
+        rep['to_lanmagan_str'] = f"{int(net):,} UZS".replace(",", " ")
         rep['remaining_balance'] = round(net, 2)
+        rep['is_paid'] = is_paid
+        rep['status'] = 'paid' if is_paid else 'unpaid'
         return rep
 
 class CashboxSerializer(serializers.ModelSerializer):

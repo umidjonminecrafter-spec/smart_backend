@@ -442,10 +442,10 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['phone'] = t_phone or ''
         rep['telefon'] = t_phone or ''
 
-        rep['calculated_amount'] = round(total_earned if rule_type == 'percentage' else calc_val, 2)
-        rep['amount'] = round(total_earned if rule_type == 'percentage' else calc_val, 2)
-        rep['ish_haqi'] = round(total_earned, 2)
-        rep['salary'] = round(total_earned, 2)
+        rep['calculated_amount'] = round(net, 2)
+        rep['amount'] = round(net, 2)
+        rep['ish_haqi'] = round(net, 2)
+        rep['salary'] = round(net, 2)
 
         rep['davomat'] = davomat_count
         rep['davomat_count'] = davomat_count
@@ -474,9 +474,10 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
         rep['paid_amount'] = round(paid_amount, 2)
         rep['to_langan'] = round(paid_amount, 2)
 
-        rep['aklad'] = round(aklad_val, 2)
-        rep['akladi'] = round(aklad_val, 2)
-        rep['base_salary'] = round(aklad_val, 2)
+        # AKLADI shows total gross salary earned for the entire month
+        rep['aklad'] = round(total_earned, 2)
+        rep['akladi'] = round(total_earned, 2)
+        rep['base_salary'] = round(total_earned, 2)
 
         rep['total_earned'] = round(total_earned, 2)
         rep['net_salary'] = round(net, 2)

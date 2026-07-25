@@ -4,27 +4,58 @@ from crm.models import Pipeline, Source, LostReason, Section, LeadForm, Lead, CR
 from academics.models import BotMessageTemplate
 
 
+class SectionSerializer(serializers.ModelSerializer):
+    leads_count = serializers.SerializerMethodField()
+    lead_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Section
+        fields = '__all__'
+        read_only_fields = ('organization', 'created_at', 'updated_at')
+
+    def get_leads_count(self, obj):
+        return obj.leads.filter(is_archived=False).count()
+
+    def get_lead_count(self, obj):
+        return self.get_leads_count(obj)
+
+
 class PipelineSerializer(serializers.ModelSerializer):
+    sections = SectionSerializer(many=True, read_only=True)
+    leads_count = serializers.SerializerMethodField()
+    lead_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Pipeline
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
+    def get_leads_count(self, obj):
+        return obj.leads.filter(is_archived=False).count()
+
+    def get_lead_count(self, obj):
+        return self.get_leads_count(obj)
+
+
 class SourceSerializer(serializers.ModelSerializer):
+    leads_count = serializers.SerializerMethodField()
+    lead_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Source
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
+    def get_leads_count(self, obj):
+        return obj.leads.filter(is_archived=False).count()
+
+    def get_lead_count(self, obj):
+        return self.get_leads_count(obj)
+
+
 class LostReasonSerializer(serializers.ModelSerializer):
     class Meta:
         model = LostReason
-        fields = '__all__'
-        read_only_fields = ('organization', 'created_at', 'updated_at')
-
-class SectionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Section
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 

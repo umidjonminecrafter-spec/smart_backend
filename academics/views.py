@@ -2294,3 +2294,97 @@ class CourseMaterialViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         context = super().get_serializer_context()
         context['request'] = self.request
         return context
+
+
+class CheckBotRegistrationAPIView(APIView):
+    """
+    Foydalanuvchi (Talaba, Ota-ona, Xodim) Telegram botdan ro'yxatdan o'tganligini tekshiruvchi API
+    GET params:
+      - phone: "+998901234567" (telefon raqami bo'yicha)
+      - student_id: 12 (talaba ID si bo'yicha)
+      - user_id: 5 (xodim ID si bo'yicha)
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        phone = request.query_params.get('phone')
+        student_id = request.query_params.get('student_id')
+        user_id = request.query_params.get('user_id')
+
+        from accounts.models import User
+
+        if student_id:
+            try:
+                student = Student.objects.get(id=student_id)
+                has_student_bot = bool(student.telegram_chat_id)
+                has_father_bot = bool(student.father_telegram_chat_id)
+                has_mother_bot = bool(student.mother_telegram_chat_id)
+                is_registered = has_student_bot or has_father_bot or has_mother_bot
+
+                details = {
+                    "student_bot": "Ro'yxatdan o'tgan" if has_student_bot else "Ro'yxatdan o'tmagan",
+                    "father_bot": "Ro'yxatdan o'tgan" if has_father_bot else "Ro'yxatdan o'tmagan",
+                    "mother_bot": "Ro'yxatdan o'tgan" if has_mother_bot else "Ro'yxatdan o'tmagan",
+                }
+
+                message = "Foydalanuvchi botdan ro'yxatdan o'tgan" if is_registered else "Foydalanuvchi botdan ro'yxatdan o'tmagan"
+
+                return Response({
+                    "is_registered": is_registered,
+                    "type": "student",
+                    "id": student.id,
+                    "name": f"{student.first_name} {student.last_name or ''}".strip(),
+                    "message": message,
+                    "details": details
+                }, status=status.HTTP_200_OK)
+            except Student.DoesNotExist:
+                return Response({"error": "Talaba topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+
+        if user_id:
+            try:
+                user = User.objects.get(id=user_id)
+                is_registered = bool(user.telegram_chat_id)
+                message = "Xodim botdan ro'yxatdan o'tgan" if is_registered else "Xodim botdan ro'yxatdan o'tmagan"
+                return Response({
+                    "is_registered": is_registered,
+                    "type": "user",
+                    "id": user.id,
+                    "name": user.get_full_name() or user.username,
+                    "message": message
+                }, status=status.HTTP_200_OK)
+            except User.DoesNotExist:
+                return Response({"error": "Xodim topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+
+        if phone:
+            from django.db.models import Q
+            from academics.telegram_bot import normalize_phone
+            norm_phone = normalize_phone(phone)
+
+            st_match = Student.objects.filter(
+                Q(phone=norm_phone) | Q(father_phone=norm_phone) | Q(mother_phone=norm_phone)
+            ).first()
+
+            user_match = User.objects.filter(
+                Q(phone=norm_phone) | Q(username=norm_phone)
+            ).first()
+
+            is_registered = False
+            message = "Foydalanuvchi botdan ro'yxatdan o'tmagan"
+
+            if st_match:
+                if st_match.telegram_chat_id or st_match.father_telegram_chat_id or st_match.mother_telegram_chat_id:
+                    is_registered = True
+                    message = "Talaba / Ota-ona botdan ro'yxatdan o'tgan"
+
+            if not is_registered and user_match:
+                if user_match.telegram_chat_id:
+                    is_registered = True
+                    message = "Xodim botdan ro'yxatdan o'tgan"
+
+            return Response({
+                "phone": norm_phone,
+                "is_registered": is_registered,
+                "message": message
+            }, status=status.HTTP_200_OK)
+
+        return Response({"error": "phone, student_id yoki user_id yuborilishi majburiy!"}, status=status.HTTP_400_BAD_REQUEST)

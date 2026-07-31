@@ -10,7 +10,7 @@ from .views import (
     VerifyCodeAPIView, StudentProfileAPIView, StudentLessonsAPIView, ParentStudentsAPIView, ParentStudentDetailsAPIView,
     StaffProfileAPIView, StaffScheduleAPIView, BotMessageTemplateViewSet, TelegramWebhookView, SetLessonTopicAPIView,
     CancelOrRestoreLessonAPIView, RescheduleLessonAPIView, GroupLessonListAPIView, BirthdayCalendarAPIView,
-    StudentEvaluationLevelViewSet, CourseMaterialViewSet
+    StudentEvaluationLevelViewSet, CourseMaterialViewSet, CheckBotRegistrationAPIView
 )
 from .views import StudentFieldSettingViewSet
 from finance.views import TeacherSalaryCalculationViewSet, TeacherSalaryRuleViewSet
@@ -90,7 +90,6 @@ urlpatterns = [
     path('lessons/<int:lesson_id>/reschedule/', RescheduleLessonAPIView.as_view(), name='reschedule-lesson'),
     path('lessons/', GroupLessonListAPIView.as_view(), name='group-lessons-list'),
     path('birthdays/', BirthdayCalendarAPIView.as_view(), name='birthday-calendar'),
-
-
+    path('check-bot-registration/', CheckBotRegistrationAPIView.as_view(), name='check-bot-registration'),
 ]
 

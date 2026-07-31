@@ -373,10 +373,11 @@ class SendBulkSMSAPIView(APIView):
         if target == 'leads':
             leads_query = Lead.objects.filter(is_archived=False)
             if section_id:
-                leads_query = leads_query.filter(section_id=section_id)  # Maxsus Section filteri
+                leads_query = leads_query.filter(section_id=section_id)
 
             for lead in leads_query:
                 recipients.append({
+                    "id": lead.id,
                     "name": lead.name,
                     "phone": lead.phone,
                     "chat_id": None,
@@ -384,56 +385,75 @@ class SendBulkSMSAPIView(APIView):
                 })
 
         elif target == 'students':
-            students_query = Student.objects.all()
+            students_query = Student.objects.filter(is_archived=False)
             for student in students_query:
+                chat_id = student.telegram_chat_id or student.father_telegram_chat_id or student.mother_telegram_chat_id
                 recipients.append({
-                    "name": student.first_name,
+                    "id": student.id,
+                    "name": f"{student.first_name} {student.last_name or ''}".strip(),
                     "phone": student.phone,
-                    "chat_id": student.telegram_chat_id,
+                    "chat_id": chat_id,
                     "context": {"{first_name}": student.first_name, "{balance}": str(student.balance)}
                 })
 
         elif target == 'staff':
-            staff_query = User.objects.filter(is_active=True)
+            staff_query = User.objects.filter(is_active=True).exclude(role='student')
             for member in staff_query:
-                # Xodimlarning telegram chat_id si bor deb hisoblaymiz
                 chat_id = getattr(member, 'telegram_chat_id', None)
                 recipients.append({
+                    "id": member.id,
                     "name": member.get_full_name() or member.username,
                     "phone": getattr(member, 'phone', ''),
                     "chat_id": chat_id,
                     "context": {"{first_name}": member.username}
                 })
 
-        # 🚀 XABARLARNI ETKAZIB BERISH SIKLI (MASS DISPATCH)
-        sent_count = 0
+        # 🚀 XABARLARNI ETKAZIB BERISH SIKLI VA BOTGA A'ZOLIK TEKSHIRUVI
+        bot_registered_count = 0
+        bot_not_registered_count = 0
+        details = []
+
+        from academics.telegram_bot import get_student_bot_token, get_report_bot_token, send_telegram_message
+        from organizations.models import TelegramNotificationSetting
+
         for r in recipients:
-            # Matndagi o'zgaruvchilarni dinamik almashtiramiz
             final_text = msg_text
             for placeholder, value in r['context'].items():
-                final_text = final_text.replace(placeholder, value)
+                final_text = final_text.replace(placeholder, str(value))
 
-            # AGAR TELEGRAM CHAT_ID BO'LSA - TELEGRAMGA OTADI
-            if r['chat_id']:
+            is_bot_registered = bool(r['chat_id'])
+
+            if is_bot_registered:
+                bot_registered_count += 1
                 try:
-                    # Bu yerda sizning bot tokeningiz bo'ladi
-                    token = "YOUR_BOT_TOKEN_HERE"
-                    url = f"https://api.telegram.org/bot{token}/sendMessage"
-                    requests.post(url, json={'chat_id': r['chat_id'], 'text': final_text, 'parse_mode': 'HTML'},
-                                  timeout=3)
-                    sent_count += 1
-                except Exception:
-                    pass
-            # CHAT ID BO'LMASA YOKI LID BO'LSA - SMS XABAR BORADI (Masalan, Eskiz SMS API orqali)
+                    if target == 'students':
+                        token = get_student_bot_token()
+                    else:
+                        setting = TelegramNotificationSetting.objects.first()
+                        token = setting.staff_bot_token if (setting and setting.staff_bot_token) else get_report_bot_token()
+
+                    sent = send_telegram_message(token, r['chat_id'], final_text)
+                    status_str = "Botdan ro'yxatdan o'tgan — Telegram orqali yuborildi" if sent else "Botdan ro'yxatdan o'tgan, lekin yetkazishda xatolik"
+                except Exception as e:
+                    status_str = f"Botdan ro'yxatdan o'tgan — Xatolik: {str(e)}"
             else:
-                # Logikangizga qarab shu yerda SMS gateway (Eskiz, PlayMobile) chaqiriladi
-                print(f"SMS SEND TO {r['phone']}: {final_text}")
-                sent_count += 1
+                bot_not_registered_count += 1
+                status_str = "Botdan ro'yxatdan o'tmagan"
+
+            details.append({
+                "id": r.get('id'),
+                "name": r['name'],
+                "phone": r['phone'],
+                "is_bot_registered": is_bot_registered,
+                "status": status_str
+            })
 
         return Response({
-            "message": "Ommaviy xabarlar muvaffaqiyatli jo'natildi!",
+            "message": "Xabarlar yetkazib berish va bot ro'yxatdan o'tish tekshiruvi yakunlandi",
             "total_recipients": len(recipients),
-            "successfully_sent": sent_count
+            "bot_registered_count": bot_registered_count,
+            "bot_not_registered_count": bot_not_registered_count,
+            "details": details
         }, status=status.HTTP_200_OK)
 
 from rest_framework.permissions import AllowAny

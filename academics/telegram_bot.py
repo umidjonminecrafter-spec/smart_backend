@@ -63,6 +63,26 @@ def get_report_bot_token(organization=None):
     return REPORT_BOT_TOKEN
 
 
+def check_user_bot_registration(user):
+    """
+    Foydalanuvchi (Talaba, Ota-ona yoki Xodim) botdan ro'yxatdan o'tganligini tekshiradi
+    """
+    if not user:
+        return False, "Foydalanuvchi topilmadi"
+
+    chat_id = getattr(user, 'telegram_chat_id', None)
+    if chat_id:
+        return True, "Foydalanuvchi botdan ro'yxatdan o'tgan"
+
+    # Agar Student bo'lsa, ota-onasini ham tekshiramiz
+    f_chat = getattr(user, 'father_telegram_chat_id', None)
+    m_chat = getattr(user, 'mother_telegram_chat_id', None)
+    if f_chat or m_chat:
+        return True, "Ota-onasi botdan ro'yxatdan o'tgan"
+
+    return False, "Foydalanuvchi botdan ro'yxatdan o'tmagan"
+
+
 def send_telegram_to_user(organization, user, text, reply_markup=None):
     if not user or not getattr(user, 'telegram_chat_id', None):
         return False

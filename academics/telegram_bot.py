@@ -398,21 +398,30 @@ def find_users_by_phone(phone_raw, roles=None):
         return User.objects.filter(id__in=matched_ids)
 
     # 3. Agar User to'g'ridan-to'g'ri topilmasa, Organization yoki Branch telefon raqami orqali qidirish
-    from organizations.models import Organization
+    from organizations.models import Organization, Branch
     matched_org_ids = []
     for org in Organization.objects.all():
         org_p = "".join(c for c in str(org.phone or '') if c.isdigit())
         if (last9 and org_p.endswith(last9)) or (digits and org_p == digits):
             matched_org_ids.append(org.id)
 
+    for br in Branch.objects.all():
+        br_p = "".join(c for c in str(br.phone or '') if c.isdigit())
+        if (last9 and br_p.endswith(last9)) or (digits and br_p == digits):
+            if br.organization_id and br.organization_id not in matched_org_ids:
+                matched_org_ids.append(br.organization_id)
+
     if matched_org_ids:
         org_users = User.objects.filter(organization_id__in=matched_org_ids)
         if roles:
-            org_users = org_users.filter(
+            filtered_org_users = org_users.filter(
                 Q(role__in=roles) | Q(role__in=[r.upper() for r in roles]) | Q(is_superuser=True) | Q(is_staff=True)
             )
+            if filtered_org_users.exists():
+                return filtered_org_users
         if org_users.exists():
             return org_users
+
 
     # 4. Agar rol cheklovisiz topilsa
     if roles:

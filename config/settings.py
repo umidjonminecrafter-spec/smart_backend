@@ -23,14 +23,19 @@ DEBUG = True
 ALLOWED_HOSTS = [
     "smart-backend-dtub.onrender.com",
     "musojon1995.pythonanywhere.com",
+    "smartalim.pythonanywhere.com",
+    ".pythonanywhere.com",
     "localhost",
     "127.0.0.1",
+    "*",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://smart-backend-dtub.onrender.com',
     'https://musojon1995.pythonanywhere.com',
+    'https://smartalim.pythonanywhere.com',
 ]
+
 
 # PythonAnywhere va Render kabi HTTPS proxy'larda redirect loop oldini olish uchun
 # ESLATMA: SECURE_PROXY_SSL_HEADER qo'shilmaydi - PythonAnywhere'da session cookie muammo keltirib chiqaradi

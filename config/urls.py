@@ -12,6 +12,8 @@ from drf_spectacular.views import (
     SpectacularRedocView,
 )
 
+from academics.views import TelegramWebhookView
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
@@ -31,6 +33,9 @@ urlpatterns = [
     # Global JWT Auth tokens (Custom views supporting phone mapping)
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    
+    # Direct Telegram Webhook endpoint (supports /api/telegram/webhook/<bot_type>/<token>/)
+    path('api/telegram/webhook/<str:bot_type>/<str:token>/', TelegramWebhookView.as_view(), name='telegram-webhook-direct'),
     
     # Versioned app endpoints
     path('api/v1/accounts/', include('accounts.urls')),

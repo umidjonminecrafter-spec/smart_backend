@@ -31,13 +31,16 @@ class AIChatService:
             org_id = first_org.id if first_org else 1
 
         if telegram_chat_id:
-            session, created = ChatSession.objects.get_or_create(
+            session = ChatSession.objects.filter(
                 telegram_chat_id=telegram_chat_id,
-                organization_id=org_id,
-                defaults={
-                    'user': user if user and user.is_authenticated else None
-                }
-            )
+                organization_id=org_id
+            ).first()
+            if not session:
+                session = ChatSession.objects.create(
+                    telegram_chat_id=telegram_chat_id,
+                    organization_id=org_id,
+                    user=user if user and user.is_authenticated else None
+                )
             return session
 
         if session_id_str:

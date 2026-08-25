@@ -258,14 +258,18 @@ def send_sms_to_telegram(sender, instance, created, **kwargs):
                 if bot_token_field == 'student_bot_token':
                     from academics.telegram_bot import get_student_bot_token
                     token = get_student_bot_token(org)
-                else:
+                elif bot_token_field == 'staff_bot_token':
+                    from academics.telegram_bot import get_staff_bot_token
+                    token = get_staff_bot_token(org)
+                elif bot_token_field == 'parent_bot_token':
                     setting = TelegramNotificationSetting.objects.filter(organization=org).first()
-                    token = getattr(setting, bot_token_field, None) if setting else None
-                    if not token and setting:
-                        token = setting.bot_token
+                    token = (setting.parent_bot_token if setting else None) or (setting.bot_token if setting else None)
                     if not token:
-                        from django.conf import settings
-                        token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
+                        from academics.telegram_bot import get_student_bot_token
+                        token = get_student_bot_token(org)
+                else:
+                    from academics.telegram_bot import get_report_bot_token
+                    token = get_report_bot_token(org)
 
                 msg = f"<b>✉️ Sizga Yangi Xabar Keldi!</b>\n\n📝 <b>Matn:</b> {instance.message}{time_str}"
                 send_telegram_message(token, chat_id, msg)

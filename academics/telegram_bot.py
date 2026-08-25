@@ -9,16 +9,19 @@ User = get_user_model()
 def normalize_phone(phone_str):
     if not phone_str:
         return ""
-    digits = "".join(c for c in phone_str if c.isdigit())
-    # O'zbekiston raqamlari formatini tuzatamiz (+998XXXXXXXXX)
+    digits = "".join(c for c in str(phone_str) if c.isdigit())
     if len(digits) == 9:
         return f"+998{digits}"
     elif len(digits) == 12 and digits.startswith("998"):
         return f"+{digits}"
-    return f"+{digits}"
+    elif len(digits) > 0:
+        return f"+{digits}"
+    return ""
 
 
 def send_telegram_message(token, chat_id, text, reply_markup=None):
+    if not token or not chat_id:
+        return False
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -39,28 +42,79 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
 
 STUDENT_BOT_TOKEN = "8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY"
 REPORT_BOT_TOKEN = "8697561524:AAHyj2sGeNuYS5K8omuZoDdmtTBXz0Oob94"
+STAFF_BOT_TOKEN = "8893756930:AAFAn35O0M5wehFSsMwVkqgclLBZil_xfjw"
+
 
 def get_student_bot_token(organization=None):
     from organizations.models import TelegramNotificationSetting
-    try:
-        TelegramNotificationSetting.objects.all().update(
-            student_bot_token=STUDENT_BOT_TOKEN,
-            student_bot_username="smarttalim_student_bot"
-        )
-    except Exception as e:
-        print(f"Error updating TelegramNotificationSetting: {str(e)}")
+    if organization:
+        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
+        if setting and setting.student_bot_token:
+            return setting.student_bot_token
+    setting = TelegramNotificationSetting.objects.filter(student_bot_token__isnull=False).exclude(student_bot_token="").first()
+    if setting and setting.student_bot_token:
+        return setting.student_bot_token
     return STUDENT_BOT_TOKEN
 
 
 def get_report_bot_token(organization=None):
     from organizations.models import TelegramNotificationSetting
-    try:
-        TelegramNotificationSetting.objects.all().update(
-            bot_token=REPORT_BOT_TOKEN
-        )
-    except Exception as e:
-        print(f"Error updating TelegramNotificationSetting for report bot: {str(e)}")
+    if organization:
+        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
+        if setting and setting.bot_token:
+            return setting.bot_token
+    setting = TelegramNotificationSetting.objects.filter(bot_token__isnull=False).exclude(bot_token="").first()
+    if setting and setting.bot_token:
+        return setting.bot_token
     return REPORT_BOT_TOKEN
+
+
+def get_staff_bot_token(organization=None):
+    from organizations.models import TelegramNotificationSetting
+    if organization:
+        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
+        if setting and setting.staff_bot_token:
+            return setting.staff_bot_token
+    setting = TelegramNotificationSetting.objects.filter(staff_bot_token__isnull=False).exclude(staff_bot_token="").first()
+    if setting and setting.staff_bot_token:
+        return setting.staff_bot_token
+    return STAFF_BOT_TOKEN
+
+
+def get_parent_bot_token(organization=None):
+    from organizations.models import TelegramNotificationSetting
+    if organization:
+        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
+        if setting and setting.parent_bot_token:
+            return setting.parent_bot_token
+    setting = TelegramNotificationSetting.objects.filter(parent_bot_token__isnull=False).exclude(parent_bot_token="").first()
+    if setting and setting.parent_bot_token:
+        return setting.parent_bot_token
+    return None
+
+
+def get_verification_bot_token(organization=None):
+    from organizations.models import TelegramNotificationSetting
+    if organization:
+        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
+        if setting and setting.verification_bot_token:
+            return setting.verification_bot_token
+    setting = TelegramNotificationSetting.objects.filter(verification_bot_token__isnull=False).exclude(verification_bot_token="").first()
+    if setting and setting.verification_bot_token:
+        return setting.verification_bot_token
+    return None
+
+
+def get_support_bot_token(organization=None):
+    from organizations.models import TelegramNotificationSetting
+    if organization:
+        setting = TelegramNotificationSetting.objects.filter(organization=organization).first()
+        if setting and setting.support_bot_token:
+            return setting.support_bot_token
+    setting = TelegramNotificationSetting.objects.filter(support_bot_token__isnull=False).exclude(support_bot_token="").first()
+    if setting and setting.support_bot_token:
+        return setting.support_bot_token
+    return None
 
 
 def check_user_bot_registration(user):
@@ -95,7 +149,6 @@ def send_telegram_to_user(organization, user, text, reply_markup=None):
         return send_telegram_message(student_token, chat_id, text, reply_markup)
 
     from organizations.models import TelegramNotificationSetting
-    from django.conf import settings
 
     candidate_tokens = []
     org = organization or getattr(user, 'organization', None)
@@ -112,9 +165,10 @@ def send_telegram_to_user(organization, user, text, reply_markup=None):
             if t and t not in candidate_tokens:
                 candidate_tokens.append(t)
 
-    fallback = getattr(settings, 'TELEGRAM_BOT_TOKEN', None) or "7185362147:AAEX5h1s39q31_b126348123h12a"
-    if fallback not in candidate_tokens:
-        candidate_tokens.append(fallback)
+    if STAFF_BOT_TOKEN not in candidate_tokens:
+        candidate_tokens.append(STAFF_BOT_TOKEN)
+    if REPORT_BOT_TOKEN not in candidate_tokens:
+        candidate_tokens.append(REPORT_BOT_TOKEN)
 
     for token in candidate_tokens:
         if send_telegram_message(token, chat_id, text, reply_markup):
@@ -307,19 +361,40 @@ def get_support_ai_keyboard():
 def handle_telegram_update(bot_type, token, update_data):
     """
     Stateless telegram update handler
-    bot_type: 'verification', 'student', 'parent', 'staff'
+    bot_type: 'verification', 'student', 'parent', 'staff', 'reports', 'support'
     """
-    if "message" not in update_data:
+    if not isinstance(update_data, dict):
         return
 
-    message = update_data["message"]
-    chat_id = message["chat"]["id"]
-    text = message.get("text", "").strip()
-    contact = message.get("contact")
+    # Callback query yoki oddiy message ni ajratib olamiz
+    callback_query = update_data.get("callback_query")
+    if callback_query:
+        message = callback_query.get("message") or {}
+        chat_id = message.get("chat", {}).get("id") or callback_query.get("from", {}).get("id")
+        text = callback_query.get("data", "").strip()
+        contact = None
+    else:
+        message = update_data.get("message") or update_data.get("edited_message") or {}
+        if not message:
+            return
+        chat_id = message.get("chat", {}).get("id")
+        text = message.get("text", "").strip()
+        contact = message.get("contact")
 
-    # 1. Telefon raqam yuborilganda bog'lash
+    if not chat_id:
+        return
+
+    # 1. Telefon raqam yuborilganda (kontakt yoki matn ko'rinishida) bog'lash
+    phone_raw = None
     if contact:
         phone_raw = contact.get("phone_number")
+    elif text and not text.startswith("/"):
+        digits_only = "".join(c for c in text if c.isdigit())
+        menu_prefixes = ["👤", "💰", "💳", "🧾", "📅", "📊", "🏆", "📝", "✉️", "👶", "📋", "🔔", "🌐", "🇺🇿", "🇷🇺", "⬅️", "ℹ️"]
+        if (len(digits_only) == 9 or (len(digits_only) == 12 and digits_only.startswith("998"))) and not any(text.startswith(btn) for btn in menu_prefixes):
+            phone_raw = text
+
+    if phone_raw:
         phone_normalized = normalize_phone(phone_raw)
 
         if bot_type == 'verification':
@@ -361,7 +436,6 @@ def handle_telegram_update(bot_type, token, update_data):
                 linked = True
             if users.exists():
                 # Faqat talaba roliga ega foydalanuvchilarni talaba botiga biriktiramiz
-                # Rahbar (owner/admin) larning telegram_chat_id'si buzilmasligi uchun
                 student_users = users.filter(role='student')
                 if student_users.exists():
                     student_users.update(telegram_chat_id=chat_id)
@@ -382,7 +456,6 @@ def handle_telegram_update(bot_type, token, update_data):
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'parent':
-            # Otasining yoki onasining raqami mos keladigan talabalarni bog'laymiz
             students_father = Student.objects.filter(father_phone=phone_normalized)
             students_mother = Student.objects.filter(mother_phone=phone_normalized)
 
@@ -428,7 +501,8 @@ def handle_telegram_update(bot_type, token, update_data):
                     cids = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
                     cids.add(str(chat_id))
                     setting.chat_ids = ", ".join(cids)
-                    setting.bot_token = token
+                    if not setting.bot_token:
+                        setting.bot_token = token
                     setting.save(update_fields=['chat_ids', 'bot_token'])
 
                 msg = (
@@ -462,6 +536,7 @@ def handle_telegram_update(bot_type, token, update_data):
                 msg = f"Kechirasiz, <code>{phone_normalized}</code> telefon raqamli xodim topilmadi."
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
         return
+
 
     # 2. Buyruqlar yoki menyu tugmalarini bosganda
     if text == "/start":
@@ -648,16 +723,17 @@ def handle_telegram_update(bot_type, token, update_data):
                 f"Ism: {student.first_name} {student.last_name or ''}\n"
                 f"Telefon: {student.phone}\n"
                 f"Guruhlar: {groups_str}\n"
-                f"Balans: {int(student.balance):,} UZS\n".replace(",", " ")
+                f"Balans: {int(student.balance or 0):,} UZS\n".replace(",", " ")
             )
             send_telegram_message(token, chat_id, res, menu)
 
         elif text in ["💰 Balansim", "💰 Balans & Qarz"]:
-            status_emoji = "✅" if student.balance >= 0 else "⚠️"
-            debt = abs(student.balance) if student.balance < 0 else 0
+            bal = student.balance or 0
+            status_emoji = "✅" if bal >= 0 else "⚠️"
+            debt = abs(bal) if bal < 0 else 0
             res = (
                 f"<b>💰 Balans va Qarz holati:</b>\n\n"
-                f"Joriy balans: <code>{int(student.balance):,} UZS</code> {status_emoji}\n"
+                f"Joriy balans: <code>{int(bal):,} UZS</code> {status_emoji}\n"
                 f"Qarzdorlik: <code>{int(debt):,} UZS</code>\n"
                 f"To'lov kuni: {student.payment_date or 'Belgilanmagan'}"
             ).replace(",", " ")
@@ -671,7 +747,7 @@ def handle_telegram_update(bot_type, token, update_data):
             else:
                 res = "<b>💳 Oxirgi 5 ta to'lovingiz:</b>\n\n"
                 for p in payments:
-                    res += f"• {p.date}: <b>{int(p.amount):,} UZS</b> ({p.payment_method})\n"
+                    res += f"• {p.date}: <b>{int(p.amount or 0):,} UZS</b> ({p.payment_method})\n"
                 res = res.replace(",", " ")
             send_telegram_message(token, chat_id, res, menu)
 
@@ -687,7 +763,7 @@ def handle_telegram_update(bot_type, token, update_data):
                     f"<b>🧾 To'lov Cheki #{p.id}</b>\n"
                     f"🏢 Muassasa: <b>{org_name}</b>\n\n"
                     f"👤 Talaba: {student.first_name} {student.last_name or ''}\n"
-                    f"💵 Summa: <code>{int(p.amount):,} UZS</code>\n"
+                    f"💵 Summa: <code>{int(p.amount or 0):,} UZS</code>\n"
                     f"📅 Sana: {p.date}\n"
                     f"💳 To'lov turi: {p.payment_method}\n"
                     f"🧑‍💼 Qabul qildi: {employee_name}\n"
@@ -733,7 +809,7 @@ def handle_telegram_update(bot_type, token, update_data):
             else:
                 res = "<b>🏆 Oxirgi imtihon baholaringiz:</b>\n\n"
                 for r in results:
-                    res += f"• {r.exam.name} ({r.exam.date}): <b>{int(r.score)} ball</b>\n"
+                    res += f"• {r.exam.name} ({r.exam.date}): <b>{int(r.score or 0)} ball</b>\n"
             send_telegram_message(token, chat_id, res, menu)
 
         elif text == "📝 Uy vazifalarim":
@@ -784,7 +860,7 @@ def handle_telegram_update(bot_type, token, update_data):
                 groups_str = ", ".join([g.group.name for g in active_groups]) or "Guruh yo'q"
                 res += (
                     f"👦 <b>{s.first_name} {s.last_name or ''}</b>\n"
-                    f"Balans: {int(s.balance):,} UZS\n"
+                    f"Balans: {int(s.balance or 0):,} UZS\n"
                     f"Guruhlar: {groups_str}\n\n"
                 ).replace(",", " ")
             send_telegram_message(token, chat_id, res, menu)
@@ -812,17 +888,18 @@ def handle_telegram_update(bot_type, token, update_data):
                     res += "  Baholar topilmadi.\n\n"
                     continue
                 for r in results:
-                    res += f"  • {r.exam.name} ({r.exam.date}): <b>{int(r.score)} ball</b>\n"
+                    res += f"  • {r.exam.name} ({r.exam.date}): <b>{int(r.score or 0)} ball</b>\n"
                 res += "\n"
             send_telegram_message(token, chat_id, res, menu)
 
         elif text == "💳 To'lovlar":
             res = "<b>💳 To'lovlar va balans holati:</b>\n\n"
             for s in students:
-                status_text = "Faol ✅" if s.balance >= 0 else "Qarzdorlik bor ⚠️"
+                bal = s.balance or 0
+                status_text = "Faol ✅" if bal >= 0 else "Qarzdorlik bor ⚠️"
                 res += (
                     f"👦 <b>{s.first_name}:</b>\n"
-                    f"  Joriy balans: <code>{int(s.balance):,} UZS</code>\n"
+                    f"  Joriy balans: <code>{int(bal):,} UZS</code>\n"
                     f"  Holat: {status_text}\n"
                     f"  Keyingi to'lov sanasi: {s.payment_date or 'Belgilanmagan'}\n\n"
                 ).replace(",", " ")
@@ -1052,13 +1129,13 @@ def handle_telegram_update(bot_type, token, update_data):
                     res += "  Выплаты не найдены.\n"
                 for s in salaries:
                     status = "Оплачено ✅" if s.status == 'paid' else "В ожидании ⏳"
-                    res += f"  • {s.date}: <code>{int(s.amount):,} UZS</code> - {status}\n"
+                    res += f"  • {s.date}: <code>{int(s.amount or 0):,} UZS</code> - {status}\n"
                 
                 res += "\n📊 <b>Последние расчеты зарплаты:</b>\n"
                 if not calcs.exists():
                     res += "  Расчеты не найдены.\n"
                 for c in calcs:
-                    res += f"  • Период: {c.period}\n    Начислено: <code>{int(c.calculated_amount):,}</code> | Бонус: {int(c.bonus):,} | Штраф: {int(c.penalty):,}\n"
+                    res += f"  • Период: {c.period}\n    Начислено: <code>{int(c.calculated_amount or 0):,}</code> | Бонус: {int(c.bonus or 0):,} | Штраф: {int(c.penalty or 0):,}\n"
             else:
                 res = "<b>💰 Oylik va moliyaviy hisob-kitoblar:</b>\n\n"
                 res += "💵 <b>Oxirgi oylik to'lovlari:</b>\n"
@@ -1066,13 +1143,13 @@ def handle_telegram_update(bot_type, token, update_data):
                     res += "  To'lovlar topilmadi.\n"
                 for s in salaries:
                     status = "To'langan ✅" if s.status == 'paid' else "Kutilmoqda ⏳"
-                    res += f"  • {s.date}: <code>{int(s.amount):,} UZS</code> - {status}\n"
+                    res += f"  • {s.date}: <code>{int(s.amount or 0):,} UZS</code> - {status}\n"
                 
                 res += "\n📊 <b>Oxirgi oylik hisob-kitoblari:</b>\n"
                 if not calcs.exists():
                     res += "  Hisob-kitoblar topilmadi.\n"
                 for c in calcs:
-                    res += f"  • Davr: {c.period}\n    Hisoblandi: <code>{int(c.calculated_amount):,}</code> | Bonus: {int(c.bonus):,} | Jarima: {int(c.penalty):,}\n"
+                    res += f"  • Davr: {c.period}\n    Hisoblandi: <code>{int(c.calculated_amount or 0):,}</code> | Bonus: {int(c.bonus or 0):,} | Jarima: {int(c.penalty or 0):,}\n"
             res = res.replace(",", " ")
             send_telegram_message(token, chat_id, res, menu)
 

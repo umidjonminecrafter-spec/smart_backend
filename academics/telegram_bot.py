@@ -42,7 +42,7 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
 
 STUDENT_BOT_TOKEN = "8987298254:AAEGTUlbiXG1_ZO41JnowqIRWkqVOxbB2iY"
 REPORT_BOT_TOKEN = "8697561524:AAHyj2sGeNuYS5K8omuZoDdmtTBXz0Oob94"
-STAFF_BOT_TOKEN = "8893756930:AAFAn35O0M5wehFSsMwVkqgclLBZil_xfjw"
+STAFF_BOT_TOKEN = "8905500199:AAHcQuEV7k5IlvrZI7ixA8HNS_UZ8TRPgZA"
 
 
 def get_student_bot_token(organization=None):

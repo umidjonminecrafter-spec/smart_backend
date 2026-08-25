@@ -574,40 +574,81 @@ def handle_telegram_update(bot_type, token, update_data):
 
         elif bot_type == 'reports':
             users = find_users_by_phone(phone_raw, roles=['owner', 'admin'])
+            from organizations.models import Organization, TelegramNotificationSetting
 
+            orgs_found = []
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
-                from organizations.models import TelegramNotificationSetting
                 for u in users:
-                    if u.organization:
-                        setting, _ = TelegramNotificationSetting.objects.get_or_create(organization=u.organization)
-                        cids = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
-                        cids.add(str(chat_id))
-                        setting.chat_ids = ", ".join(cids)
-                        if not setting.bot_token:
-                            setting.bot_token = token
-                        setting.save(update_fields=['chat_ids', 'bot_token'])
-                    else:
-                        for s in TelegramNotificationSetting.objects.all():
-                            cids = set(c.strip() for c in (s.chat_ids or '').replace(',', ' ').split() if c.strip())
-                            cids.add(str(chat_id))
-                            s.chat_ids = ", ".join(cids)
-                            if not s.bot_token:
-                                s.bot_token = token
-                            s.save(update_fields=['chat_ids', 'bot_token'])
+                    if u.organization and u.organization not in orgs_found:
+                        orgs_found.append(u.organization)
 
+            # Agar foydalanuvchiga to'g'ridan-to'g'ri tashkilot bog'lanmagan bo'lsa:
+            if not orgs_found:
+                digits = "".join(c for c in str(phone_raw) if c.isdigit())
+                last9 = digits[-9:] if len(digits) >= 9 else digits
+                matched_orgs = []
+                for org in Organization.objects.all():
+                    org_p = "".join(c for c in str(org.phone or '') if c.isdigit())
+                    if (last9 and org_p.endswith(last9)) or (digits and org_p == digits):
+                        matched_orgs.append(org)
+
+                if matched_orgs:
+                    for o in matched_orgs:
+                        if o not in orgs_found:
+                            orgs_found.append(o)
+                        # Shu tashkilotning admin/owner userlariga chat_id ni bog'lash
+                        u_list = User.objects.filter(organization=o)
+                        target_users = u_list.filter(Q(role__in=['owner', 'admin']) | Q(is_superuser=True) | Q(is_staff=True))
+                        if not target_users.exists():
+                            target_users = u_list
+                        if target_users.exists():
+                            target_users.update(telegram_chat_id=chat_id)
+                        else:
+                            # User mavjud bo'lmasa yaratib bog'laymiz
+                            username = f"{digits}_{o.id}"
+                            new_u, _ = User.objects.get_or_create(
+                                username=username,
+                                defaults={'phone': phone_normalized, 'role': 'owner', 'organization': o, 'telegram_chat_id': chat_id}
+                            )
+                            new_u.telegram_chat_id = chat_id
+                            new_u.save()
+
+            # Agar tizimda faqat bitta tashkilot bo'lsa va user admin bo'lsa
+            if not orgs_found and users.exists():
+                first_org = Organization.objects.first()
+                if first_org:
+                    orgs_found.append(first_org)
+                    users.filter(organization__isnull=True).update(organization=first_org)
+
+            if orgs_found:
+                org_names = []
+                for org in orgs_found:
+                    org_names.append(org.name)
+                    setting, _ = TelegramNotificationSetting.objects.get_or_create(organization=org)
+                    cids = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
+                    cids.add(str(chat_id))
+                    setting.chat_ids = ", ".join(cids)
+                    if not setting.bot_token:
+                        setting.bot_token = token
+                    setting.save(update_fields=['chat_ids', 'bot_token'])
+
+                orgs_display = ", ".join(set(org_names))
                 msg = (
-                    "<b>Muvaffaqiyatli bog'landi! 📊</b>\n\n"
-                    "Siz Hisobotlar botidan muvaffaqiyatli ro'yxatdan o'tdingiz.\n"
-                    "Endi barcha moliyaviy, tizim hodisalari va kunlik hisobotlar ushbu botga avtomatik keladi.\n\n"
-                    "Iltimos, bot tilini tanlang:\n"
-                    "Пожалуйста, выберите язык бота:"
+                    f"<b>Muvaffaqiyatli bog'landi! 📊</b>\n\n"
+                    f"🏢 Tashkilot: <b>{orgs_display}</b>\n"
+                    f"📱 Telefon: <code>{phone_normalized}</code>\n\n"
+                    f"Siz Hisobotlar botidan muvaffaqiyatli ro'yxatdan o'tdingiz.\n"
+                    f"Endi <b>{orgs_display}</b> ning barcha moliyaviy ma'lumotlari va kunlik hisobotlari ushbu botga keladi.\n\n"
+                    f"Iltimos, bot tilini tanlang:\n"
+                    f"Пожалуйста, выберите язык бота:"
                 )
                 menu = get_reply_keyboard([["🇺🇿 O'zbekcha", "🇷🇺 Русский"]])
                 send_telegram_message(token, chat_id, msg, menu)
             else:
-                msg = f"Kechirasiz, <code>{phone_normalized}</code> raqamli tashkilot rahbari/administrator topilmadi."
+                msg = f"Kechirasiz, <code>{phone_normalized}</code> raqamiga biriktirilgan tashkilot topilmadi.\nIltimos, ma'muriyat bilan bog'laning."
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
+
 
         elif bot_type == 'staff':
             users = find_users_by_phone(phone_raw, roles=['teacher', 'administrator', 'manager', 'accountant', 'staff', 'owner', 'admin'])
@@ -1052,19 +1093,32 @@ def handle_telegram_update(bot_type, token, update_data):
             return
 
         elif text in ["👤 Profilim", "👤 Мой профиль"]:
+            from organizations.models import TelegramNotificationSetting
+            org_names = []
+            if user.organization:
+                org_names.append(user.organization.name)
+            for s in TelegramNotificationSetting.objects.all():
+                cids = set(c.strip() for c in (s.chat_ids or '').replace(',', ' ').split() if c.strip())
+                if str(chat_id) in cids and s.organization:
+                    org_names.append(s.organization.name)
+
+            org_display = ", ".join(set(org_names)) or "SmartTalim"
+
             if lang == 'ru':
                 res = (
-                    f"<b>👤 Профиль Администратора</b>\n\n"
-                    f"Имя: {user.get_full_name() or user.username}\n"
-                    f"Роль: {user.get_role_display()}\n"
-                    f"Телефон: {user.phone or 'Не указан'}\n"
+                    f"<b>👤 Профиль Руководителя</b>\n\n"
+                    f"Имя: <b>{user.get_full_name() or user.username}</b>\n"
+                    f"Должность: <b>{user.get_role_display()}</b>\n"
+                    f"🏢 Организация: <b>{org_display}</b>\n"
+                    f"Телефон: <code>{user.phone or 'Не указан'}</code>\n"
                 )
             else:
                 res = (
-                    f"<b>👤 Administrator profili</b>\n\n"
-                    f"Ism: {user.get_full_name() or user.username}\n"
-                    f"Lavozim: {user.get_role_display()}\n"
-                    f"Telefon: {user.phone or 'Kiritilmagan'}\n"
+                    f"<b>👤 Rahbar Profili</b>\n\n"
+                    f"Ism: <b>{user.get_full_name() or user.username}</b>\n"
+                    f"Lavozim: <b>{user.get_role_display()}</b>\n"
+                    f"🏢 Tashkilot: <b>{org_display}</b>\n"
+                    f"Telefon: <code>{user.phone or 'Kiritilmagan'}</code>\n"
                 )
             send_telegram_message(token, chat_id, res, menu)
 
@@ -1072,17 +1126,33 @@ def handle_telegram_update(bot_type, token, update_data):
             from django.utils import timezone
             from datetime import timedelta
             from academics.tasks import generate_daily_report_message
+            from organizations.models import Organization, TelegramNotificationSetting
+
+            orgs_to_report = []
             if user.organization:
+                orgs_to_report.append(user.organization)
+
+            for s in TelegramNotificationSetting.objects.all():
+                cids = set(c.strip() for c in (s.chat_ids or '').replace(',', ' ').split() if c.strip())
+                if str(chat_id) in cids and s.organization and s.organization not in orgs_to_report:
+                    orgs_to_report.append(s.organization)
+
+            if not orgs_to_report and Organization.objects.exists():
+                orgs_to_report.append(Organization.objects.first())
+
+            if orgs_to_report:
                 yesterday = (timezone.now() - timedelta(days=1)).date()
-                try:
-                    report_msg = generate_daily_report_message(user.organization, yesterday, lang=lang)
-                    send_telegram_message(token, chat_id, report_msg, menu)
-                except Exception as e:
-                    err_msg = f"Hisobot shakllantirishda xatolik: {str(e)}" if lang == 'uz' else f"Ошибка формирования отчета: {str(e)}"
-                    send_telegram_message(token, chat_id, err_msg, menu)
+                for org in orgs_to_report:
+                    try:
+                        report_msg = generate_daily_report_message(org, yesterday, lang=lang)
+                        send_telegram_message(token, chat_id, report_msg, menu)
+                    except Exception as e:
+                        err_msg = f"[{org.name}] Hisobot shakllantirishda xatolik: {str(e)}" if lang == 'uz' else f"[{org.name}] Ошибка формирования отчета: {str(e)}"
+                        send_telegram_message(token, chat_id, err_msg, menu)
             else:
                 err_msg = "Tashkilotingiz aniqlanmadi." if lang == 'uz' else "Ваша организация не определена."
                 send_telegram_message(token, chat_id, err_msg, menu)
+
 
         else:
             err_msg = "Noma'lum buyruq. Iltimos menyudan foydalaning." if lang == 'uz' else "Неизвестная команда. Пожалуйста, используйте меню."

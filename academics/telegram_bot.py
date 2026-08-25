@@ -358,6 +358,115 @@ def get_support_ai_keyboard():
 
 
 
+def find_users_by_phone(phone_raw, roles=None):
+    """
+    Har qanday formatdagi telefon raqam bo'yicha User larni topadi.
+    Shuningdek Organization/Branch orqali ham qidiradi.
+    """
+    if not phone_raw:
+        return User.objects.none()
+
+    digits = "".join(c for c in str(phone_raw) if c.isdigit())
+    if not digits:
+        return User.objects.none()
+
+    last9 = digits[-9:] if len(digits) >= 9 else digits
+    norm = f"+998{last9}" if len(last9) == 9 else f"+{digits}"
+
+    # 1. SQL ORM tezkor qidiruv
+    q = Q(phone__icontains=last9) | Q(username__icontains=last9) | Q(phone=norm) | Q(phone=digits) | Q(phone=f"+{digits}")
+    candidates = User.objects.filter(q)
+    if roles:
+        role_q = Q(role__in=roles) | Q(role__in=[r.upper() for r in roles]) | Q(role__in=[r.capitalize() for r in roles])
+        if any(r in ['owner', 'admin'] for r in roles):
+            role_q |= Q(is_superuser=True) | Q(is_staff=True)
+        filtered = candidates.filter(role_q)
+        if filtered.exists():
+            return filtered
+
+    # 2. Xotirada to'liq raqamlarni tozalab solishtirish (agar bazada "+998 90 123 45 67" kabi saqlangan bo'lsa)
+    matched_ids = []
+    for u in User.objects.all():
+        u_p = "".join(c for c in str(u.phone or '') if c.isdigit())
+        u_u = "".join(c for c in str(u.username or '') if c.isdigit())
+        if (last9 and (u_p.endswith(last9) or u_u.endswith(last9))) or (digits and (u_p == digits or u_u == digits)):
+            u_role = (u.role or '').lower()
+            if not roles or u_role in roles or (any(r in ['owner', 'admin'] for r in roles) and (u.is_superuser or u.is_staff)):
+                matched_ids.append(u.id)
+
+    if matched_ids:
+        return User.objects.filter(id__in=matched_ids)
+
+    # 3. Agar User to'g'ridan-to'g'ri topilmasa, Organization yoki Branch telefon raqami orqali qidirish
+    from organizations.models import Organization
+    matched_org_ids = []
+    for org in Organization.objects.all():
+        org_p = "".join(c for c in str(org.phone or '') if c.isdigit())
+        if (last9 and org_p.endswith(last9)) or (digits and org_p == digits):
+            matched_org_ids.append(org.id)
+
+    if matched_org_ids:
+        org_users = User.objects.filter(organization_id__in=matched_org_ids)
+        if roles:
+            org_users = org_users.filter(
+                Q(role__in=roles) | Q(role__in=[r.upper() for r in roles]) | Q(is_superuser=True) | Q(is_staff=True)
+            )
+        if org_users.exists():
+            return org_users
+
+    # 4. Agar rol cheklovisiz topilsa
+    if roles:
+        fallback_users = find_users_by_phone(phone_raw, roles=None)
+        if fallback_users.exists():
+            return fallback_users
+
+    return User.objects.none()
+
+
+def find_students_by_phone(phone_raw):
+    if not phone_raw:
+        return Student.objects.none()
+    digits = "".join(c for c in str(phone_raw) if c.isdigit())
+    if not digits:
+        return Student.objects.none()
+    last9 = digits[-9:] if len(digits) >= 9 else digits
+    norm = f"+998{last9}" if len(last9) == 9 else f"+{digits}"
+
+    q = Q(phone__icontains=last9) | Q(phone=norm) | Q(phone=digits) | Q(phone=f"+{digits}")
+    st = Student.objects.filter(q)
+    if st.exists():
+        return st
+
+    matched_ids = []
+    for s in Student.objects.all():
+        s_p = "".join(c for c in str(s.phone or '') if c.isdigit())
+        if (last9 and s_p.endswith(last9)) or (digits and s_p == digits):
+            matched_ids.append(s.id)
+    if matched_ids:
+        return Student.objects.filter(id__in=matched_ids)
+    return Student.objects.none()
+
+
+def find_parents_by_phone(phone_raw):
+    if not phone_raw:
+        return Student.objects.none(), Student.objects.none()
+    digits = "".join(c for c in str(phone_raw) if c.isdigit())
+    if not digits:
+        return Student.objects.none(), Student.objects.none()
+    last9 = digits[-9:] if len(digits) >= 9 else digits
+
+    f_ids = []
+    m_ids = []
+    for s in Student.objects.all():
+        f_p = "".join(c for c in str(s.father_phone or '') if c.isdigit())
+        m_p = "".join(c for c in str(s.mother_phone or '') if c.isdigit())
+        if (last9 and f_p.endswith(last9)) or (digits and f_p == digits):
+            f_ids.append(s.id)
+        if (last9 and m_p.endswith(last9)) or (digits and m_p == digits):
+            m_ids.append(s.id)
+    return Student.objects.filter(id__in=f_ids), Student.objects.filter(id__in=m_ids)
+
+
 def handle_telegram_update(bot_type, token, update_data):
     """
     Stateless telegram update handler
@@ -391,16 +500,15 @@ def handle_telegram_update(bot_type, token, update_data):
     elif text and not text.startswith("/"):
         digits_only = "".join(c for c in text if c.isdigit())
         menu_prefixes = ["👤", "💰", "💳", "🧾", "📅", "📊", "🏆", "📝", "✉️", "👶", "📋", "🔔", "🌐", "🇺🇿", "🇷🇺", "⬅️", "ℹ️"]
-        if (len(digits_only) == 9 or (len(digits_only) == 12 and digits_only.startswith("998"))) and not any(text.startswith(btn) for btn in menu_prefixes):
+        if (len(digits_only) >= 7 and len(digits_only) <= 15) and not any(text.startswith(btn) for btn in menu_prefixes):
             phone_raw = text
 
     if phone_raw:
         phone_normalized = normalize_phone(phone_raw)
 
         if bot_type == 'verification':
-            # Verifikatsiya boti: ham student ham xodimlarni bog'laydi
-            students = Student.objects.filter(phone=phone_normalized)
-            users = User.objects.filter(phone=phone_normalized)
+            students = find_students_by_phone(phone_raw)
+            users = find_users_by_phone(phone_raw)
 
             linked = False
             if students.exists():
@@ -418,24 +526,14 @@ def handle_telegram_update(bot_type, token, update_data):
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'student':
-            digits = "".join(c for c in phone_normalized if c.isdigit())
-            st_query = Q(phone=phone_normalized) | Q(phone__icontains=digits)
-            if len(digits) >= 9:
-                st_query |= Q(phone__icontains=digits[-9:])
-
-            students = Student.objects.filter(st_query)
-
-            user_query = Q(phone=phone_normalized) | Q(phone__icontains=digits) | Q(username__icontains=digits)
-            if len(digits) >= 9:
-                user_query |= Q(phone__icontains=digits[-9:]) | Q(username__icontains=digits[-9:])
-            users = User.objects.filter(user_query)
+            students = find_students_by_phone(phone_raw)
+            users = find_users_by_phone(phone_raw, roles=['student'])
 
             linked = False
             if students.exists():
                 students.update(telegram_chat_id=chat_id)
                 linked = True
             if users.exists():
-                # Faqat talaba roliga ega foydalanuvchilarni talaba botiga biriktiramiz
                 student_users = users.filter(role='student')
                 if student_users.exists():
                     student_users.update(telegram_chat_id=chat_id)
@@ -456,8 +554,7 @@ def handle_telegram_update(bot_type, token, update_data):
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'parent':
-            students_father = Student.objects.filter(father_phone=phone_normalized)
-            students_mother = Student.objects.filter(mother_phone=phone_normalized)
+            students_father, students_mother = find_parents_by_phone(phone_raw)
 
             linked = False
             if students_father.exists():
@@ -476,34 +573,28 @@ def handle_telegram_update(bot_type, token, update_data):
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'reports':
-            digits = "".join(c for c in phone_normalized if c.isdigit())
-            user_query = Q(phone=phone_normalized) | Q(phone__icontains=digits) | Q(username__icontains=digits)
-            if len(digits) >= 9:
-                user_query |= Q(phone__icontains=digits[-9:]) | Q(username__icontains=digits[-9:])
-
-            users = User.objects.filter(user_query).filter(
-                Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True) | Q(is_staff=True)
-            )
-            if not users.exists():
-                users = User.objects.filter(user_query)
+            users = find_users_by_phone(phone_raw, roles=['owner', 'admin'])
 
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
                 from organizations.models import TelegramNotificationSetting
-                settings = TelegramNotificationSetting.objects.all()
-                if not settings.exists():
-                    from organizations.models import Organization
-                    org = Organization.objects.first()
-                    if org:
-                        TelegramNotificationSetting.objects.create(organization=org, bot_token=token, chat_ids=str(chat_id))
-                        settings = TelegramNotificationSetting.objects.all()
-                for setting in settings:
-                    cids = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
-                    cids.add(str(chat_id))
-                    setting.chat_ids = ", ".join(cids)
-                    if not setting.bot_token:
-                        setting.bot_token = token
-                    setting.save(update_fields=['chat_ids', 'bot_token'])
+                for u in users:
+                    if u.organization:
+                        setting, _ = TelegramNotificationSetting.objects.get_or_create(organization=u.organization)
+                        cids = set(c.strip() for c in (setting.chat_ids or '').replace(',', ' ').split() if c.strip())
+                        cids.add(str(chat_id))
+                        setting.chat_ids = ", ".join(cids)
+                        if not setting.bot_token:
+                            setting.bot_token = token
+                        setting.save(update_fields=['chat_ids', 'bot_token'])
+                    else:
+                        for s in TelegramNotificationSetting.objects.all():
+                            cids = set(c.strip() for c in (s.chat_ids or '').replace(',', ' ').split() if c.strip())
+                            cids.add(str(chat_id))
+                            s.chat_ids = ", ".join(cids)
+                            if not s.bot_token:
+                                s.bot_token = token
+                            s.save(update_fields=['chat_ids', 'bot_token'])
 
                 msg = (
                     "<b>Muvaffaqiyatli bog'landi! 📊</b>\n\n"
@@ -519,10 +610,7 @@ def handle_telegram_update(bot_type, token, update_data):
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
 
         elif bot_type == 'staff':
-            digits = "".join(c for c in phone_normalized if c.isdigit())
-            users = User.objects.filter(
-                Q(phone=phone_normalized) | Q(phone__icontains=digits) | Q(username__icontains=digits)
-            ).exclude(role='student')
+            users = find_users_by_phone(phone_raw, roles=['teacher', 'administrator', 'manager', 'accountant', 'staff', 'owner', 'admin'])
             if users.exists():
                 users.update(telegram_chat_id=chat_id)
                 msg = (
@@ -536,6 +624,7 @@ def handle_telegram_update(bot_type, token, update_data):
                 msg = f"Kechirasiz, <code>{phone_normalized}</code> telefon raqamli xodim topilmadi."
                 send_telegram_message(token, chat_id, msg, get_contact_keyboard())
         return
+
 
 
     # 2. Buyruqlar yoki menyu tugmalarini bosganda
@@ -909,11 +998,16 @@ def handle_telegram_update(bot_type, token, update_data):
             send_telegram_message(token, chat_id, "Noma'lum buyruq. Iltimos menyudan foydalaning.", menu)
 
     elif bot_type == 'reports':
-        user = User.objects.filter(telegram_chat_id=chat_id, role__in=['owner', 'admin']).first()
+        user = User.objects.filter(telegram_chat_id=chat_id).filter(
+            Q(role__iexact='owner') | Q(role__iexact='admin') | Q(is_superuser=True) | Q(is_staff=True)
+        ).first()
+        if not user:
+            user = User.objects.filter(telegram_chat_id=chat_id).first()
         if not user:
             msg = "Kechirasiz, ushbu botga faqat tashkilot rahbarlari kira oladi. Telefon raqamingizni yuboring:"
             send_telegram_message(token, chat_id, msg, get_contact_keyboard())
             return
+
 
         lang = getattr(user, 'telegram_language', 'uz') or 'uz'
 

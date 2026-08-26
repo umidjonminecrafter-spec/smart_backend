@@ -19,7 +19,7 @@ from academics.models import (
 )
 from finance.models import (
     ExpenseCategory, ExpenseSubcategory, Cashbox, Payment, Expense, 
-    StaffSalaryPercent, FinanceSetting
+    StaffSalaryPercent, FinanceSetting, CashTransaction
 )
 from crm.models import Pipeline, Source, LostReason, Section, Lead
 from tasks.models import Board, Column, Item
@@ -245,7 +245,19 @@ cashbox, _ = Cashbox.objects.get_or_create(
     organization=org,
     branch=branch,
     name="Asosiy Kassa (Naqd / Karta)",
-    defaults={"balance": Decimal("450000.00")}
+    defaults={"balance": Decimal("0.00")}
+)
+CashTransaction.objects.get_or_create(
+    organization=org,
+    cashbox=cashbox,
+    transaction_type="kirim",
+    payment_method="naqd",
+    defaults={
+        "amount": Decimal("1000000.00"),
+        "date": datetime.date.today(),
+        "category_name": "Boshlang'ich kassa kapitali",
+        "comment": "Kassa ochilishidagi dastlabki mablag'"
+    }
 )
 Payment.objects.get_or_create(
     organization=org,

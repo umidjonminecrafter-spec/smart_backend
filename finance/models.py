@@ -770,18 +770,10 @@ def _delete_transaction_mirror(instance):
         existing.delete()
 
 
-@receiver(post_save, sender=Payment)
-def payment_transaction_mirror_sync(sender, instance, created, **kwargs):
-    student_str = instance.student if instance.student else "O'chirilgan Talaba"
-    _sync_transaction_mirror(
-        'source_payment', instance, 'INCOME', 'DIRECT', instance.cashbox,
-        description=f"To'lov: {student_str} ({instance.payment_method})"
-    )
+# O'quvchi to'lovlari (Payment) endi kassaga to'g'ridan-to'g'ri qo'shilmaydi.
+# To'lov faqat o'quvchining shaxsiy balansini oshiradi.
+# Kassaga pul qo'shish faqat Kassa Kirim (CashTransaction) orqali amalga oshiriladi.
 
-
-@receiver(post_delete, sender=Payment)
-def payment_transaction_mirror_delete(sender, instance, **kwargs):
-    _delete_transaction_mirror(instance)
 
 
 @receiver(post_save, sender=Expense)
@@ -825,7 +817,7 @@ def update_cashbox_balance(organization):
 def recompute_cashbox_balance(sender, instance, **kwargs):
     """
     Kassa balansini FAQAT Transaction jadvalidan qayta hisoblaydigan
-    YAGONA funksiya. Davomat yozuvlari (Davomat #) kassa balansini o'zgartirmaydi.
+    YAGONA funksiya. Davomat yozuvlari (Davomat #) va o'quvchi to'lovlari (Payment) kassa balansini o'zgartirmaydi.
     """
     from django.db.models import Sum
     from decimal import Decimal
@@ -834,10 +826,23 @@ def recompute_cashbox_balance(sender, instance, **kwargs):
     if not cashbox:
         return
 
-    income = Transaction.objects.filter(cashbox=cashbox, type='INCOME').exclude(description__startswith='Davomat #').aggregate(
-        total=Sum('amount'))['total'] or Decimal('0.00')
-    expense = Transaction.objects.filter(cashbox=cashbox, type='EXPENSE').aggregate(
-        total=Sum('amount'))['total'] or Decimal('0.00')
+    income = Transaction.objects.filter(
+        cashbox=cashbox, 
+        type='INCOME'
+    ).exclude(
+        description__startswith='Davomat #'
+    ).filter(
+        source_payment__isnull=True
+    ).aggregate(
+        total=Sum('amount')
+    )['total'] or Decimal('0.00')
+
+    expense = Transaction.objects.filter(
+        cashbox=cashbox, 
+        type='EXPENSE'
+    ).aggregate(
+        total=Sum('amount')
+    )['total'] or Decimal('0.00')
 
     Cashbox.objects.filter(pk=cashbox.pk).update(balance=income - expense)
 

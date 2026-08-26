@@ -6,13 +6,21 @@ __pycache__/
 
 # Django
 db.sqlite3
+db.sqlite3-journal
 *.log
 staticfiles/
 media/
 
-# Environment
+# Environment & Virtualenv
 .env
 .venv/
 venv/
-echo "__pycache__/" >> .gitignore
-echo "*.pyc" >> .gitignore
+ENV/
+env/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
